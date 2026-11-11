@@ -66,6 +66,15 @@ db.exec(`
   );
 `)
 
+// 旧库补列：昵称与头像（头像为压缩后的 data URL）
+for (const col of ['nickname TEXT', 'avatar TEXT']) {
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN ${col}`)
+  } catch {
+    /* 列已存在 */
+  }
+}
+
 let txDepth = 0
 
 /** 可嵌套：只有最外层真正 BEGIN / COMMIT */
