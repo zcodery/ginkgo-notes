@@ -12,6 +12,8 @@ export interface UserRow {
   password_hash: string
   role: Role
   created_at: number
+  nickname?: string | null
+  avatar?: string | null
 }
 
 export interface PublicUser {
@@ -19,6 +21,8 @@ export interface PublicUser {
   username: string
   role: Role
   createdAt: number
+  nickname: string | null
+  avatar: string | null
 }
 
 export interface AuthLocals {
@@ -93,7 +97,14 @@ function readToken(token: string): string | null {
 /* ---------------- 用户 ---------------- */
 
 export function toPublicUser(row: UserRow): PublicUser {
-  return { id: row.id, username: row.username, role: row.role, createdAt: row.created_at }
+  return {
+    id: row.id,
+    username: row.username,
+    role: row.role,
+    createdAt: row.created_at,
+    nickname: row.nickname ?? null,
+    avatar: row.avatar ?? null,
+  }
 }
 
 export function findUserById(id: string): UserRow | null {
@@ -119,6 +130,22 @@ export function createUser(username: string, password: string, role: Role = 'use
     'INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)',
   ).run(row.id, row.username, row.password_hash, row.role, row.created_at)
   return row
+}
+
+export function updateUserPassword(userId: string, password: string): void {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId)
+}
+
+export function updateUserProfile(
+  userId: string,
+  patch: { nickname?: string | null; avatar?: string | null },
+): void {
+  if (patch.nickname !== undefined) {
+    db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(patch.nickname, userId)
+  }
+  if (patch.avatar !== undefined) {
+    db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(patch.avatar, userId)
+  }
 }
 
 export const USERNAME_RE = /^[A-Za-z0-9_\u4e00-\u9fa5]{3,24}$/

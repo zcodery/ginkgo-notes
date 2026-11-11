@@ -147,6 +147,7 @@ function newPage(init: { title: string; icon: string; content: string; order: nu
     updatedAt: now,
     order: init.order,
     cover: null,
+    locked: false,
   }
 }
 

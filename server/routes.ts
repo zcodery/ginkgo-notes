@@ -4,12 +4,15 @@ import {
   authOf,
   clearFailures,
   createUser,
+  findUserById,
   findUserByName,
   isLocked,
   recordFailure,
   requireAdmin,
   requireAuth,
   toPublicUser,
+  updateUserPassword,
+  updateUserProfile,
   validateCredentials,
   verifyPassword,
   issueToken,
@@ -122,6 +125,50 @@ api.use(requireAuth)
 
 api.get('/auth/me', (_req, res) => {
   res.json({ user: authOf(res).user })
+})
+
+api.post('/auth/password', (req, res) => {
+  const { currentPassword, newPassword } = req.body ?? {}
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
+    throw new HttpError(400, '请填写当前密码和新密码')
+  }
+  if (newPassword.length < 6 || newPassword.length > 128) {
+    throw new HttpError(400, '新密码长度需为 6-128 位')
+  }
+  const auth = authOf(res)
+  const row = findUserById(auth.user.id)
+  if (!row || !verifyPassword(currentPassword, row.password_hash)) {
+    throw new HttpError(401, '当前密码不正确')
+  }
+  updateUserPassword(row.id, newPassword)
+  res.json({ ok: true })
+})
+
+const AVATAR_MAX = 300_000
+
+api.patch('/auth/profile', (req, res) => {
+  const { nickname, avatar } = req.body ?? {}
+  const patch: { nickname?: string | null; avatar?: string | null } = {}
+  if (nickname !== undefined) {
+    if (nickname !== null && typeof nickname !== 'string') throw new HttpError(400, '昵称格式不正确')
+    const v = typeof nickname === 'string' ? nickname.trim() : ''
+    if (v.length > 32) throw new HttpError(400, '昵称最多 32 个字符')
+    patch.nickname = v || null
+  }
+  if (avatar !== undefined) {
+    if (avatar !== null) {
+      if (typeof avatar !== 'string' || !/^data:image\/(png|jpeg|webp);base64,/.test(avatar)) {
+        throw new HttpError(400, '头像格式不正确')
+      }
+      if (avatar.length > AVATAR_MAX) throw new HttpError(400, '头像图片过大')
+    }
+    patch.avatar = avatar
+  }
+  const id = authOf(res).user.id
+  updateUserProfile(id, patch)
+  const row = findUserById(id)
+  if (!row) throw new HttpError(404, '用户不存在')
+  res.json({ user: toPublicUser(row) })
 })
 
 /* ---------------- 页面 ---------------- */
