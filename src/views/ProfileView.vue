@@ -1265,4 +1265,73 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   font-size: 12px;
   color: var(--gn-danger);
 }
+
+/* 窄屏：全屏弹窗，左侧导航改为顶部横向滚动的标签条 */
+@media (max-width: 768px) {
+  .pf-overlay {
+    padding: 0;
+  }
+  .pf {
+    width: 100%;
+    height: 100dvh;
+    flex-direction: column;
+    border: none;
+    border-radius: 0;
+  }
+  .pf-close {
+    top: 6px;
+    right: 6px;
+  }
+  .pf-nav {
+    width: auto;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 46px 6px 8px;
+    border-right: none;
+    border-bottom: 1px solid var(--gn-border);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+  .pf-group {
+    display: flex;
+    gap: 2px;
+  }
+  .pf-group + .pf-group {
+    margin-top: 0;
+  }
+  .pf-group-title,
+  .pf-dot {
+    display: none;
+  }
+  .pf-nav-item {
+    width: auto;
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .pf-nav-foot {
+    display: flex;
+    align-items: center;
+    margin: 0;
+    padding: 0 0 0 4px;
+    border-top: none;
+    border-left: 1px solid var(--gn-border);
+  }
+  .pf-nav-link {
+    margin: 0 8px;
+    white-space: nowrap;
+  }
+  .pf-scroll {
+    padding: 16px 16px 24px;
+  }
+  .pf-row {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .pf-foot {
+    padding: 10px 16px;
+  }
+}
 </style>

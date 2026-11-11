@@ -694,13 +694,13 @@ onBeforeUnmount(() => {
         <span class="nv-save" :class="{ error: store.saveState === 'error' }">
           <span v-if="store.saveState === 'saving'" class="nv-dot saving"></span>
           <span v-else class="nv-dot"></span>
-          {{
+          <span class="nv-save-text">{{
             store.saveState === 'saving'
               ? '保存中'
               : store.saveState === 'error'
                 ? '保存失败，继续编辑会自动重试'
                 : '已保存'
-          }}
+          }}</span>
         </span>
 
         <button
@@ -1143,7 +1143,10 @@ onBeforeUnmount(() => {
 }
 .note-view.is-exporting :deep(.block-handle),
 .note-view.is-exporting :deep(.slash-menu),
-.note-view.is-exporting :deep(.bubble-bar) {
+.note-view.is-exporting :deep(.bubble-bar),
+.note-view.is-exporting :deep(.tc-toolbar),
+.note-view.is-exporting :deep(.tc-bar),
+.note-view.is-exporting :deep(.column-resize-handle) {
   display: none !important;
 }
 .nv-topbar {
@@ -1767,5 +1770,94 @@ onBeforeUnmount(() => {
   font-size: 11.5px;
   color: var(--gn-text-muted);
   padding: 6px 0 12px;
+}
+
+/* ---------- 触屏：没有悬停，悬停才出现的控件改为常显 / 隐藏 ---------- */
+@media (hover: none) {
+  .nv-head-actions,
+  .nv-cover-actions {
+    opacity: 1;
+  }
+  .note-view :deep(.block-handle) {
+    display: none !important;
+  }
+}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 768px) {
+  .nv-topbar {
+    padding: 0 6px 0 4px;
+    gap: 4px;
+  }
+  .nv-crumb:not(.home),
+  .nv-crumbs > .nv-crumb-sep:not(:last-of-type) {
+    display: none;
+  }
+  .nv-crumb-current {
+    max-width: none;
+  }
+  .nv-save-text {
+    display: none;
+  }
+  .nv-save {
+    padding-right: 4px;
+  }
+  .nv-menu {
+    position: fixed;
+    top: 44px;
+    right: 8px;
+    width: min(280px, calc(100vw - 16px));
+    max-height: calc(100dvh - 60px);
+    overflow-y: auto;
+  }
+  .nv-sub-menu {
+    position: static;
+    margin: 2px 0 2px 22px;
+    box-shadow: none;
+    border: none;
+    padding: 0;
+  }
+  .nv-find-wrap {
+    left: 8px;
+    right: 8px;
+  }
+  .nv-inner,
+  .nv-inner.auto {
+    max-width: 100% !important;
+    padding: 20px 18px 0;
+  }
+  .nv-inner.has-cover {
+    padding-top: 0;
+  }
+  .nv-cover {
+    height: 132px;
+  }
+  .nv-cover-actions {
+    right: 12px;
+    bottom: 8px;
+  }
+  .cover-pop {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: 120px;
+    width: auto;
+  }
+  .nv-emoji {
+    width: 56px;
+    height: 56px;
+  }
+  .nv-inner.has-cover .nv-icon-row {
+    margin-top: -30px;
+  }
+  .nv-icon-picker {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    top: 96px;
+  }
+  .nv-title {
+    font-size: calc(var(--gn-editor-font-size, 16px) * 1.75);
+  }
 }
 </style>

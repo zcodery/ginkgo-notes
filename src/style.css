@@ -582,7 +582,13 @@ html.dark {
   outline-offset: 2px;
 }
 
-/* 表格 */
+/* 表格：列宽拖动后表格可能比正文宽，由外层横向滚动 */
+.note-editor .ProseMirror .tableWrapper {
+  margin: 10px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
 .note-editor .ProseMirror table {
   border-collapse: collapse;
   table-layout: fixed;
@@ -590,6 +596,13 @@ html.dark {
   margin: 10px 0;
   overflow: hidden;
   font-size: 14.5px;
+}
+.note-editor .ProseMirror .tableWrapper > table {
+  margin: 0;
+}
+.note-editor .ProseMirror.resize-cursor,
+.note-editor .ProseMirror.resize-cursor * {
+  cursor: col-resize;
 }
 .note-editor .ProseMirror table td,
 .note-editor .ProseMirror table th {
@@ -625,8 +638,9 @@ html.dark {
   position: absolute;
   right: -2px;
   top: 0;
-  bottom: 0;
+  bottom: -1px;
   width: 3px;
+  z-index: 2;
   background: var(--gn-accent);
   pointer-events: none;
 }
@@ -874,6 +888,16 @@ html.dark .gn-tooltip {
   opacity: 0;
 }
 
+/* 窄屏抽屉侧栏：从左侧滑入 */
+.gn-drawer-enter-active,
+.gn-drawer-leave-active {
+  transition: transform 0.22s ease;
+}
+.gn-drawer-enter-from,
+.gn-drawer-leave-to {
+  transform: translateX(-100%);
+}
+
 /* 右侧目录显示 / 隐藏 */
 .gn-toc-enter-active,
 .gn-toc-leave-active {
@@ -913,6 +937,8 @@ html.dark .gn-tooltip {
 @media (prefers-reduced-motion: reduce) {
   .gn-sidebar-enter-active,
   .gn-sidebar-leave-active,
+  .gn-drawer-enter-active,
+  .gn-drawer-leave-active,
   .gn-toc-enter-active,
   .gn-toc-leave-active,
   .gn-fade-t-enter-active,

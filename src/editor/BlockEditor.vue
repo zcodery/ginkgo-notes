@@ -30,6 +30,7 @@ import { getPage, saveContent, toPlainText } from '@/db/repo'
 import { pageUrl, store } from '@/store'
 import SlashMenu from './SlashMenu.vue'
 import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from './BlockMenu.vue'
+import TableControls from './TableControls.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -99,7 +100,8 @@ function runUndoRedo(e: KeyboardEvent): boolean {
 const editor = useEditor({
   content: markdownToDoc(props.content),
   extensions: buildExtensions(props.placeholder),
-  editable: props.editable,
+  // 表格列宽拖动插件只在创建时可编辑才会装上；只读由下方 watch / onMounted 立即切换
+  editable: true,
   editorProps: {
     attributes: { class: 'gn-prose' },
     handleKeyDown: (_view, event) => runUndoRedo(event),
@@ -1401,6 +1403,8 @@ onBeforeUnmount(() => {
     @keydown.capture="onKeyDown"
   >
     <EditorContent :editor="editor" />
+
+    <TableControls :editor="editor" :root="rootRef" :editable="canEdit" :rev="rev" />
 
     <!-- 块手柄：普通块显示拖动手柄；标题显示隐性 H1/H2/H3 -->
     <div

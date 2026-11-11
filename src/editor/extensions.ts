@@ -31,7 +31,14 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
     // 自定义代码块：带工具栏（语言 / 代码名字 / 格式化 / 复制 …）
     EnhancedCodeBlock.configure({ defaultLanguage: null, enableTabIndentation: true, tabSize: 2 }),
     TableKit.configure({
-      table: { resizable: false, HTMLAttributes: { class: 'gn-table' } },
+      // 拖动列边线调整单列宽度；宽度写在单元格 colwidth 上，随 Markdown 注释落盘
+      table: {
+        resizable: true,
+        handleWidth: 6,
+        cellMinWidth: 60,
+        lastColumnResizable: true,
+        HTMLAttributes: { class: 'gn-table' },
+      },
     }),
     FontColor,
     BgColor,

@@ -390,4 +390,27 @@ async function exportAll() {
   color: var(--gn-bg);
   font-size: 12.5px;
 }
+
+@media (max-width: 768px) {
+  /* 顶部给左上角「展开侧边栏」按钮让位 */
+  .home-inner {
+    padding: 52px 16px 40px;
+  }
+  .home-hero h1 {
+    font-size: 23px;
+  }
+  .home-hero-actions {
+    flex-wrap: wrap;
+  }
+  .home-stats {
+    gap: 6px;
+    margin: 18px 0 22px;
+  }
+  .stat {
+    padding: 10px;
+  }
+  .home-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+}
 </style>

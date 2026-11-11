@@ -9,7 +9,20 @@ import HomeView from '@/views/HomeView.vue'
 import TrashView from '@/views/TrashView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import AuthView from '@/views/AuthView.vue'
-import { store, parseRoute, migrateLegacyHash, initTheme, initEditorPrefs, goHome, restoreSession } from '@/store'
+import {
+  store,
+  parseRoute,
+  migrateLegacyHash,
+  initTheme,
+  initEditorPrefs,
+  initViewport,
+  goHome,
+  restoreSession,
+} from '@/store'
+import { t } from '@/i18n'
+
+// 首帧之前就确定是否窄屏，避免手机上侧栏先展开再收起
+initViewport()
 
 const currentPageId = computed(() => store.route.pageId)
 
@@ -65,15 +78,22 @@ onBeforeUnmount(() => {
 <template>
   <div v-if="!store.authReady" class="app-boot"></div>
   <AuthView v-else-if="!store.user" />
-  <div v-else class="app-shell">
-    <Transition name="gn-sidebar">
+  <div v-else class="app-shell" :class="{ 'is-mobile': store.isMobile }">
+    <Transition :name="store.isMobile ? 'gn-drawer' : 'gn-sidebar'">
       <Sidebar v-if="store.sidebarOpen" />
+    </Transition>
+    <Transition name="gn-fade-t">
+      <div
+        v-if="store.isMobile && store.sidebarOpen"
+        class="app-backdrop"
+        @click="store.sidebarOpen = false"
+      ></div>
     </Transition>
     <Transition name="gn-fade-t">
       <button
         v-if="!store.sidebarOpen && store.route.view !== 'note'"
         class="app-reopen gn-icon-btn"
-        v-tooltip="'展开侧边栏'"
+        v-tooltip="t('sidebar.expand')"
         @click="store.sidebarOpen = true"
       >
         <PanelLeftOpen :size="16" :stroke-width="1.9" />
@@ -97,9 +117,27 @@ onBeforeUnmount(() => {
 .app-shell {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   width: 100%;
   overflow: hidden;
   background: var(--gn-bg);
+}
+/* 窄屏：侧栏浮在内容之上，点遮罩收起 */
+.app-shell.is-mobile .sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 260;
+  width: min(300px, 86vw);
+  flex-basis: auto;
+  box-shadow: var(--gn-shadow-lg);
+}
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  background: rgba(20, 20, 18, 0.36);
 }
 .app-main {
   flex: 1 1 auto;

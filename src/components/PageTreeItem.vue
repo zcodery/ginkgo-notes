@@ -296,4 +296,17 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onOutsideDown, t
   background: var(--gn-bg-active);
   color: var(--gn-text);
 }
+
+/* 触屏没有悬停：展开箭头与更多按钮常显，行高放大便于点按 */
+@media (hover: none) {
+  .pt-item {
+    height: 34px;
+  }
+  .pt-chevron {
+    opacity: 0.7;
+  }
+  .pt-more {
+    display: flex;
+  }
+}
 </style>

@@ -151,6 +151,68 @@ function serializeListItem(item: JSONContent, marker: string, pad: string): stri
   return out.join('\n')
 }
 
+/**
+ * GFM 表格表达不了列宽、「首行不是表头」「首列是表头」，
+ * 这些写进表格上方的一行注释：<!-- gn-table cols="120,,200" header-row="0" header-col="1" -->
+ * 其它 Markdown 渲染器会忽略注释，表格本身照常显示。
+ */
+interface TableMeta {
+  cols: (number | null)[]
+  headerRow: boolean
+  headerCol: boolean
+}
+
+const TABLE_META_RE = /^<!--\s*gn-table\b([^>]*?)-->\s*$/
+
+function tableMetaOf(node: JSONContent): TableMeta {
+  const rows = node.content ?? []
+  const first = rows[0]?.content ?? []
+  const cols = first.map((cell) => {
+    const w = cell.attrs?.colwidth
+    return Array.isArray(w) && typeof w[0] === 'number' ? Math.round(w[0]) : null
+  })
+  const headerRow = first.length > 0 && first.every((c) => c.type === 'tableHeader')
+  const headerCol =
+    rows.length > 0 &&
+    rows.every((r) => r.content?.[0]?.type === 'tableHeader') &&
+    // 只有一行时首列是否表头无从区分，按首行表头算
+    !(rows.length === 1 && headerRow)
+  return { cols, headerRow, headerCol }
+}
+
+function serializeTableMeta(meta: TableMeta): string {
+  const parts: string[] = []
+  if (meta.cols.some((w) => w != null)) parts.push(`cols="${meta.cols.map((w) => w ?? '').join(',')}"`)
+  if (!meta.headerRow) parts.push('header-row="0"')
+  if (meta.headerCol) parts.push('header-col="1"')
+  return parts.length ? `<!-- gn-table ${parts.join(' ')} -->` : ''
+}
+
+function parseTableMeta(raw: string): TableMeta | null {
+  const m = TABLE_META_RE.exec(raw.trim())
+  if (!m) return null
+  const attr = (name: string) => new RegExp(`${name}\\s*=\\s*"([^"]*)"`).exec(m[1])?.[1]
+  const cols = (attr('cols') ?? '')
+    .split(',')
+    .map((s) => (/^\d+$/.test(s.trim()) ? Number(s.trim()) : null))
+  return {
+    cols: attr('cols') == null ? [] : cols,
+    headerRow: attr('header-row') !== '0',
+    headerCol: attr('header-col') === '1',
+  }
+}
+
+function applyTableMeta(rows: JSONContent[], meta: TableMeta) {
+  rows.forEach((row, ri) => {
+    ;(row.content ?? []).forEach((cell, ci) => {
+      const w = meta.cols[ci]
+      if (w) cell.attrs = { ...cell.attrs, colwidth: [w] }
+      const isHeader = (ri === 0 && meta.headerRow) || (ci === 0 && meta.headerCol)
+      cell.type = isHeader ? 'tableHeader' : 'tableCell'
+    })
+  })
+}
+
 function serializeTable(node: JSONContent): string {
   const rows = node.content ?? []
   const cellText = (cell: JSONContent) =>
@@ -161,6 +223,8 @@ function serializeTable(node: JSONContent): string {
       .replace(/\n/g, ' ')
 
   const lines: string[] = []
+  const meta = serializeTableMeta(tableMetaOf(node))
+  if (meta) lines.push(meta)
   rows.forEach((row, ri) => {
     const cells = (row.content ?? []).map(cellText)
     lines.push(`| ${cells.join(' | ')} |`)
@@ -412,9 +476,20 @@ function convertBlocks(
 ): JSONContent[] {
   const nodes: JSONContent[] = []
   let i = from
+  let pendingTableMeta: TableMeta | null = null
 
   while (i < to) {
     const t = tokens[i]
+
+    if (t.type === 'html_block') {
+      const meta = parseTableMeta(t.content)
+      if (meta) {
+        pendingTableMeta = meta
+        i++
+        continue
+      }
+    }
+    if (t.type !== 'table_open') pendingTableMeta = null
 
     if (t.type === 'paragraph_open') {
       const inline = tokens[i + 1]
@@ -559,7 +634,11 @@ function convertBlocks(
           j++
         }
       }
-      if (rows.length) nodes.push({ type: 'table', content: rows })
+      if (rows.length) {
+        if (pendingTableMeta) applyTableMeta(rows, pendingTableMeta)
+        nodes.push({ type: 'table', content: rows })
+      }
+      pendingTableMeta = null
       i = closeIdx + 1
       continue
     }
@@ -598,6 +677,7 @@ export function markdownToDoc(content: string): JSONContent {
 /** 从 Markdown 里提取纯文本（用于反向链接 / 搜索高亮） */
 export function markdownToPlain(content: string): string {
   return content
+    .replace(/<!--[\s\S]*?-->/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')

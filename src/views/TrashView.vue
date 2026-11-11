@@ -247,4 +247,24 @@ function timeLabel(ts: number | null) {
   background: color-mix(in srgb, var(--gn-danger) 85%, #000);
   color: #fff;
 }
+
+@media (hover: none) {
+  .trash-actions {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .trash-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 52px 16px 14px;
+  }
+  .trash-scroll {
+    padding: 0 16px 40px;
+  }
+  .confirm {
+    width: calc(100vw - 32px);
+  }
+}
 </style>

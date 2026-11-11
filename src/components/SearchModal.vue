@@ -174,9 +174,14 @@ onMounted(async () => {
   justify-content: center;
   padding-top: 12vh;
 }
+@media (max-width: 768px) {
+  .sm-overlay {
+    padding-top: 12px;
+  }
+}
 .sm-panel {
   width: 620px;
-  max-width: calc(100vw - 48px);
+  max-width: calc(100vw - 24px);
   background: var(--gn-bg);
   border: 1px solid var(--gn-border);
   border-radius: 12px;

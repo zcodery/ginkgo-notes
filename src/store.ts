@@ -115,6 +115,8 @@ interface State {
   noteLayout: NoteLayout
   /** 是否显示页面目录 */
   tocVisible: boolean
+  /** 窄屏（手机 / 竖屏平板）：侧栏改为抽屉，导航后自动收起 */
+  isMobile: boolean
 }
 
 export const store = reactive<State>({
@@ -135,7 +137,23 @@ export const store = reactive<State>({
   noteFontStyle: 'default',
   noteLayout: 'default',
   tocVisible: false,
+  isMobile: false,
 })
+
+const MOBILE_QUERY = '(max-width: 768px)'
+
+/** 跟随视口宽度切换移动端布局；进入窄屏时收起侧栏，回到宽屏时恢复 */
+export function initViewport() {
+  const mq = window.matchMedia(MOBILE_QUERY)
+  const apply = () => {
+    const was = store.isMobile
+    store.isMobile = mq.matches
+    if (mq.matches && !was) store.sidebarOpen = false
+    else if (!mq.matches && was) store.sidebarOpen = true
+  }
+  apply()
+  mq.addEventListener('change', apply)
+}
 
 export const activePage = computed<Page | null>(() => {
   if (!store.route.pageId) return null
@@ -397,6 +415,7 @@ export const parseHash = parseRoute
 
 function pushPath(path: string) {
   const next = path || '/'
+  if (store.isMobile) store.sidebarOpen = false
   const cur = `${window.location.pathname}${window.location.search}`
   if (cur === next) {
     store.route = parseRoute()
@@ -423,6 +442,7 @@ export function goTrash() {
 }
 
 export function goProfile() {
+  if (store.isMobile) store.sidebarOpen = false
   store.settingsOpen = true
 }
 

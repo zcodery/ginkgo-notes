@@ -26,6 +26,7 @@ import {
   ChevronsUpDown,
   Copy,
   FileCode,
+  ListOrdered,
   Search,
   Sparkles,
   Trash2,
@@ -35,6 +36,7 @@ import {
 import { CODE_LANGUAGES, languageLabel, normalizeLanguage } from '@/editor/codeLanguages'
 import { ensureLanguage, refreshHighlight, resolveLanguage } from '@/editor/highlight'
 import { canFormat, formatCode } from '@/editor/format'
+import { codeLineNumbers } from '@/editor/codePrefs'
 
 const props = defineProps<{
   node: any
@@ -248,6 +250,16 @@ const lineCount = computed(() => (code.value ? code.value.split('\n').length : 0
 const charCount = computed(() => code.value.length)
 
 /* ------------------------------------------------------------------ */
+/* 行号                                                                 */
+/* ------------------------------------------------------------------ */
+
+const lines = computed(() => code.value.split('\n'))
+/** 行号栏宽度随位数增长，代码区左内边距与之相同 */
+const gutterStyle = computed(() => ({
+  '--cb-ln-w': `calc(${String(lines.value.length).length}ch + 26px)`,
+}))
+
+/* ------------------------------------------------------------------ */
 /* 生命周期                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -355,6 +367,17 @@ watch(
         <button
           class="cb-btn"
           type="button"
+          :class="{ active: codeLineNumbers }"
+          v-tooltip="codeLineNumbers ? '隐藏行号' : '显示行号'"
+          @mousedown.prevent
+          @click="codeLineNumbers = !codeLineNumbers"
+        >
+          <ListOrdered :size="14" />
+        </button>
+
+        <button
+          class="cb-btn"
+          type="button"
           :class="{ active: wrapEnabled }"
           v-tooltip="'自动换行'"
           @mousedown.prevent
@@ -398,11 +421,21 @@ watch(
     <!-- 代码内容 -->
     <div class="cb-fold">
       <div class="cb-fold-inner">
-        <div class="cb-fold">
-      <div class="cb-fold-inner">
-        <pre class="cb-body" :class="{ wrap: wrapEnabled }"><NodeViewContent as="code" class="cb-code" /></pre>
-      </div>
-    </div>
+        <div class="cb-code-wrap" :class="{ 'has-ln': codeLineNumbers }" :style="gutterStyle">
+          <!-- 每行放一份不可见的原文，自动换行时行号与折行后的首行对齐 -->
+          <div
+            v-if="codeLineNumbers"
+            class="cb-ln"
+            :class="{ wrap: wrapEnabled }"
+            contenteditable="false"
+            aria-hidden="true"
+          >
+            <div v-for="(line, i) in lines" :key="i" class="cb-ln-row">
+              <span class="cb-ln-num">{{ i + 1 }}</span><span class="cb-ln-ghost">{{ line || ' ' }}</span>
+            </div>
+          </div>
+          <pre class="cb-body" :class="{ wrap: wrapEnabled }"><NodeViewContent as="code" class="cb-code" /></pre>
+        </div>
       </div>
     </div>
   </NodeViewWrapper>
@@ -449,23 +482,6 @@ watch(
 }
 .gn-codeblock.collapsed .cb-toolbar {
   border-bottom-color: transparent;
-}
-
-/* 折叠：grid 行高 1fr ↔ 0fr 可平滑过渡，无需测量高度 */
-.cb-fold {
-  display: grid;
-  grid-template-rows: 1fr;
-  transition:
-    grid-template-rows 0.22s ease,
-    opacity 0.18s ease;
-}
-.cb-fold-inner {
-  min-height: 0;
-  overflow: hidden;
-}
-.gn-codeblock.collapsed .cb-fold {
-  grid-template-rows: 0fr;
-  opacity: 0;
 }
 
 /* 折叠：grid 行高 1fr ↔ 0fr 可平滑过渡，无需测量高度 */
@@ -710,6 +726,50 @@ watch(
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* ---------- 行号 ---------- */
+.cb-code-wrap {
+  position: relative;
+}
+.cb-code-wrap.has-ln .cb-body {
+  padding-left: var(--cb-ln-w);
+}
+.cb-ln {
+  position: absolute;
+  inset: 0;
+  padding: 12px 14px 12px 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--gn-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+  white-space: pre;
+}
+.cb-ln.wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cb-ln-row {
+  display: flex;
+}
+/* 实底遮住横向滚动时滑到行号下面的代码 */
+.cb-ln-num {
+  flex: 0 0 var(--cb-ln-w);
+  box-sizing: border-box;
+  padding-right: 14px;
+  text-align: right;
+  color: var(--gn-text-muted);
+  background: var(--gn-bg-code);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.cb-ln-ghost {
+  flex: 1 1 auto;
+  min-width: 0;
+  visibility: hidden;
+}
+
 .cb-code {
   display: block;
   background: none;
@@ -718,6 +778,15 @@ watch(
   font-size: inherit;
   border-radius: 0;
   white-space: inherit;
+}
+
+@media (max-width: 600px) {
+  .cb-toolbar {
+    flex-wrap: wrap;
+  }
+  .cb-stats {
+    display: none;
+  }
 }
 
 .spin {
