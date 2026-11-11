@@ -15,7 +15,7 @@ import {
 } from 'lucide-vue-next'
 import { renderMermaid } from './mermaid'
 import { diagramTemplates } from './diagramTemplates'
-import { store } from '@/store'
+import { afterThemeTransition, store } from '@/store'
 
 const props = defineProps<{
   node: any
@@ -46,13 +46,26 @@ async function draw() {
   }
   rendering.value = true
   const r = await renderMermaid(code.value, store.theme === 'dark')
+  // 渲染完成时如果正好在做主题扩散，先别改 DOM，否则过渡会被取消
+  await afterThemeTransition()
   if (mine !== token) return
   svg.value = r.svg ?? ''
   error.value = r.error
   rendering.value = false
 }
 
-watch([code, () => store.theme], draw, { immediate: true })
+watch(
+  [code, () => store.theme],
+  async () => {
+    const theme = store.theme
+    const current = code.value
+    // 等圆形扩散结束再重绘，避免中途改 DOM 把 View Transition 取消掉
+    await afterThemeTransition()
+    if (store.theme !== theme || code.value !== current) return
+    void draw()
+  },
+  { immediate: true },
+)
 
 /* ---------------- 悬停 / 工具栏 ---------------- */
 

@@ -291,14 +291,149 @@ export async function initTheme() {
   setTheme(saved)
 }
 
-export function setTheme(theme: 'light' | 'dark') {
+function applyTheme(theme: 'light' | 'dark') {
   store.theme = theme
   document.documentElement.classList.toggle('dark', theme === 'dark')
   void setMeta('theme', theme)
 }
 
-export function toggleTheme() {
-  setTheme(store.theme === 'dark' ? 'light' : 'dark')
+/** 主题扩散进行中时先挡住图表重绘等后续更新，等动画播完再刷新 */
+let themeGate: Promise<void> = Promise.resolve()
+
+export function afterThemeTransition() {
+  return themeGate
+}
+
+const THEME_REVEAL_MS = 650
+/** 先快后慢：点下去立刻能看到新主题从按钮处冒出来 */
+const THEME_REVEAL_EASING = 'cubic-bezier(0.22, 0.61, 0.36, 1)'
+
+type ViewTransitionStarter = (update: () => void | Promise<void>) => {
+  ready: Promise<void>
+  finished: Promise<void>
+}
+
+/**
+ * 切换主题。带上点击事件时，新主题从点击处以圆形扩散铺满全屏（参考 Element Plus 文档站）：
+ * - 支持 View Transition：对新画面 ::view-transition-new(root) 做 clip-path 扩散；
+ * - 不支持：用一层新主题背景色的遮罩做同样的扩散，结束后再真正切换主题。
+ * 用户开启「减少动态效果」时直接切换。
+ */
+export function setTheme(theme: 'light' | 'dark', event?: MouseEvent) {
+  const toDark = theme === 'dark'
+  const changed =
+    store.theme !== theme || document.documentElement.classList.contains('dark') !== toDark
+  if (!changed) return
+
+  const origin = clickOrigin(event)
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (!origin || reduce) {
+    applyTheme(theme)
+    return
+  }
+
+  const { x, y } = origin
+  const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y))
+  const clipPath = [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`]
+
+  let releaseGate!: () => void
+  themeGate = new Promise((resolve) => {
+    releaseGate = resolve
+  })
+
+  const start = (document as Document & { startViewTransition?: ViewTransitionStarter })
+    .startViewTransition
+  if (typeof start === 'function') {
+    revealWithViewTransition(start.bind(document), theme, clipPath, releaseGate)
+  } else {
+    revealWithOverlay(theme, clipPath, releaseGate)
+  }
+}
+
+function revealWithViewTransition(
+  start: ViewTransitionStarter,
+  theme: 'light' | 'dark',
+  clipPath: string[],
+  done: () => void,
+) {
+  const html = document.documentElement
+  const finish = () => {
+    html.classList.remove('gn-theme-switching')
+    done()
+  }
+
+  let transition: ReturnType<ViewTransitionStarter>
+  try {
+    transition = start(async () => {
+      html.classList.add('gn-theme-switching')
+      applyTheme(theme)
+      await nextTick()
+    })
+  } catch {
+    applyTheme(theme)
+    finish()
+    return
+  }
+
+  transition.finished.then(finish, finish)
+  transition.ready
+    .then(() => {
+      html.animate(
+        { clipPath },
+        {
+          duration: THEME_REVEAL_MS,
+          easing: THEME_REVEAL_EASING,
+          pseudoElement: '::view-transition-new(root)',
+        },
+      )
+    })
+    .catch(() => {
+      /* 过渡被浏览器跳过时主题已经切好，无需处理 */
+    })
+}
+
+/** 不支持 View Transition 的浏览器：新主题底色遮罩从点击处铺满，再切换并淡出 */
+function revealWithOverlay(theme: 'light' | 'dark', clipPath: string[], done: () => void) {
+  const html = document.documentElement
+  const wasDark = html.classList.contains('dark')
+  html.classList.toggle('dark', theme === 'dark')
+  const bg = getComputedStyle(html).getPropertyValue('--gn-bg').trim() || (theme === 'dark' ? '#1c1c1b' : '#fff')
+  html.classList.toggle('dark', wasDark)
+
+  const mask = document.createElement('div')
+  mask.style.cssText = `position:fixed;inset:0;z-index:2147483646;pointer-events:none;background:${bg};`
+  document.body.appendChild(mask)
+
+  const grow = mask.animate(
+    { clipPath },
+    { duration: THEME_REVEAL_MS, easing: THEME_REVEAL_EASING, fill: 'forwards' },
+  )
+  const cleanup = () => {
+    applyTheme(theme)
+    const fade = mask.animate({ opacity: [1, 0] }, { duration: 180, easing: 'ease-out', fill: 'forwards' })
+    const remove = () => {
+      mask.remove()
+      done()
+    }
+    fade.finished.then(remove, remove)
+  }
+  grow.finished.then(cleanup, cleanup)
+}
+
+/** 键盘触发时点击坐标是 0，改用按钮中心作为扩散起点 */
+function clickOrigin(event?: MouseEvent): { x: number; y: number } | null {
+  if (!event) return null
+  if (event.clientX || event.clientY) return { x: event.clientX, y: event.clientY }
+  const el = event.currentTarget
+  if (el instanceof HTMLElement) {
+    const r = el.getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  }
+  return null
+}
+
+export function toggleTheme(event?: MouseEvent) {
+  setTheme(store.theme === 'dark' ? 'light' : 'dark', event)
 }
 
 /** 把字号 / 字体 / 布局写到根节点 CSS 变量，编辑器与标题共用 */

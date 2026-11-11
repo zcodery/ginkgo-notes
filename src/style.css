@@ -52,6 +52,23 @@
   color-scheme: light;
 }
 
+/* 主题切换：截图前关掉颜色过渡，否则新旧画面颜色一样，圆形扩散看不出来 */
+html.gn-theme-switching * {
+  transition: none !important;
+}
+/* 关掉根节点默认的交叉淡入；新主题画面始终在上层，由 JS 驱动 clip-path 从点击处扩散 */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2147483646;
+}
+
 html.dark {
   --gn-bg: #1c1c1b;
   --gn-bg-sidebar: #161615;

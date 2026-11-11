@@ -539,10 +539,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
               <div class="pf-row-desc">{{ t('settings.appearanceDesc') }}</div>
             </div>
             <div class="pf-seg">
-              <button type="button" :class="{ on: store.theme === 'light' }" @click="setTheme('light')">
+              <button type="button" :class="{ on: store.theme === 'light' }" @click="setTheme('light', $event)">
                 {{ t('settings.light') }}
               </button>
-              <button type="button" :class="{ on: store.theme === 'dark' }" @click="setTheme('dark')">
+              <button type="button" :class="{ on: store.theme === 'dark' }" @click="setTheme('dark', $event)">
                 {{ t('settings.dark') }}
               </button>
             </div>
