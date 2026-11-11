@@ -3,7 +3,6 @@ import { computed, ref } from 'vue'
 import {
   Plus,
   Upload,
-  FileText,
   Clock,
   ArrowRight,
   Download,
@@ -12,6 +11,7 @@ import {
 import { store, recentPages, goToPage, reloadPages } from '@/store'
 import { createPage, listPages } from '@/db/repo'
 import { exportDatabaseData, importDatabaseData } from '@/db/databases'
+import PageIcon from '@/components/PageIcon.vue'
 
 const importInput = ref<HTMLInputElement | null>(null)
 const busy = ref(false)
@@ -165,8 +165,7 @@ async function exportAll() {
           >
             <div class="card-top">
               <span class="card-icon">
-                <span v-if="p.icon">{{ p.icon }}</span>
-                <FileText v-else :size="16" :stroke-width="1.7" />
+                <PageIcon :icon="p.icon" :size="18" />
               </span>
               <ArrowRight :size="13" class="card-arrow" />
             </div>

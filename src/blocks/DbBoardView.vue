@@ -8,6 +8,7 @@ const props = defineProps<{
   db: Database
   rows: DbRow[]
   view: DbView
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -93,6 +94,7 @@ function statusOf(row: DbRow) {
 function toggleStatusMenu(row: DbRow, e: MouseEvent) {
   e.stopPropagation()
   e.preventDefault()
+  if (props.readonly) return
   if (statusMenuFor.value === row.id) {
     statusMenuFor.value = null
     return
@@ -112,6 +114,7 @@ const statusRow = computed(
 )
 
 function pickStatus(row: DbRow, optionId: string | null) {
+  if (props.readonly) return
   const gf = groupField.value
   if (!gf) return
   emit('update-cell', row.id, gf.id, optionId)
@@ -133,6 +136,10 @@ const dragging = ref<string | null>(null)
 const dragOver = ref<string | null>(null)
 
 function onDragStart(row: DbRow, e: DragEvent) {
+  if (props.readonly) {
+    e.preventDefault()
+    return
+  }
   dragging.value = row.id
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
@@ -146,6 +153,7 @@ function onDragEnd() {
 }
 
 function onDrop(col: Column) {
+  if (props.readonly) return
   const gf = groupField.value
   const rowId = dragging.value
   dragOver.value = null
@@ -155,6 +163,7 @@ function onDrop(col: Column) {
 }
 
 function addCard(col: Column) {
+  if (props.readonly) return
   const cells: Record<string, unknown> = {}
   const gf = groupField.value
   if (gf && col.id) cells[gf.id] = col.id
@@ -176,7 +185,13 @@ function addCard(col: Column) {
       <div class="db-col-head">
         <span class="gn-tag" :data-color="col.color">{{ col.name }}</span>
         <span class="db-col-count">{{ col.rows.length }}</span>
-        <button class="db-col-add" title="新增卡片" @mousedown.stop @click="addCard(col)">
+        <button
+          v-if="!readonly"
+          class="db-col-add"
+          v-tooltip="'新增卡片'"
+          @mousedown.stop
+          @click="addCard(col)"
+        >
           <Plus :size="13" />
         </button>
       </div>
@@ -186,22 +201,23 @@ function addCard(col: Column) {
           v-for="row in col.rows"
           :key="row.id"
           class="db-card"
-          :class="{ dragging: dragging === row.id }"
-          draggable="true"
+          :class="{ dragging: dragging === row.id, readonly }"
+          :draggable="!readonly"
           @dragstart="onDragStart(row, $event)"
           @dragend="onDragEnd"
           @click="emit('open-row', row.id)"
         >
           <div class="db-card-top">
-            <GripVertical :size="12" class="db-card-grip" />
+            <GripVertical v-if="!readonly" :size="12" class="db-card-grip" />
             <span class="db-card-title">{{ titleOf(row) }}</span>
             <button
               v-if="checkField"
               class="db-card-check"
               :class="{ on: row.cells[checkField.id] }"
-              title="切换完成状态"
+              :disabled="readonly"
+              v-tooltip="readonly ? undefined : '切换完成状态'"
               @mousedown.stop
-              @click.stop="emit('update-cell', row.id, checkField.id, !row.cells[checkField.id])"
+              @click.stop="!readonly && emit('update-cell', row.id, checkField.id, !row.cells[checkField.id])"
             >
               <Check v-if="row.cells[checkField.id]" :size="11" :stroke-width="3" />
             </button>
@@ -225,8 +241,9 @@ function addCard(col: Column) {
           <div
             v-if="groupField"
             class="db-card-status"
+            :class="{ locked: readonly }"
             @mousedown.stop
-            @click.stop="toggleStatusMenu(row, $event)"
+            @click.stop="!readonly && toggleStatusMenu(row, $event)"
           >
             <span
               v-if="statusOf(row)"
@@ -234,12 +251,12 @@ function addCard(col: Column) {
               :data-color="statusOf(row)!.color"
               >{{ statusOf(row)!.name }}</span
             >
-            <span v-else class="db-card-status-empty">设置状态</span>
+            <span v-else class="db-card-status-empty">{{ readonly ? '无状态' : '设置状态' }}</span>
           </div>
 
         </div>
 
-        <button class="db-card-add" @mousedown.stop @click="addCard(col)">
+        <button v-if="!readonly" class="db-card-add" @mousedown.stop @click="addCard(col)">
           <Plus :size="12" /> 新建
         </button>
       </div>

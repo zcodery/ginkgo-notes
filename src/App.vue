@@ -7,8 +7,9 @@ import SearchModal from '@/components/SearchModal.vue'
 const NoteView = defineAsyncComponent(() => import('@/views/NoteView.vue'))
 import HomeView from '@/views/HomeView.vue'
 import TrashView from '@/views/TrashView.vue'
+import ProfileView from '@/views/ProfileView.vue'
 import AuthView from '@/views/AuthView.vue'
-import { store, parseHash, initTheme, initEditorPrefs, goHome, restoreSession } from '@/store'
+import { store, parseRoute, migrateLegacyHash, initTheme, initEditorPrefs, goHome, restoreSession } from '@/store'
 
 const currentPageId = computed(() => store.route.pageId)
 
@@ -18,7 +19,7 @@ const pageExists = computed(() => {
 })
 
 function syncRoute() {
-  store.route = parseHash()
+  store.route = parseRoute()
   if (store.route.view === 'note' && !pageExists.value && store.loaded) {
     // 页面已被删除或不存在
     goHome()
@@ -43,13 +44,20 @@ onMounted(async () => {
   await initTheme()
   await initEditorPrefs()
   await restoreSession()
-  store.route = parseHash()
-  window.addEventListener('hashchange', syncRoute)
+  migrateLegacyHash()
+  store.route = parseRoute()
+  // 旧的 /profile 地址：回到首页并打开设置弹窗
+  if (store.route.view === 'profile') {
+    history.replaceState(null, '', '/')
+    store.route = parseRoute()
+    store.settingsOpen = true
+  }
+  window.addEventListener('popstate', syncRoute)
   document.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('hashchange', syncRoute)
+  window.removeEventListener('popstate', syncRoute)
   document.removeEventListener('keydown', onKeydown)
 })
 </script>
@@ -58,21 +66,26 @@ onBeforeUnmount(() => {
   <div v-if="!store.authReady" class="app-boot"></div>
   <AuthView v-else-if="!store.user" />
   <div v-else class="app-shell">
-    <Sidebar v-if="store.sidebarOpen" />
-    <button
-      v-if="!store.sidebarOpen && store.route.view !== 'note'"
-      class="app-reopen gn-icon-btn"
-      title="展开侧边栏"
-      @click="store.sidebarOpen = true"
-    >
-      <PanelLeftOpen :size="16" :stroke-width="1.9" />
-    </button>
+    <Transition name="gn-sidebar">
+      <Sidebar v-if="store.sidebarOpen" />
+    </Transition>
+    <Transition name="gn-fade-t">
+      <button
+        v-if="!store.sidebarOpen && store.route.view !== 'note'"
+        class="app-reopen gn-icon-btn"
+        v-tooltip="'展开侧边栏'"
+        @click="store.sidebarOpen = true"
+      >
+        <PanelLeftOpen :size="16" :stroke-width="1.9" />
+      </button>
+    </Transition>
     <main class="app-main">
       <NoteView v-if="pageExists && currentPageId" :key="currentPageId" :page-id="currentPageId" />
       <TrashView v-else-if="store.route.view === 'trash'" />
       <HomeView v-else />
     </main>
     <SearchModal />
+    <ProfileView v-if="store.settingsOpen" />
   </div>
 </template>
 

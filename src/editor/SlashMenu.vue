@@ -4,8 +4,10 @@ import type { SlashItem } from './slashItems'
 
 const props = defineProps<{
   visible: boolean
+  /** 视口坐标：菜单用 position:fixed，避免被笔记滚动容器裁切 */
   x: number
   y: number
+  maxHeight: number
   items: SlashItem[]
   activeIndex: number
 }>()
@@ -33,44 +35,50 @@ watch(
 const style = computed(() => ({
   left: `${props.x}px`,
   top: `${props.y}px`,
+  maxHeight: `${props.maxHeight}px`,
 }))
 </script>
 
 <template>
-  <div v-if="visible" class="slash-menu gn-pop gn-scroll" :style="style" ref="listRef">
-    <template v-if="items.length">
-      <div v-for="g in groups" :key="g.name" class="slash-group">
-        <div class="slash-group-title">{{ g.name }}</div>
-        <button
-          v-for="row in g.list"
-          :key="row.item.id"
-          class="slash-item"
-          :data-active="row.index === activeIndex"
-          @mousedown.prevent="$emit('select', row.item)"
-          @mouseenter="$emit('hover', row.index)"
-        >
-          <span class="slash-icon">
-            <component :is="row.item.icon" :size="16" :stroke-width="1.8" />
-          </span>
-          <span class="slash-text">
+  <Teleport to="body">
+    <div
+      v-if="visible"
+      class="slash-menu gn-pop gn-scroll"
+      :style="style"
+      ref="listRef"
+    >
+      <template v-if="items.length">
+        <div v-for="g in groups" :key="g.name" class="slash-group">
+          <div class="slash-group-title">{{ g.name }}</div>
+          <button
+            v-for="row in g.list"
+            :key="row.item.id"
+            class="slash-item"
+            v-tooltip="row.item.desc"
+            :data-active="row.index === activeIndex"
+            @mousedown.prevent="$emit('select', row.item)"
+            @mouseenter="$emit('hover', row.index)"
+          >
+            <span class="slash-icon">
+              <component :is="row.item.icon" :size="15" :stroke-width="1.8" />
+            </span>
             <span class="slash-title">{{ row.item.title }}</span>
-            <span class="slash-desc">{{ row.item.desc }}</span>
-          </span>
-        </button>
-      </div>
-    </template>
-    <div v-else class="slash-empty">没有匹配的区块</div>
-  </div>
+            <span class="slash-shortcut"><i>/</i>{{ row.item.shortcut }}</span>
+          </button>
+        </div>
+      </template>
+      <div v-else class="slash-empty">没有匹配的区块</div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
 .slash-menu {
-  position: absolute;
-  z-index: 60;
-  width: 292px;
-  max-height: 328px;
+  position: fixed;
+  z-index: 80;
+  width: 248px;
   overflow-y: auto;
-  padding: 5px;
+  padding: 4px 6px 6px;
   background: var(--gn-bg);
   border: 1px solid var(--gn-border);
   border-radius: 10px;
@@ -82,25 +90,22 @@ const style = computed(() => ({
   border-top: 1px solid var(--gn-border);
 }
 .slash-group-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: 12px;
   color: var(--gn-text-muted);
-  padding: 4px 8px;
-  text-transform: uppercase;
+  padding: 7px 8px 5px;
 }
 .slash-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
-  padding: 5px 8px;
+  height: 29px;
+  padding: 0 8px;
   border-radius: 6px;
   border: none;
   background: transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 0.1s ease;
 }
 .slash-item[data-active='true'] {
   background: var(--gn-bg-hover);
@@ -109,36 +114,31 @@ const style = computed(() => ({
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 16px;
   flex: 0 0 auto;
-  border-radius: 6px;
-  border: 1px solid var(--gn-border);
-  background: var(--gn-bg);
   color: var(--gn-text-soft);
 }
 .slash-item[data-active='true'] .slash-icon {
   color: var(--gn-text);
-  border-color: var(--gn-border-strong);
-}
-.slash-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
 }
 .slash-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13.5px;
-  font-weight: 500;
   color: var(--gn-text);
-  line-height: 1.3;
-}
-.slash-desc {
-  font-size: 11.5px;
-  color: var(--gn-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.slash-shortcut {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  color: var(--gn-text-muted);
+}
+.slash-shortcut i {
+  font-style: normal;
+  color: var(--gn-accent);
+  margin-right: 1px;
 }
 .slash-empty {
   padding: 14px 10px;

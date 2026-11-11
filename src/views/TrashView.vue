@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { RotateCcw, Trash2, FileText, AlertTriangle } from 'lucide-vue-next'
+import { RotateCcw, Trash2, AlertTriangle } from 'lucide-vue-next'
 import { store, trashedPages, reloadPages, goHome } from '@/store'
 import { deletePageForever, restorePage } from '@/db/repo'
+import PageIcon from '@/components/PageIcon.vue'
 
 const confirming = ref(false)
 
@@ -57,8 +58,7 @@ function timeLabel(ts: number | null) {
       <div v-else class="trash-list">
         <div v-for="p in trashedPages" :key="p.id" class="trash-item">
           <span class="trash-icon">
-            <span v-if="p.icon">{{ p.icon }}</span>
-            <FileText v-else :size="15" :stroke-width="1.7" />
+            <PageIcon :icon="p.icon" :size="16" />
           </span>
           <div class="trash-body">
             <div class="trash-title">{{ p.title || '未命名' }}</div>

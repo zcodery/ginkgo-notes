@@ -19,6 +19,7 @@
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/vue-3'
+import { useEditorEditable } from '@/editor/editableContext'
 import {
   Check,
   ChevronDown,
@@ -43,6 +44,8 @@ const props = defineProps<{
   updateAttributes: (attrs: Record<string, unknown>) => void
   deleteNode: () => void
 }>()
+
+const canEdit = useEditorEditable()
 
 /* ------------------------------------------------------------------ */
 /* 基础数据                                                             */
@@ -88,6 +91,7 @@ watch(
 )
 
 function commitTitle() {
+  if (!canEdit.value) return
   const next = titleDraft.value.trim()
   if (next === title.value) return
   props.updateAttributes({ title: next || null })
@@ -140,6 +144,7 @@ const languageList = computed(() => {
 })
 
 async function openLangPicker() {
+  if (!canEdit.value) return
   langOpen.value = !langOpen.value
   if (langOpen.value) {
     langQuery.value = ''
@@ -149,6 +154,7 @@ async function openLangPicker() {
 }
 
 async function pickLanguage(id: string) {
+  if (!canEdit.value) return
   langOpen.value = false
   langQuery.value = ''
   if (id === language.value) return
@@ -197,7 +203,7 @@ const formatError = ref<string | null>(null)
 const formatSupported = computed(() => canFormat(resolveLanguage(language.value)))
 
 async function runFormat() {
-  if (formatting.value) return
+  if (!canEdit.value || formatting.value) return
   if (!formatSupported.value) return
   if (!code.value.trim()) return
 
@@ -265,7 +271,7 @@ watch(
 </script>
 
 <template>
-  <NodeViewWrapper class="gn-codeblock" :class="{ collapsed }" data-codeblock="">
+  <NodeViewWrapper class="gn-codeblock" :class="{ collapsed, readonly: !canEdit }" data-codeblock="">
     <!-- 工具栏 -->
     <div class="cb-toolbar" contenteditable="false">
       <!-- 语言选择 -->
@@ -275,15 +281,16 @@ watch(
           class="cb-lang-btn"
           data-code-lang-btn=""
           type="button"
+          :disabled="!canEdit"
           @mousedown.prevent
           @click="openLangPicker"
         >
           <FileCode :size="13" />
           <span>{{ languageName }}</span>
-          <ChevronDown :size="12" class="cb-caret" :class="{ open: langOpen }" />
+          <ChevronDown v-if="canEdit" :size="12" class="cb-caret" :class="{ open: langOpen }" />
         </button>
 
-        <div v-if="langOpen" class="cb-lang-panel" data-code-lang-panel="">
+        <div v-if="langOpen && canEdit" class="cb-lang-panel" data-code-lang-panel="">
           <div class="cb-lang-search">
             <Search :size="13" />
             <input
@@ -323,6 +330,7 @@ watch(
         type="text"
         placeholder="代码名字…"
         spellcheck="false"
+        :readonly="!canEdit"
         @mousedown.stop
         @blur="commitTitle"
         @keydown="onTitleKeydown"
@@ -333,10 +341,11 @@ watch(
         <span class="cb-stats">{{ lineCount }} 行 · {{ charCount }} 字符</span>
 
         <button
+          v-if="canEdit"
           class="cb-btn"
           type="button"
           :disabled="!formatSupported || formatting"
-          :title="formatSupported ? '格式化代码' : '当前语言暂不支持格式化'"
+          v-tooltip="formatSupported ? '格式化代码' : '当前语言暂不支持格式化'"
           @mousedown.prevent
           @click="runFormat"
         >
@@ -347,7 +356,7 @@ watch(
           class="cb-btn"
           type="button"
           :class="{ active: wrapEnabled }"
-          title="自动换行"
+          v-tooltip="'自动换行'"
           @mousedown.prevent
           @click="wrapEnabled = !wrapEnabled"
         >
@@ -358,19 +367,26 @@ watch(
           class="cb-btn"
           type="button"
           :class="{ active: collapsed }"
-          :title="collapsed ? '展开代码' : '折叠代码'"
+          v-tooltip="collapsed ? '展开代码' : '折叠代码'"
           @mousedown.prevent
           @click="collapsed = !collapsed"
         >
           <ChevronsUpDown :size="14" />
         </button>
 
-        <button class="cb-btn" type="button" title="复制代码" @mousedown.prevent @click="copyCode">
+        <button class="cb-btn" type="button" v-tooltip="'复制代码'" @mousedown.prevent @click="copyCode">
           <Check v-if="copied" :size="14" class="cb-ok" />
           <Copy v-else :size="14" />
         </button>
 
-        <button class="cb-btn danger" type="button" title="删除代码块" @mousedown.prevent @click="props.deleteNode()">
+        <button
+          v-if="canEdit"
+          class="cb-btn danger"
+          type="button"
+          v-tooltip="'删除代码块'"
+          @mousedown.prevent
+          @click="props.deleteNode()"
+        >
           <Trash2 :size="14" />
         </button>
       </div>
@@ -380,7 +396,15 @@ watch(
     <div v-if="formatError" class="cb-error">{{ formatError }}</div>
 
     <!-- 代码内容 -->
-    <pre class="cb-body" :class="{ wrap: wrapEnabled }"><NodeViewContent as="code" class="cb-code" /></pre>
+    <div class="cb-fold">
+      <div class="cb-fold-inner">
+        <div class="cb-fold">
+      <div class="cb-fold-inner">
+        <pre class="cb-body" :class="{ wrap: wrapEnabled }"><NodeViewContent as="code" class="cb-code" /></pre>
+      </div>
+    </div>
+      </div>
+    </div>
   </NodeViewWrapper>
 </template>
 
@@ -402,11 +426,14 @@ watch(
 .gn-codeblock:focus-within {
   z-index: 20;
 }
-/* 工具栏自己负责顶部圆角 */
-.cb-toolbar {
-  border-radius: calc(var(--gn-radius) - 1px) calc(var(--gn-radius) - 1px) 0 0;
+.gn-codeblock.readonly .cb-lang-btn:disabled {
+  opacity: 1;
+  cursor: default;
 }
-
+.gn-codeblock.readonly .cb-title {
+  cursor: default;
+  pointer-events: none;
+}
 /* ---------- 工具栏 ---------- */
 .cb-toolbar {
   display: flex;
@@ -414,12 +441,48 @@ watch(
   gap: 6px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--gn-border);
+  border-radius: calc(var(--gn-radius) - 1px) calc(var(--gn-radius) - 1px) 0 0;
   background: color-mix(in srgb, var(--gn-bg-sidebar) 45%, transparent);
   font-size: 12px;
   user-select: none;
+  transition: border-color 0.2s ease;
 }
 .gn-codeblock.collapsed .cb-toolbar {
   border-bottom-color: transparent;
+}
+
+/* 折叠：grid 行高 1fr ↔ 0fr 可平滑过渡，无需测量高度 */
+.cb-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.22s ease,
+    opacity 0.18s ease;
+}
+.cb-fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.gn-codeblock.collapsed .cb-fold {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+/* 折叠：grid 行高 1fr ↔ 0fr 可平滑过渡，无需测量高度 */
+.cb-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition:
+    grid-template-rows 0.22s ease,
+    opacity 0.18s ease;
+}
+.cb-fold-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.gn-codeblock.collapsed .cb-fold {
+  grid-template-rows: 0fr;
+  opacity: 0;
 }
 
 /* 语言选择 */
@@ -569,9 +632,12 @@ watch(
 .cb-title:hover {
   background: var(--gn-bg-hover);
 }
-.cb-title:focus {
-  background: var(--gn-bg);
-  border-color: var(--gn-accent);
+.cb-title:focus,
+.cb-title:focus-visible {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
 }
 
 /* 操作区 */

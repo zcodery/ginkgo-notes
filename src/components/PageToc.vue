@@ -81,7 +81,7 @@ onBeforeUnmount(() => {
         :key="item.index"
         class="toc-item"
         :class="[`lv-${item.level}`, { active: activeIndex === item.index }]"
-        :title="item.text"
+        v-tooltip="item.text"
         @click="scrollTo(item.index)"
       >
         {{ item.text }}

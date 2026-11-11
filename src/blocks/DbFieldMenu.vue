@@ -153,11 +153,11 @@ function removeOption(opt: FieldOption) {
           <button
             class="fm-opt-color"
             :data-color="o.color"
-            title="点击换颜色"
+            v-tooltip="'点击换颜色'"
             @click="recolorOption(o)"
           ></button>
           <input :value="o.name" @keydown.stop @change="renameOption(o, $event)" />
-          <button class="fm-opt-del" title="删除选项" @click="removeOption(o)">
+          <button class="fm-opt-del" v-tooltip="'删除选项'" @click="removeOption(o)">
             <Trash2 :size="12" />
           </button>
         </div>

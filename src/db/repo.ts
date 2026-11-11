@@ -115,7 +115,8 @@ export async function createPage(
     createdAt: now,
     updatedAt: now,
     order: maxOrder + 1,
-    cover: null,
+    cover: init.cover ?? null,
+    locked: init.locked ?? false,
   }
   await putPage(page)
   return page
