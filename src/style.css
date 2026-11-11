@@ -1,0 +1,850 @@
+@import 'tailwindcss';
+
+/* ============ 设计变量 ============ */
+:root {
+  --gn-bg: #ffffff;
+  --gn-bg-sidebar: #f8f8f6;
+  --gn-bg-hover: #f1f1ef;
+  --gn-bg-active: #eaeae7;
+  --gn-bg-code: #f7f6f3;
+  --gn-text: #252523;
+  --gn-text-soft: #5f5f5c;
+  --gn-text-muted: #96968f;
+  --gn-border: #ebebe8;
+  --gn-border-strong: #dededa;
+  --gn-accent: #2f6b4f;
+  --gn-accent-soft: #eaf3ed;
+  --gn-danger: #d64545;
+  --gn-shadow-sm: 0 1px 2px rgba(15, 15, 15, 0.06), 0 2px 6px rgba(15, 15, 15, 0.04);
+  --gn-shadow-md: 0 4px 14px rgba(15, 15, 15, 0.08), 0 2px 4px rgba(15, 15, 15, 0.04);
+  --gn-shadow-lg: 0 12px 40px rgba(15, 15, 15, 0.14), 0 4px 10px rgba(15, 15, 15, 0.06);
+  --gn-radius: 8px;
+  /* 正文排版常量：待办复选框的对齐依赖这两个值，改动时需同步 */
+  --gn-line-h: 27.2px;  /* 16px 字号 × line-height 1.7 */
+  --gn-text-pad: 3px;   /* 段落上下内边距 */
+  --gn-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  --gn-mono: 'SFMono-Regular', ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, Menlo,
+    monospace;
+  color-scheme: light;
+}
+
+html.dark {
+  --gn-bg: #1c1c1b;
+  --gn-bg-sidebar: #161615;
+  --gn-bg-hover: #2a2a28;
+  --gn-bg-active: #343431;
+  --gn-bg-code: #232322;
+  --gn-text: #ececea;
+  --gn-text-soft: #b3b3ad;
+  --gn-text-muted: #83837c;
+  --gn-border: #2c2c2a;
+  --gn-border-strong: #3a3a37;
+  --gn-accent: #6cb894;
+  --gn-accent-soft: #22362c;
+  --gn-danger: #e46a6a;
+  --gn-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --gn-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
+  --gn-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--gn-font);
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--gn-accent) 22%, transparent);
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* 滚动条 */
+.gn-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gn-border-strong) transparent;
+}
+.gn-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.gn-scroll::-webkit-scrollbar-thumb {
+  background: var(--gn-border-strong);
+  border-radius: 99px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.gn-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--gn-text-muted);
+  background-clip: content-box;
+}
+.gn-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ============ 通用按钮 ============ */
+.gn-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--gn-text-muted);
+  transition: background 0.12s ease, color 0.12s ease;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.gn-icon-btn:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+
+.gn-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--gn-text-soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+  white-space: nowrap;
+}
+.gn-btn:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.gn-btn-primary {
+  background: var(--gn-text);
+  color: var(--gn-bg);
+}
+.gn-btn-primary:hover {
+  background: color-mix(in srgb, var(--gn-text) 85%, var(--gn-bg));
+  color: var(--gn-bg);
+}
+.gn-btn-danger {
+  color: var(--gn-danger);
+}
+.gn-btn-danger:hover {
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+  color: var(--gn-danger);
+}
+
+/* ============ 编辑器内容排版 ============ */
+.note-editor .ProseMirror {
+  outline: none;
+  min-height: 40vh;
+  padding-bottom: 35vh;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--gn-text);
+  caret-color: var(--gn-text);
+  word-break: break-word;
+}
+
+.note-editor .ProseMirror > * + * {
+  margin-top: 3px;
+}
+
+.note-editor .ProseMirror p {
+  margin: 0;
+  padding: var(--gn-text-pad) 0;
+  min-height: var(--gn-line-h);
+}
+
+.note-editor .ProseMirror h1,
+.note-editor .ProseMirror h2,
+.note-editor .ProseMirror h3 {
+  position: relative;
+}
+.note-editor .ProseMirror h1 {
+  font-size: 1.85em;
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 1.4em 0 0.3em;
+  letter-spacing: -0.015em;
+}
+.note-editor .ProseMirror h2 {
+  font-size: 1.45em;
+  font-weight: 650;
+  line-height: 1.35;
+  margin: 1.2em 0 0.25em;
+  letter-spacing: -0.01em;
+}
+.note-editor .ProseMirror h3 {
+  font-size: 1.2em;
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 1em 0 0.2em;
+}
+
+/* 标题左侧隐性等级标记（悬停手柄出现前也能瞥见） */
+.note-editor .ProseMirror h1::before,
+.note-editor .ProseMirror h2::before,
+.note-editor .ProseMirror h3::before {
+  position: absolute;
+  right: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--gn-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+  font-family: var(--gn-mono);
+  line-height: 1;
+}
+.note-editor .ProseMirror h1::before {
+  content: 'H1';
+}
+.note-editor .ProseMirror h2::before {
+  content: 'H2';
+}
+.note-editor .ProseMirror h3::before {
+  content: 'H3';
+}
+.note-editor .ProseMirror h1:hover::before,
+.note-editor .ProseMirror h2:hover::before,
+.note-editor .ProseMirror h3:hover::before {
+  opacity: 0.55;
+}
+/* 手柄浮层盖住时，CSS 伪元素让位，避免叠字 */
+.note-editor:has(.block-handle.heading.visible) .ProseMirror h1:hover::before,
+.note-editor:has(.block-handle.heading.visible) .ProseMirror h2:hover::before,
+.note-editor:has(.block-handle.heading.visible) .ProseMirror h3:hover::before {
+  opacity: 0;
+}
+.note-editor .ProseMirror h4,
+.note-editor .ProseMirror h5,
+.note-editor .ProseMirror h6 {
+  font-size: 1.05em;
+  font-weight: 650;
+  margin: 0.9em 0 0.2em;
+}
+
+.note-editor .ProseMirror > h1:first-child,
+.note-editor .ProseMirror > h2:first-child,
+.note-editor .ProseMirror > h3:first-child {
+  margin-top: 0.2em;
+}
+
+.note-editor .ProseMirror strong {
+  font-weight: 650;
+}
+
+/* 字体颜色 / 背景色（选区格式） */
+:root {
+  --gn-fc-gray: #787774;
+  --gn-fc-slate: #64748b;
+  --gn-fc-brown: #9a6b4f;
+  --gn-fc-orange: #d9730d;
+  --gn-fc-amber: #d4a017;
+  --gn-fc-yellow: #cb912f;
+  --gn-fc-lime: #6b9a23;
+  --gn-fc-green: #448361;
+  --gn-fc-emerald: #0f7b6c;
+  --gn-fc-teal: #0f7a8a;
+  --gn-fc-cyan: #0e8c9e;
+  --gn-fc-blue: #337ea9;
+  --gn-fc-indigo: #4f5db3;
+  --gn-fc-purple: #9065b0;
+  --gn-fc-violet: #7c5cbf;
+  --gn-fc-pink: #c14c8a;
+  --gn-fc-rose: #d44d6e;
+  --gn-fc-red: #e03e3e;
+}
+html.dark {
+  --gn-fc-gray: #9b9b97;
+  --gn-fc-slate: #94a3b8;
+  --gn-fc-brown: #c39a7b;
+  --gn-fc-orange: #e89a5e;
+  --gn-fc-amber: #e0b35a;
+  --gn-fc-yellow: #e0b35a;
+  --gn-fc-lime: #a3d16a;
+  --gn-fc-green: #6cb894;
+  --gn-fc-emerald: #4db6a5;
+  --gn-fc-teal: #4db8c4;
+  --gn-fc-cyan: #5bc4d4;
+  --gn-fc-blue: #6db3d8;
+  --gn-fc-indigo: #8b96d9;
+  --gn-fc-purple: #b894d4;
+  --gn-fc-violet: #a994e0;
+  --gn-fc-pink: #e08bb8;
+  --gn-fc-rose: #e892a8;
+  --gn-fc-red: #ef7a7a;
+}
+
+.note-editor .ProseMirror .gn-fc-gray { color: var(--gn-fc-gray); }
+.note-editor .ProseMirror .gn-fc-slate { color: var(--gn-fc-slate); }
+.note-editor .ProseMirror .gn-fc-brown { color: var(--gn-fc-brown); }
+.note-editor .ProseMirror .gn-fc-orange { color: var(--gn-fc-orange); }
+.note-editor .ProseMirror .gn-fc-amber { color: var(--gn-fc-amber); }
+.note-editor .ProseMirror .gn-fc-yellow { color: var(--gn-fc-yellow); }
+.note-editor .ProseMirror .gn-fc-lime { color: var(--gn-fc-lime); }
+.note-editor .ProseMirror .gn-fc-green { color: var(--gn-fc-green); }
+.note-editor .ProseMirror .gn-fc-emerald { color: var(--gn-fc-emerald); }
+.note-editor .ProseMirror .gn-fc-teal { color: var(--gn-fc-teal); }
+.note-editor .ProseMirror .gn-fc-cyan { color: var(--gn-fc-cyan); }
+.note-editor .ProseMirror .gn-fc-blue { color: var(--gn-fc-blue); }
+.note-editor .ProseMirror .gn-fc-indigo { color: var(--gn-fc-indigo); }
+.note-editor .ProseMirror .gn-fc-purple { color: var(--gn-fc-purple); }
+.note-editor .ProseMirror .gn-fc-violet { color: var(--gn-fc-violet); }
+.note-editor .ProseMirror .gn-fc-pink { color: var(--gn-fc-pink); }
+.note-editor .ProseMirror .gn-fc-rose { color: var(--gn-fc-rose); }
+.note-editor .ProseMirror .gn-fc-red { color: var(--gn-fc-red); }
+
+.note-editor .ProseMirror mark[data-bg] {
+  border-radius: 3px;
+  padding: 0.08em 0.18em;
+  color: inherit;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.note-editor .ProseMirror .gn-bgc-gray { background: color-mix(in srgb, var(--gn-fc-gray) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-slate { background: color-mix(in srgb, var(--gn-fc-slate) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-brown { background: color-mix(in srgb, var(--gn-fc-brown) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-orange { background: color-mix(in srgb, var(--gn-fc-orange) 20%, transparent); }
+.note-editor .ProseMirror .gn-bgc-amber { background: color-mix(in srgb, var(--gn-fc-amber) 22%, transparent); }
+.note-editor .ProseMirror .gn-bgc-yellow { background: color-mix(in srgb, var(--gn-fc-yellow) 24%, transparent); }
+.note-editor .ProseMirror .gn-bgc-lime { background: color-mix(in srgb, var(--gn-fc-lime) 20%, transparent); }
+.note-editor .ProseMirror .gn-bgc-green { background: color-mix(in srgb, var(--gn-fc-green) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-emerald { background: color-mix(in srgb, var(--gn-fc-emerald) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-teal { background: color-mix(in srgb, var(--gn-fc-teal) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-cyan { background: color-mix(in srgb, var(--gn-fc-cyan) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-blue { background: color-mix(in srgb, var(--gn-fc-blue) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-indigo { background: color-mix(in srgb, var(--gn-fc-indigo) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-purple { background: color-mix(in srgb, var(--gn-fc-purple) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-violet { background: color-mix(in srgb, var(--gn-fc-violet) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-pink { background: color-mix(in srgb, var(--gn-fc-pink) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-rose { background: color-mix(in srgb, var(--gn-fc-rose) 18%, transparent); }
+.note-editor .ProseMirror .gn-bgc-red { background: color-mix(in srgb, var(--gn-fc-red) 18%, transparent); }
+
+.note-editor .ProseMirror a {
+  color: var(--gn-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--gn-accent) 40%, transparent);
+  cursor: pointer;
+}
+.note-editor .ProseMirror a:hover {
+  text-decoration-color: var(--gn-accent);
+}
+
+.note-editor .ProseMirror ul,
+.note-editor .ProseMirror ol {
+  padding-left: 1.55em;
+  margin: 2px 0;
+}
+.note-editor .ProseMirror li {
+  padding: 2px 0;
+  position: relative;
+}
+.note-editor .ProseMirror li > p {
+  padding: 0;
+  margin: 0;
+}
+.note-editor .ProseMirror ul {
+  list-style: disc;
+}
+.note-editor .ProseMirror ul ul {
+  list-style: circle;
+}
+.note-editor .ProseMirror ul ul ul {
+  list-style: square;
+}
+.note-editor .ProseMirror ol {
+  list-style: decimal;
+}
+.note-editor .ProseMirror li::marker {
+  color: var(--gn-text-muted);
+}
+
+/* 待办列表 */
+.note-editor .ProseMirror ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0.1em;
+}
+.note-editor .ProseMirror ul[data-type='taskList'] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+}
+/*
+ * 复选框要和首行文字视觉居中对齐。
+ *
+ * 文字在 `div > p` 里，p 有上下 3px padding，line-height 1.7（16px 字号 → 行盒 27.2px），
+ * 所以首行行盒中心位于段落顶部下方 3 + 27.2/2 = 16.6px。
+ * 这里让 label 的盒子高度等于一个行高、margin-top 等于 p 的 padding-top，
+ * 再用 flex 居中把 15px 的复选框摆到盒子正中，
+ * 这样复选框中心 = 段落顶 + 3 + 13.6 = 16.6px，与文字行盒中心严格重合。
+ */
+.note-editor .ProseMirror ul[data-type='taskList'] li > label {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: var(--gn-line-h);
+  margin-top: var(--gn-text-pad);
+  user-select: none;
+}
+.note-editor .ProseMirror ul[data-type='taskList'] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1.5px solid var(--gn-border-strong);
+  background: transparent;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.12s ease;
+}
+.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:hover {
+  border-color: var(--gn-accent);
+}
+.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked {
+  background: var(--gn-accent);
+  border-color: var(--gn-accent);
+}
+.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  left: 4.5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--gn-bg);
+  border-width: 0 2px 2px 0;
+  transform: rotate(42deg);
+}
+.note-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div {
+  color: var(--gn-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--gn-border-strong);
+}
+
+/* 引用 */
+.note-editor .ProseMirror blockquote {
+  margin: 6px 0;
+  padding: 1px 0 1px 14px;
+  border-left: 3px solid var(--gn-text);
+  color: var(--gn-text-soft);
+}
+.note-editor .ProseMirror blockquote p {
+  padding: 2px 0;
+}
+
+/* 分割线 */
+.note-editor .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--gn-border);
+  margin: 18px 0;
+}
+.note-editor .ProseMirror hr.ProseMirror-selectednode {
+  border-top-color: var(--gn-accent);
+}
+
+/* 行内代码 */
+.note-editor .ProseMirror code:not(.cb-code) {
+  font-family: var(--gn-mono);
+  font-size: 0.86em;
+  background: color-mix(in srgb, var(--gn-danger) 9%, var(--gn-bg-hover));
+  color: color-mix(in srgb, var(--gn-danger) 78%, var(--gn-text));
+  border-radius: 4px;
+  padding: 0.14em 0.34em;
+  white-space: break-spaces;
+}
+
+/* 代码块（旧结构兜底；新的自定义代码块见 CodeBlockView.vue） */
+.note-editor .ProseMirror pre:not(.cb-body) {
+  background: var(--gn-bg-code);
+  border: 1px solid var(--gn-border);
+  border-radius: var(--gn-radius);
+  padding: 14px 16px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: var(--gn-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+  position: relative;
+}
+.note-editor .ProseMirror pre:not(.cb-body) code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+  border-radius: 0;
+}
+
+/* 图片 */
+.note-editor .ProseMirror img {
+  max-width: 100%;
+  border-radius: 6px;
+  margin: 6px 0;
+  display: block;
+}
+.note-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 2px;
+}
+
+/* 表格 */
+.note-editor .ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 10px 0;
+  overflow: hidden;
+  font-size: 14.5px;
+}
+.note-editor .ProseMirror table td,
+.note-editor .ProseMirror table th {
+  min-width: 1em;
+  border: 1px solid var(--gn-border-strong);
+  padding: 6px 9px;
+  vertical-align: top;
+  position: relative;
+  box-sizing: border-box;
+}
+.note-editor .ProseMirror table th {
+  background: var(--gn-bg-hover);
+  font-weight: 600;
+  text-align: left;
+}
+.note-editor .ProseMirror table td p,
+.note-editor .ProseMirror table th p {
+  padding: 0;
+  margin: 0;
+}
+.note-editor .ProseMirror table tr:first-child td,
+.note-editor .ProseMirror table tr:first-child th {
+  border-top: none;
+}
+.note-editor .ProseMirror table .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
+  pointer-events: none;
+}
+.note-editor .ProseMirror table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--gn-accent);
+  pointer-events: none;
+}
+
+/* placeholder */
+.note-editor .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--gn-text-muted);
+}
+
+/* 块级悬浮手柄 */
+.block-handle {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  /* top 记录的是与首行文字对齐的视觉中心，这里整体上移半个手柄高度 */
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+  z-index: 20;
+}
+.block-handle.visible {
+  opacity: 1;
+}
+.block-handle button {
+  width: 20px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--gn-text-muted);
+  background: transparent;
+  border: none;
+  cursor: grab;
+}
+.block-handle button:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.block-handle button:active {
+  cursor: grabbing;
+}
+.block-handle .bh-level {
+  width: auto;
+  min-width: 22px;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 650;
+  font-family: var(--gn-mono);
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+}
+.block-handle .bh-level:hover {
+  opacity: 1;
+}
+
+/* 拖拽中的块高亮 */
+.ProseMirror .prosemirror-dropcursor-block {
+  height: 2px !important;
+  background: var(--gn-accent) !important;
+}
+
+/* ============ 代码高亮 (lowlight/hljs) ============ */
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+  color: #cf222e;
+}
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #0a7c5a;
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: #b25d00;
+}
+.hljs-title,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name {
+  color: #6639ba;
+}
+.hljs-attr,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-property,
+.hljs-params {
+  color: #0550ae;
+}
+.hljs-built_in,
+.hljs-class .hljs-title {
+  color: #0a6b8a;
+}
+.hljs-tag {
+  color: #57606a;
+}
+.hljs-meta,
+.hljs-doctag {
+  color: #8b949e;
+}
+.hljs-deletion {
+  color: #82071e;
+}
+
+html.dark .hljs-comment,
+html.dark .hljs-quote {
+  color: #7d8590;
+}
+html.dark .hljs-keyword,
+html.dark .hljs-selector-tag,
+html.dark .hljs-literal,
+html.dark .hljs-type {
+  color: #ff7b72;
+}
+html.dark .hljs-string,
+html.dark .hljs-regexp,
+html.dark .hljs-addition,
+html.dark .hljs-attribute {
+  color: #7ee787;
+}
+html.dark .hljs-number,
+html.dark .hljs-symbol,
+html.dark .hljs-bullet,
+html.dark .hljs-link {
+  color: #ffa657;
+}
+html.dark .hljs-title,
+html.dark .hljs-title.function_,
+html.dark .hljs-section,
+html.dark .hljs-name {
+  color: #d2a8ff;
+}
+html.dark .hljs-attr,
+html.dark .hljs-variable,
+html.dark .hljs-template-variable,
+html.dark .hljs-property,
+html.dark .hljs-params {
+  color: #79c0ff;
+}
+html.dark .hljs-built_in,
+html.dark .hljs-class .hljs-title {
+  color: #56d4dd;
+}
+html.dark .hljs-tag {
+  color: #8b949e;
+}
+
+/* ============ 动画 ============ */
+@keyframes gn-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.gn-pop {
+  animation: gn-fade-in 0.13s ease-out;
+}
+
+@keyframes gn-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.gn-fade {
+  animation: gn-fade 0.15s ease-out;
+}
+
+/* ============ 标签（多维表格选项） ============ */
+.gn-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: color-mix(in srgb, var(--tag-c) 16%, transparent);
+  color: color-mix(in srgb, var(--tag-c) 74%, var(--gn-text));
+}
+.gn-tag.tiny {
+  padding: 0 5px;
+  font-size: 10.5px;
+  line-height: 16px;
+}
+html.dark .gn-tag {
+  color: color-mix(in srgb, var(--tag-c) 62%, var(--gn-text));
+  background: color-mix(in srgb, var(--tag-c) 22%, transparent);
+}
+.gn-tag[data-color='gray'] {
+  --tag-c: #8a8a84;
+}
+.gn-tag[data-color='brown'] {
+  --tag-c: #9a7355;
+}
+.gn-tag[data-color='orange'] {
+  --tag-c: #c97b34;
+}
+.gn-tag[data-color='yellow'] {
+  --tag-c: #b8952a;
+}
+.gn-tag[data-color='green'] {
+  --tag-c: #3f8462;
+}
+.gn-tag[data-color='blue'] {
+  --tag-c: #3e78b0;
+}
+.gn-tag[data-color='purple'] {
+  --tag-c: #7a5bb5;
+}
+.gn-tag[data-color='pink'] {
+  --tag-c: #c05a8c;
+}
+.gn-tag[data-color='red'] {
+  --tag-c: #c44a4a;
+}
+
+/* mermaid 输出：去掉多余的行内尺寸限制，跟随容器 */
+.gn-diagram .dg-svg svg {
+  font-family: var(--gn-font) !important;
+}
+
+/* ============ 看板卡片的状态下拉（Teleport 到 body，需全局样式） ============ */
+.db-status-pop {
+  position: fixed;
+  z-index: 1200;
+  min-width: 132px;
+  padding: 5px;
+  border: 1px solid var(--gn-border);
+  border-radius: 9px;
+  background: var(--gn-bg);
+  box-shadow: var(--gn-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.db-status-pop .db-opt-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--gn-text);
+  cursor: pointer;
+  text-align: left;
+  background: none;
+  border: none;
+  width: 100%;
+}
+.db-status-pop .db-opt-item:hover {
+  background: var(--gn-bg-hover);
+}
+.db-status-pop .db-opt-item.on {
+  background: var(--gn-accent-soft);
+}

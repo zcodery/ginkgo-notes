@@ -1,0 +1,529 @@
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  Search,
+  Plus,
+  Star,
+  Trash2,
+  PanelLeftClose,
+  Moon,
+  Sun,
+  FileText,
+  LogOut,
+  Globe,
+  NotebookPen,
+  Import,
+  ShieldCheck,
+} from 'lucide-vue-next'
+import PageTree from './PageTree.vue'
+import {
+  store,
+  favoritePages,
+  goToPage,
+  goTrash,
+  goHome,
+  toggleTheme,
+  isAdmin,
+  logout,
+  switchSpace,
+  reloadPages,
+} from '@/store'
+import { countLegacyPages, importLegacyToPublic, legacyAlreadyImported } from '@/db/legacy'
+
+const treeRef = ref<InstanceType<typeof PageTree> | null>(null)
+const userMenuOpen = ref(false)
+const legacyCount = ref(0)
+const importing = ref(false)
+
+function onSearch() {
+  store.searchOpen = true
+}
+
+function onNew() {
+  treeRef.value?.newPage()
+}
+
+async function checkLegacy() {
+  legacyCount.value = isAdmin.value && !legacyAlreadyImported() ? await countLegacyPages() : 0
+}
+
+async function toSpace(space: 'me' | 'public') {
+  userMenuOpen.value = false
+  await switchSpace(space)
+}
+
+async function importLegacy() {
+  userMenuOpen.value = false
+  const ok = window.confirm(
+    `将把本机浏览器里的 ${legacyCount.value} 篇旧笔记导入为公共原稿，并替换现有的公共原稿。\n已注册用户手里的副本不受影响，之后新注册的用户会收到这些内容。\n确定继续吗？`,
+  )
+  if (!ok) return
+  importing.value = true
+  try {
+    const n = await importLegacyToPublic(store.space)
+    legacyCount.value = 0
+    if (store.space === 'public') await reloadPages()
+    else await switchSpace('public')
+    window.alert(`已导入 ${n} 篇笔记到公共原稿。`)
+  } catch (err) {
+    window.alert(`导入失败：${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    importing.value = false
+  }
+}
+
+function onLogout() {
+  userMenuOpen.value = false
+  logout()
+}
+
+function onGlobalDown(e: MouseEvent) {
+  const t = e.target as HTMLElement
+  if (userMenuOpen.value && !t.closest('.sb-user-menu') && !t.closest('.sb-user')) {
+    userMenuOpen.value = false
+  }
+}
+
+watch(() => store.user?.id, () => void checkLegacy())
+
+onMounted(() => {
+  document.addEventListener('mousedown', onGlobalDown)
+  void checkLegacy()
+})
+onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
+</script>
+
+<template>
+  <aside class="sidebar">
+    <div class="sb-head">
+      <button class="sb-workspace" @click="goHome">
+        <span class="sb-logo">🍃</span>
+        <span class="sb-name">银杏笔记</span>
+      </button>
+      <button class="gn-icon-btn" title="收起侧边栏" @click="store.sidebarOpen = false">
+        <PanelLeftClose :size="15" :stroke-width="1.8" />
+      </button>
+    </div>
+
+    <div v-if="store.space === 'public'" class="sb-public">
+      <div class="sb-public-title">
+        <Globe :size="13" :stroke-width="2" />
+        <span>正在编辑公共原稿</span>
+      </div>
+      <p>新用户注册时会收到这里所有页面的副本；已发出的副本不会随之改变。</p>
+      <button @click="toSpace('me')">返回我的笔记</button>
+    </div>
+
+    <div class="sb-actions">
+      <button class="sb-action" @click="onSearch">
+        <Search :size="15" :stroke-width="1.9" />
+        <span class="sb-action-text">搜索</span>
+        <kbd class="sb-kbd">⌘K</kbd>
+      </button>
+      <button class="sb-action" @click="onNew">
+        <Plus :size="15" :stroke-width="1.9" />
+        <span class="sb-action-text">新建页面</span>
+      </button>
+    </div>
+
+    <div class="sb-scroll gn-scroll">
+      <template v-if="favoritePages.length">
+        <div class="sb-section-title">
+          <Star :size="12" :stroke-width="2" />
+          <span>收藏</span>
+        </div>
+        <button
+          v-for="p in favoritePages"
+          :key="p.id"
+          class="sb-fav"
+          :class="{ active: store.route.pageId === p.id }"
+          @click="goToPage(p.id)"
+        >
+          <span v-if="p.icon" class="sb-fav-icon">{{ p.icon }}</span>
+          <FileText v-else :size="13" :stroke-width="1.7" class="sb-fav-doc" />
+          <span class="sb-fav-title">{{ p.title || '未命名' }}</span>
+        </button>
+      </template>
+
+      <div class="sb-section-title">
+        <span>页面</span>
+        <button class="sb-section-add" title="新建页面" @click="onNew">
+          <Plus :size="13" :stroke-width="2.2" />
+        </button>
+      </div>
+
+      <PageTree ref="treeRef" />
+    </div>
+
+    <div class="sb-foot">
+      <button class="sb-foot-btn" @click="goTrash">
+        <Trash2 :size="14" :stroke-width="1.8" />
+        <span>回收站</span>
+      </button>
+      <button class="sb-foot-btn icon-only" :title="store.theme === 'dark' ? '浅色' : '深色'" @click="toggleTheme">
+        <component :is="store.theme === 'dark' ? Sun : Moon" :size="14" :stroke-width="1.8" />
+      </button>
+    </div>
+
+    <div class="sb-user-wrap">
+      <button class="sb-user" :class="{ open: userMenuOpen }" @click="userMenuOpen = !userMenuOpen">
+        <span class="sb-avatar">{{ (store.user?.username ?? '?').slice(0, 1).toUpperCase() }}</span>
+        <span class="sb-user-name">{{ store.user?.username }}</span>
+        <span v-if="isAdmin" class="sb-badge" title="管理员">
+          <ShieldCheck :size="11" :stroke-width="2.2" />管理员
+        </span>
+      </button>
+
+      <div v-if="userMenuOpen" class="sb-user-menu gn-pop">
+        <template v-if="isAdmin">
+          <button :class="{ on: store.space === 'me' }" @click="toSpace('me')">
+            <NotebookPen :size="14" :stroke-width="1.8" /><span>我的笔记</span>
+          </button>
+          <button :class="{ on: store.space === 'public' }" @click="toSpace('public')">
+            <Globe :size="14" :stroke-width="1.8" /><span>公共原稿</span>
+          </button>
+          <button v-if="legacyCount > 0" :disabled="importing" @click="importLegacy">
+            <Import :size="14" :stroke-width="1.8" />
+            <span>{{ importing ? '导入中…' : `导入本机旧笔记（${legacyCount}）` }}</span>
+          </button>
+          <div class="sb-menu-sep"></div>
+        </template>
+        <button class="danger" @click="onLogout">
+          <LogOut :size="14" :stroke-width="1.8" /><span>退出登录</span>
+        </button>
+      </div>
+    </div>
+  </aside>
+</template>
+
+<style scoped>
+.sidebar {
+  width: 248px;
+  flex: 0 0 248px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--gn-bg-sidebar);
+  border-right: 1px solid var(--gn-border);
+  user-select: none;
+}
+.sb-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 9px 8px 5px 10px;
+}
+.sb-workspace {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.sb-workspace:hover {
+  background: var(--gn-bg-hover);
+}
+.sb-logo {
+  font-size: 15px;
+  line-height: 1;
+}
+.sb-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gn-text);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-actions {
+  padding: 2px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.sb-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 29px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  cursor: pointer;
+  font-size: 13.5px;
+  text-align: left;
+}
+.sb-action:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.sb-action-text {
+  flex: 1 1 auto;
+}
+.sb-kbd {
+  font-family: var(--gn-font);
+  font-size: 10.5px;
+  color: var(--gn-text-muted);
+  border: 1px solid var(--gn-border-strong);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 15px;
+}
+.sb-scroll {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 10px;
+}
+.sb-section-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 12px 14px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--gn-text-muted);
+}
+.sb-section-title > span {
+  flex: 1 1 auto;
+}
+.sb-section-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  cursor: pointer;
+}
+.sb-section-add:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.sb-fav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: calc(100% - 12px);
+  margin: 1px 6px;
+  height: 27px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  cursor: pointer;
+  font-size: 13.5px;
+  text-align: left;
+}
+.sb-fav:hover {
+  background: var(--gn-bg-hover);
+}
+.sb-fav.active {
+  background: var(--gn-bg-active);
+  color: var(--gn-text);
+}
+.sb-fav-icon {
+  font-size: 13px;
+  width: 16px;
+  text-align: center;
+}
+.sb-fav-doc {
+  color: var(--gn-text-muted);
+}
+.sb-fav-title {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-foot {
+  border-top: 1px solid var(--gn-border);
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sb-foot-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sb-foot-btn:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.sb-foot-btn.icon-only {
+  flex: 0 0 auto;
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+
+.sb-public {
+  margin: 2px 8px 8px;
+  padding: 9px 10px 10px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #d9730d 12%, var(--gn-bg-sidebar));
+  border: 1px solid color-mix(in srgb, #d9730d 30%, transparent);
+}
+.sb-public-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: color-mix(in srgb, #d9730d 80%, var(--gn-text));
+}
+.sb-public p {
+  margin: 4px 0 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--gn-text-soft);
+}
+.sb-public button {
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--gn-border-strong);
+  border-radius: 5px;
+  background: var(--gn-bg);
+  color: var(--gn-text-soft);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sb-public button:hover {
+  color: var(--gn-text);
+  border-color: var(--gn-text-muted);
+}
+
+.sb-user-wrap {
+  position: relative;
+  padding: 0 8px 8px;
+}
+.sb-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  cursor: pointer;
+  text-align: left;
+}
+.sb-user:hover,
+.sb-user.open {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.sb-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  background: var(--gn-accent);
+  color: var(--gn-bg);
+  font-size: 12px;
+  font-weight: 650;
+}
+.sb-user-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: var(--gn-accent);
+  background: var(--gn-accent-soft);
+}
+.sb-user-menu {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: calc(100% + 2px);
+  padding: 5px;
+  background: var(--gn-bg);
+  border: 1px solid var(--gn-border);
+  border-radius: 9px;
+  box-shadow: var(--gn-shadow-lg);
+  z-index: 90;
+}
+.sb-user-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.sb-user-menu button:hover:not(:disabled) {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.sb-user-menu button.on {
+  color: var(--gn-accent);
+  font-weight: 500;
+}
+.sb-user-menu button.danger {
+  color: var(--gn-danger);
+}
+.sb-user-menu button.danger:hover {
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+}
+.sb-user-menu button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.sb-menu-sep {
+  height: 1px;
+  margin: 4px 3px;
+  background: var(--gn-border);
+}
+</style>
