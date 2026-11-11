@@ -8,6 +8,7 @@ import { ChevronRight, Plus } from 'lucide-vue-next'
 import PageIcon from '@/components/PageIcon.vue'
 import { goToPage, reloadPages, store } from '@/store'
 import { createPage } from '@/db/repo'
+import { t } from '@/i18n'
 
 const props = defineProps<{
   pageId: string
@@ -37,9 +38,9 @@ async function addChild() {
 </script>
 
 <template>
-  <section v-if="children.length || editable" class="cp" aria-label="子页面">
+  <section v-if="children.length || editable" class="cp" :aria-label="t('childPages.title')">
     <div class="cp-head">
-      <span class="cp-title">子页面</span>
+      <span class="cp-title">{{ t('childPages.title') }}</span>
       <span v-if="children.length" class="cp-count">{{ children.length }}</span>
     </div>
 
@@ -54,7 +55,7 @@ async function addChild() {
         <span class="cp-icon">
           <PageIcon :icon="c.icon" :size="16" />
         </span>
-        <span class="cp-name">{{ c.title || '未命名' }}</span>
+        <span class="cp-name">{{ c.title || t('app.untitled') }}</span>
         <ChevronRight class="cp-arrow" :size="14" :stroke-width="1.8" />
       </button>
 
@@ -68,7 +69,7 @@ async function addChild() {
         <span class="cp-icon plus">
           <Plus :size="14" :stroke-width="2.2" />
         </span>
-        <span class="cp-name">{{ creating ? '创建中…' : '新建子页面' }}</span>
+        <span class="cp-name">{{ creating ? t('childPages.creating') : t('childPages.new') }}</span>
       </button>
     </div>
   </section>

@@ -43,6 +43,7 @@ import {
   type NoteWidthRatio,
 } from '@/store'
 import { clearAssetCache } from '@/editor/assets'
+import { LOCALES, locale, setLocale, t, type LocaleCode, type MessageKey } from '@/i18n'
 
 type Section =
   | 'account'
@@ -58,99 +59,109 @@ type Section =
 
 interface NavItem {
   id: Section
-  label: string
+  labelKey: MessageKey
   icon: Component
   soon?: boolean
 }
 
-const NAV: { group: string; items: NavItem[] }[] = [
+const NAV: { groupKey: MessageKey; items: NavItem[] }[] = [
   {
-    group: '账号',
+    groupKey: 'settings.groupAccount',
     items: [
-      { id: 'account', label: '账号设置', icon: UserRound },
-      { id: 'general', label: '通用设置', icon: SlidersHorizontal },
-      { id: 'notify', label: '消息通知', icon: Bell, soon: true },
+      { id: 'account', labelKey: 'settings.account', icon: UserRound },
+      { id: 'general', labelKey: 'settings.general', icon: SlidersHorizontal },
+      { id: 'notify', labelKey: 'settings.notify', icon: Bell, soon: true },
     ],
   },
   {
-    group: '空间',
+    groupKey: 'settings.groupSpace',
     items: [
-      { id: 'space', label: '空间信息', icon: Box },
-      { id: 'members', label: '成员', icon: Users, soon: true },
-      { id: 'share', label: '公开分享', icon: Globe, soon: true },
-      { id: 'data', label: '导入与导出', icon: Download, soon: true },
+      { id: 'space', labelKey: 'settings.space', icon: Box },
+      { id: 'members', labelKey: 'settings.members', icon: Users, soon: true },
+      { id: 'share', labelKey: 'settings.share', icon: Globe, soon: true },
+      { id: 'data', labelKey: 'settings.data', icon: Download, soon: true },
     ],
   },
   {
-    group: '扩展',
+    groupKey: 'settings.groupExt',
     items: [
-      { id: 'integrations', label: 'MCP 与集成', icon: Plug, soon: true },
-      { id: 'ai', label: 'AI 助手', icon: Bot, soon: true },
-      { id: 'about', label: '关于', icon: Info },
+      { id: 'integrations', labelKey: 'settings.integrations', icon: Plug, soon: true },
+      { id: 'ai', labelKey: 'settings.ai', icon: Bot, soon: true },
+      { id: 'about', labelKey: 'settings.about', icon: Info },
     ],
   },
 ]
 
 const section = ref<Section>('account')
-const current = computed(() => NAV.flatMap((g) => g.items).find((i) => i.id === section.value)!)
+const current = computed(() => {
+  const item = NAV.flatMap((g) => g.items).find((i) => i.id === section.value)!
+  return { ...item, label: t(item.labelKey) }
+})
 
-interface Roadmap {
-  desc: string
-  features: { title: string; desc: string }[]
+interface RoadmapKeys {
+  desc: MessageKey
+  features: { title: MessageKey; desc: MessageKey }[]
 }
 
-const ROADMAPS: Partial<Record<Section, Roadmap>> = {
+const ROADMAPS: Partial<Record<Section, RoadmapKeys>> = {
   notify: {
-    desc: '评论、@提及与分享邀请的消息提醒，不错过协作动态。',
+    desc: 'settings.roadmapNotifyDesc',
     features: [
-      { title: '站内通知中心', desc: '集中查看评论回复、@提及和页面变更' },
-      { title: '邮件提醒', desc: '重要消息同步发送到绑定邮箱' },
-      { title: '免打扰时段', desc: '按时间段静音通知' },
+      { title: 'settings.roadmapNotify1Title', desc: 'settings.roadmapNotify1Desc' },
+      { title: 'settings.roadmapNotify2Title', desc: 'settings.roadmapNotify2Desc' },
+      { title: 'settings.roadmapNotify3Title', desc: 'settings.roadmapNotify3Desc' },
     ],
   },
   members: {
-    desc: '邀请成员加入空间，一起编辑和管理笔记。',
+    desc: 'settings.roadmapMembersDesc',
     features: [
-      { title: '邀请成员', desc: '通过链接或用户名邀请加入空间' },
-      { title: '角色权限', desc: '所有者 / 编辑者 / 只读成员' },
-      { title: '页面级权限', desc: '单独设置某个页面的可见与可编辑范围' },
+      { title: 'settings.roadmapMembers1Title', desc: 'settings.roadmapMembers1Desc' },
+      { title: 'settings.roadmapMembers2Title', desc: 'settings.roadmapMembers2Desc' },
+      { title: 'settings.roadmapMembers3Title', desc: 'settings.roadmapMembers3Desc' },
     ],
   },
   share: {
-    desc: '把页面发布到网络，任何人通过链接即可阅读。',
+    desc: 'settings.roadmapShareDesc',
     features: [
-      { title: '公开链接', desc: '一键发布，取消发布后链接立即失效' },
-      { title: '访问密码与有效期', desc: '限制访问者与链接有效时间' },
-      { title: '分享管理', desc: '统一查看和撤销已分享的页面' },
+      { title: 'settings.roadmapShare1Title', desc: 'settings.roadmapShare1Desc' },
+      { title: 'settings.roadmapShare2Title', desc: 'settings.roadmapShare2Desc' },
+      { title: 'settings.roadmapShare3Title', desc: 'settings.roadmapShare3Desc' },
     ],
   },
   data: {
-    desc: '把笔记从别处搬进来，或整个空间打包带走。',
+    desc: 'settings.roadmapDataDesc',
     features: [
-      { title: '导入 Markdown', desc: '批量导入 .md 文件，保留目录层级' },
-      { title: '导入 Notion', desc: '解析 Notion 导出包，图片一并迁移' },
-      { title: '整空间导出', desc: '导出为 Markdown + 图片的压缩包' },
+      { title: 'settings.roadmapData1Title', desc: 'settings.roadmapData1Desc' },
+      { title: 'settings.roadmapData2Title', desc: 'settings.roadmapData2Desc' },
+      { title: 'settings.roadmapData3Title', desc: 'settings.roadmapData3Desc' },
     ],
   },
   integrations: {
-    desc: '让 AI 工具与外部服务安全地读写你的笔记。',
+    desc: 'settings.roadmapIntegrationsDesc',
     features: [
-      { title: 'MCP 服务', desc: 'Cursor、Claude 等 AI 工具可直接检索和编辑笔记' },
-      { title: 'API Token', desc: '创建、限定范围与吊销个人访问令牌' },
-      { title: 'Webhook', desc: '页面变更时推送事件到外部系统' },
+      { title: 'settings.roadmapIntegrations1Title', desc: 'settings.roadmapIntegrations1Desc' },
+      { title: 'settings.roadmapIntegrations2Title', desc: 'settings.roadmapIntegrations2Desc' },
+      { title: 'settings.roadmapIntegrations3Title', desc: 'settings.roadmapIntegrations3Desc' },
     ],
   },
   ai: {
-    desc: '在笔记里直接调用大模型，写作和整理更省力。',
+    desc: 'settings.roadmapAiDesc',
     features: [
-      { title: '续写与改写', desc: '选中文本后续写、润色、调整语气' },
-      { title: '总结与翻译', desc: '一键生成摘要，或翻译整页内容' },
-      { title: '自定义模型', desc: '填写自己的 API Key 与模型地址' },
+      { title: 'settings.roadmapAi1Title', desc: 'settings.roadmapAi1Desc' },
+      { title: 'settings.roadmapAi2Title', desc: 'settings.roadmapAi2Desc' },
+      { title: 'settings.roadmapAi3Title', desc: 'settings.roadmapAi3Desc' },
     ],
   },
 }
 
-const roadmap = computed(() => ROADMAPS[section.value] ?? null)
+const roadmap = computed(() => {
+  const keys = ROADMAPS[section.value]
+  if (!keys) return null
+  return {
+    desc: t(keys.desc),
+    features: keys.features.map((f) => ({ title: t(f.title), desc: t(f.desc) })),
+  }
+})
 
 /* ---------------- 账号设置 ---------------- */
 
@@ -177,9 +188,9 @@ async function saveProfile() {
   saving.value = true
   try {
     await updateProfile({ nickname: nicknameDraft.value.trim() || null })
-    notify('ok', '已保存')
+    notify('ok', t('settings.saved'))
   } catch (e) {
-    notify('err', e instanceof Error ? e.message : '保存失败')
+    notify('err', e instanceof Error ? e.message : t('settings.saveFail'))
   } finally {
     saving.value = false
   }
@@ -210,7 +221,7 @@ function shrinkImage(file: File): Promise<string> {
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('图片读取失败'))
+      reject(new Error(t('settings.avatarReadFail')))
     }
     img.src = url
   })
@@ -221,13 +232,13 @@ async function onAvatarPick(e: Event) {
   const file = input.files?.[0]
   input.value = ''
   if (!file) return
-  if (!file.type.startsWith('image/')) return notify('err', '请选择图片文件')
+  if (!file.type.startsWith('image/')) return notify('err', t('settings.avatarPickImage'))
   avatarBusy.value = true
   try {
     await updateProfile({ avatar: await shrinkImage(file) })
-    notify('ok', '头像已更新')
+    notify('ok', t('settings.avatarUpdated'))
   } catch (err) {
-    notify('err', err instanceof Error ? err.message : '上传失败')
+    notify('err', err instanceof Error ? err.message : t('settings.uploadFail'))
   } finally {
     avatarBusy.value = false
   }
@@ -237,9 +248,9 @@ async function removeAvatar() {
   avatarBusy.value = true
   try {
     await updateProfile({ avatar: null })
-    notify('ok', '已移除头像')
+    notify('ok', t('settings.avatarRemoved'))
   } catch (err) {
-    notify('err', err instanceof Error ? err.message : '操作失败')
+    notify('err', err instanceof Error ? err.message : t('settings.opFail'))
   } finally {
     avatarBusy.value = false
   }
@@ -269,30 +280,36 @@ function openPwd() {
 async function submitPwd() {
   pwdErr.value = ''
   const { current, next, confirm } = pwd.value
-  if (!current || !next) return void (pwdErr.value = '请填写当前密码和新密码')
-  if (next.length < 6) return void (pwdErr.value = '新密码至少 6 位')
-  if (next !== confirm) return void (pwdErr.value = '两次输入的新密码不一致')
+  if (!current || !next) return void (pwdErr.value = t('settings.pwdFillBoth'))
+  if (next.length < 6) return void (pwdErr.value = t('settings.pwdTooShort'))
+  if (next !== confirm) return void (pwdErr.value = t('settings.pwdMismatch'))
   pwdSaving.value = true
   try {
     await changePassword(current, next)
     pwdOpen.value = false
-    notify('ok', '密码已更新')
+    notify('ok', t('settings.pwdUpdated'))
   } catch (e) {
-    pwdErr.value = e instanceof Error ? e.message : '修改失败'
+    pwdErr.value = e instanceof Error ? e.message : t('settings.pwdFail')
   } finally {
     pwdSaving.value = false
   }
 }
 
 /** 规划中的账号能力，统一展示为「即将上线」 */
-const SOON_ACCOUNT: { label: string; desc?: string; action: string; danger?: boolean }[] = [
-  { label: '邮箱', desc: '用于找回密码与接收通知', action: '绑定邮箱' },
-  { label: '手机号', desc: '用于登录与安全验证', action: '绑定手机号' },
-  { label: '设备管理', desc: '查看登录设备，支持退出指定设备', action: '管理' },
-  { label: 'PIN 码', desc: '离开时锁定屏幕，回来输入 PIN 解锁', action: '添加 PIN 码' },
-  { label: '两步验证', desc: '登录时额外校验一次身份', action: '开启' },
-  { label: '第三方账号', desc: '微信 / QQ / GitHub 快捷登录', action: '绑定' },
+const SOON_ACCOUNT: { label: MessageKey; desc: MessageKey; action: MessageKey }[] = [
+  { label: 'settings.email', desc: 'settings.emailDesc', action: 'settings.bindEmail' },
+  { label: 'settings.phone', desc: 'settings.phoneDesc', action: 'settings.bindPhone' },
+  { label: 'settings.devices', desc: 'settings.devicesDesc', action: 'settings.manage' },
+  { label: 'settings.pin', desc: 'settings.pinDesc', action: 'settings.addPin' },
+  { label: 'settings.twoFactor', desc: 'settings.twoFactorDesc', action: 'settings.enable' },
+  { label: 'settings.thirdParty', desc: 'settings.thirdPartyDesc', action: 'settings.bind' },
 ]
+
+const LAYOUT_LABEL: Record<NoteLayout, MessageKey> = {
+  loose: 'settings.layoutLoose',
+  default: 'settings.layoutDefault',
+  compact: 'settings.layoutCompact',
+}
 
 /* ---------------- 通用设置 ---------------- */
 
@@ -307,10 +324,10 @@ const widthValue = computed({
   },
 })
 
-const widthOptions = [
-  { value: 'auto', label: '自动铺满' },
+const widthOptions = computed(() => [
+  { value: 'auto', label: t('settings.widthAuto') },
   ...NOTE_WIDTH_RATIOS.map((r) => ({ value: String(r), label: `${r}%` })),
-]
+])
 
 const fontSizeValue = computed({
   get: () => String(store.noteFontSize),
@@ -330,7 +347,11 @@ const fontStyleOptions = NOTE_FONT_STYLES.map((f) => ({
   style: { fontFamily: f.css },
 }))
 
-const langOptions = [{ value: 'zh-CN', label: '简体中文' }]
+const langOptions = LOCALES.map((l) => ({ value: l.code, label: l.label }))
+const langValue = computed({
+  get: () => locale.value,
+  set: (v: string) => setLocale(v as LocaleCode),
+})
 
 /* ---------------- 空间信息 ---------------- */
 
@@ -351,7 +372,7 @@ const stats = computed(() => {
 /* ---------------- 底部 ---------------- */
 
 function clearCacheAndReload() {
-  if (!window.confirm('将清除本地图片缓存与侧栏展开状态并重新加载，笔记数据不受影响。继续吗？')) return
+  if (!window.confirm(t('settings.clearCacheConfirm'))) return
   clearAssetCache()
   try {
     localStorage.removeItem('ginkgo-expanded')
@@ -385,14 +406,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
 <template>
   <div class="pf-overlay gn-fade" @mousedown.self="close">
-  <div class="pf gn-pop" role="dialog" aria-label="设置">
-    <button type="button" class="pf-close gn-icon-btn" v-tooltip="'关闭 Esc'" @click="close">
+  <div class="pf gn-pop" role="dialog" :aria-label="t('settings.title')">
+    <button type="button" class="pf-close gn-icon-btn" v-tooltip="t('settings.close')" @click="close">
       <X :size="15" :stroke-width="1.9" />
     </button>
     <!-- 左侧设置导航 -->
     <nav class="pf-nav gn-scroll">
-      <div v-for="g in NAV" :key="g.group" class="pf-group">
-        <div class="pf-group-title">{{ g.group }}</div>
+      <div v-for="g in NAV" :key="g.groupKey" class="pf-group">
+        <div class="pf-group-title">{{ t(g.groupKey) }}</div>
         <button
           v-for="item in g.items"
           :key="item.id"
@@ -402,17 +423,17 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
           @click="section = item.id"
         >
           <component :is="item.icon" :size="15" :stroke-width="1.8" />
-          <span>{{ item.label }}</span>
-          <i v-if="item.soon" class="pf-dot" v-tooltip="'即将上线'"></i>
+          <span>{{ t(item.labelKey) }}</span>
+          <i v-if="item.soon" class="pf-dot" v-tooltip="t('settings.soon')"></i>
         </button>
       </div>
 
       <div class="pf-nav-foot">
         <button type="button" class="pf-nav-item" @click="onLogout">
-          <LogOut :size="15" :stroke-width="1.8" /><span>退出登录</span>
+          <LogOut :size="15" :stroke-width="1.8" /><span>{{ t('settings.logout') }}</span>
         </button>
         <button type="button" class="pf-nav-link" @click="clearCacheAndReload">
-          <RefreshCw :size="12" :stroke-width="2" />清除缓存并重启
+          <RefreshCw :size="12" :stroke-width="2" />{{ t('settings.clearCache') }}
         </button>
       </div>
     </nav>
@@ -425,7 +446,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         <!-- 账号设置 -->
         <template v-if="section === 'account'">
           <div class="pf-block">
-            <div class="pf-label">头像</div>
+            <div class="pf-label">{{ t('settings.avatar') }}</div>
             <div class="pf-row-flex">
               <UserAvatar :size="56" :radius="28" />
               <div class="pf-actions">
@@ -436,10 +457,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
                   :disabled="avatarBusy"
                   @click="removeAvatar"
                 >
-                  移除头像
+                  {{ t('settings.removeAvatar') }}
                 </button>
                 <button type="button" class="pf-btn" :disabled="avatarBusy" @click="avatarInput?.click()">
-                  {{ avatarBusy ? '处理中…' : '上传头像' }}
+                  {{ avatarBusy ? t('settings.processing') : t('settings.uploadAvatar') }}
                 </button>
                 <input
                   ref="avatarInput"
@@ -453,7 +474,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
           </div>
 
           <div class="pf-block">
-            <div class="pf-label">昵称</div>
+            <div class="pf-label">{{ t('settings.nickname') }}</div>
             <input
               v-model="nicknameDraft"
               class="pf-input"
@@ -465,44 +486,48 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">用户名</div>
-              <div class="pf-row-desc">登录时使用，暂不支持修改</div>
+              <div class="pf-row-title">{{ t('settings.username') }}</div>
+              <div class="pf-row-desc">{{ t('settings.usernameDesc') }}</div>
             </div>
             <span class="pf-value">{{ user?.username }}</span>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">账号身份</div>
-              <div class="pf-row-desc">注册于 {{ createdLabel }}</div>
+              <div class="pf-row-title">{{ t('settings.role') }}</div>
+              <div class="pf-row-desc">{{ t('settings.registeredAt', { time: createdLabel }) }}</div>
             </div>
-            <span class="pf-tag" :class="{ admin: isAdmin }">{{ isAdmin ? '管理员' : '普通用户' }}</span>
+            <span class="pf-tag" :class="{ admin: isAdmin }">{{
+              isAdmin ? t('settings.admin') : t('settings.user')
+            }}</span>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">登录密码</div>
-              <div class="pf-row-desc">建议定期更换，长度 6-128 位</div>
+              <div class="pf-row-title">{{ t('settings.password') }}</div>
+              <div class="pf-row-desc">{{ t('settings.passwordDesc') }}</div>
             </div>
             <button type="button" class="pf-btn" @click="openPwd">
-              <KeyRound :size="12" :stroke-width="2" />修改密码
+              <KeyRound :size="12" :stroke-width="2" />{{ t('settings.changePassword') }}
             </button>
           </div>
 
           <div v-for="s in SOON_ACCOUNT" :key="s.label" class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">{{ s.label }}<span class="pf-soon">即将上线</span></div>
-              <div v-if="s.desc" class="pf-row-desc">{{ s.desc }}</div>
+              <div class="pf-row-title">{{ t(s.label) }}<span class="pf-soon">{{ t('settings.soon') }}</span></div>
+              <div class="pf-row-desc">{{ t(s.desc) }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>{{ s.action }}</button>
+            <button type="button" class="pf-btn" disabled>{{ t(s.action) }}</button>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title danger">注销账号<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">永久删除账号及全部笔记，无法恢复</div>
+              <div class="pf-row-title danger">
+                {{ t('settings.deleteAccount') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
+              <div class="pf-row-desc">{{ t('settings.deleteAccountDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn danger" disabled>注销</button>
+            <button type="button" class="pf-btn danger" disabled>{{ t('settings.deleteAction') }}</button>
           </div>
         </template>
 
@@ -510,41 +535,45 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         <template v-else-if="section === 'general'">
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">外观</div>
-              <div class="pf-row-desc">界面的浅色 / 深色主题</div>
+              <div class="pf-row-title">{{ t('settings.appearance') }}</div>
+              <div class="pf-row-desc">{{ t('settings.appearanceDesc') }}</div>
             </div>
             <div class="pf-seg">
-              <button type="button" :class="{ on: store.theme === 'light' }" @click="setTheme('light')">浅色</button>
-              <button type="button" :class="{ on: store.theme === 'dark' }" @click="setTheme('dark')">深色</button>
+              <button type="button" :class="{ on: store.theme === 'light' }" @click="setTheme('light')">
+                {{ t('settings.light') }}
+              </button>
+              <button type="button" :class="{ on: store.theme === 'dark' }" @click="setTheme('dark')">
+                {{ t('settings.dark') }}
+              </button>
             </div>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">正文宽度</div>
-              <div class="pf-row-desc">笔记内容区占可用宽度的比例</div>
+              <div class="pf-row-title">{{ t('settings.width') }}</div>
+              <div class="pf-row-desc">{{ t('settings.widthDesc') }}</div>
             </div>
             <GnSelect v-model="widthValue" :options="widthOptions" :min-width="108" />
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">正文字号</div>
+              <div class="pf-row-title">{{ t('settings.fontSize') }}</div>
             </div>
             <GnSelect v-model="fontSizeValue" :options="fontSizeOptions" :min-width="88" />
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">正文字体</div>
+              <div class="pf-row-title">{{ t('settings.fontStyle') }}</div>
             </div>
             <GnSelect v-model="fontStyleValue" :options="fontStyleOptions" :min-width="96" />
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">页面布局</div>
-              <div class="pf-row-desc">行距与块间距的疏密程度</div>
+              <div class="pf-row-title">{{ t('settings.layout') }}</div>
+              <div class="pf-row-desc">{{ t('settings.layoutDesc') }}</div>
             </div>
             <div class="pf-seg">
               <button
@@ -554,15 +583,15 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
                 :class="{ on: store.noteLayout === l.id }"
                 @click="setNoteLayout(l.id as NoteLayout)"
               >
-                {{ l.label }}
+                {{ t(LAYOUT_LABEL[l.id]) }}
               </button>
             </div>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">显示页面目录</div>
-              <div class="pf-row-desc">在笔记右侧显示标题大纲</div>
+              <div class="pf-row-title">{{ t('settings.toc') }}</div>
+              <div class="pf-row-desc">{{ t('settings.tocDesc') }}</div>
             </div>
             <button
               type="button"
@@ -576,59 +605,69 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">语言<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">界面显示语言</div>
+              <div class="pf-row-title">{{ t('settings.language') }}</div>
+              <div class="pf-row-desc">{{ t('settings.languageDesc') }}</div>
             </div>
-            <GnSelect model-value="zh-CN" :options="langOptions" disabled :min-width="96" />
+            <GnSelect v-model="langValue" :options="langOptions" :min-width="120" />
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">快捷键自定义<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">修改搜索、新建页面等常用快捷键</div>
+              <div class="pf-row-title">
+                {{ t('settings.shortcuts') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
+              <div class="pf-row-desc">{{ t('settings.shortcutsDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>设置</button>
+            <button type="button" class="pf-btn" disabled>{{ t('settings.set') }}</button>
           </div>
         </template>
 
         <!-- 空间信息 -->
         <template v-else-if="section === 'space'">
           <div class="pf-stats">
-            <div class="pf-stat"><b>{{ stats.pages }}</b><span>页面</span></div>
-            <div class="pf-stat"><b>{{ stats.favorites }}</b><span>收藏</span></div>
-            <div class="pf-stat"><b>{{ stats.trashed }}</b><span>回收站</span></div>
-            <div class="pf-stat"><b>{{ stats.words.toLocaleString() }}</b><span>总字数</span></div>
-          </div>
-
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">当前空间</div>
-              <div class="pf-row-desc">管理员可在左下角菜单切换「公共原稿」</div>
+            <div class="pf-stat"><b>{{ stats.pages }}</b><span>{{ t('settings.spacePages') }}</span></div>
+            <div class="pf-stat"><b>{{ stats.favorites }}</b><span>{{ t('settings.spaceFavorites') }}</span></div>
+            <div class="pf-stat"><b>{{ stats.trashed }}</b><span>{{ t('settings.spaceTrash') }}</span></div>
+            <div class="pf-stat">
+              <b>{{ stats.words.toLocaleString() }}</b><span>{{ t('settings.spaceWords') }}</span>
             </div>
-            <span class="pf-value">{{ store.space === 'public' ? '公共原稿' : '我的笔记' }}</span>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">最近编辑</div>
+              <div class="pf-row-title">{{ t('settings.currentSpace') }}</div>
+              <div class="pf-row-desc">{{ t('settings.currentSpaceDesc') }}</div>
+            </div>
+            <span class="pf-value">{{
+              store.space === 'public' ? t('settings.publicDraft') : t('settings.myNotes')
+            }}</span>
+          </div>
+
+          <div class="pf-row">
+            <div class="pf-row-text">
+              <div class="pf-row-title">{{ t('settings.lastEdited') }}</div>
             </div>
             <span class="pf-value">{{ stats.last }}</span>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">空间名称与图标<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">自定义侧栏顶部显示的空间名称与 Logo</div>
+              <div class="pf-row-title">
+                {{ t('settings.spaceNameIcon') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
+              <div class="pf-row-desc">{{ t('settings.spaceNameIconDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>编辑</button>
+            <button type="button" class="pf-btn" disabled>{{ t('settings.edit') }}</button>
           </div>
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">存储用量<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">图片、附件占用的空间统计</div>
+              <div class="pf-row-title">
+                {{ t('settings.storage') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
+              <div class="pf-row-desc">{{ t('settings.storageDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>查看</button>
+            <button type="button" class="pf-btn" disabled>{{ t('settings.view') }}</button>
           </div>
         </template>
 
@@ -637,22 +676,26 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
           <div class="pf-about">
             <span class="pf-about-logo">🍃</span>
             <div>
-              <div class="pf-about-name">银杏笔记</div>
-              <div class="pf-row-desc">版本 {{ APP_VERSION }} · 底层就是 Markdown 的块编辑笔记</div>
+              <div class="pf-about-name">{{ t('app.name') }}</div>
+              <div class="pf-row-desc">{{ t('settings.aboutVersion', { version: APP_VERSION }) }}</div>
             </div>
           </div>
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">检查更新<span class="pf-soon">即将上线</span></div>
+              <div class="pf-row-title">
+                {{ t('settings.checkUpdate') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
             </div>
-            <button type="button" class="pf-btn" disabled>检查</button>
+            <button type="button" class="pf-btn" disabled>{{ t('settings.check') }}</button>
           </div>
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">意见反馈<span class="pf-soon">即将上线</span></div>
-              <div class="pf-row-desc">告诉我们你遇到的问题或想要的功能</div>
+              <div class="pf-row-title">
+                {{ t('settings.feedback') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
+              </div>
+              <div class="pf-row-desc">{{ t('settings.feedbackDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>反馈</button>
+            <button type="button" class="pf-btn" disabled>{{ t('settings.feedbackAction') }}</button>
           </div>
         </template>
 
@@ -664,13 +707,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
             </span>
             <div class="pf-hero-text">
               <div class="pf-hero-title">
-                {{ current.label }}<span class="pf-soon">即将上线</span>
+                {{ current.label }}<span class="pf-soon">{{ t('settings.soon') }}</span>
               </div>
               <p>{{ roadmap.desc }}</p>
             </div>
           </div>
 
-          <div class="pf-sub">规划中的能力</div>
+          <div class="pf-sub">{{ t('settings.plannedCaps') }}</div>
           <div v-for="f in roadmap.features" :key="f.title" class="pf-row">
             <div class="pf-row-text">
               <div class="pf-row-title">
@@ -678,19 +721,21 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
               </div>
               <div class="pf-row-desc indent">{{ f.desc }}</div>
             </div>
-            <span class="pf-plan-tag">规划中</span>
+            <span class="pf-plan-tag">{{ t('settings.planned') }}</span>
           </div>
 
-          <p class="pf-note">有更想要的功能？上线后可在「关于 → 意见反馈」告诉我们。</p>
+          <p class="pf-note">{{ t('settings.plannedNote') }}</p>
         </template>
       </div>
 
       <!-- 底部保存条：仅账号设置且有改动时 -->
       <footer v-if="section === 'account'" class="pf-foot">
         <button type="button" class="pf-btn primary" :disabled="!dirty || saving" @click="saveProfile">
-          {{ saving ? '保存中…' : '保存' }}
+          {{ saving ? t('settings.saving') : t('settings.save') }}
         </button>
-        <button type="button" class="pf-btn" :disabled="!dirty || saving" @click="cancelProfile">取消</button>
+        <button type="button" class="pf-btn" :disabled="!dirty || saving" @click="cancelProfile">
+          {{ t('settings.cancel') }}
+        </button>
         <span v-if="toast" class="pf-toast" :class="toast.type">{{ toast.text }}</span>
       </footer>
       <span v-else-if="toast" class="pf-toast floating" :class="toast.type">{{ toast.text }}</span>
@@ -700,17 +745,26 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
     <div v-if="pwdOpen" class="pf-mask gn-fade" @mousedown.self="pwdOpen = false">
       <form class="pf-dialog gn-pop" @submit.prevent="submitPwd">
         <header>
-          <span>修改密码</span>
+          <span>{{ t('settings.changePassword') }}</span>
           <button type="button" class="gn-icon-btn" @click="pwdOpen = false"><X :size="14" /></button>
         </header>
-        <label>当前密码<input v-model="pwd.current" type="password" autocomplete="current-password" /></label>
-        <label>新密码<input v-model="pwd.next" type="password" autocomplete="new-password" /></label>
-        <label>确认新密码<input v-model="pwd.confirm" type="password" autocomplete="new-password" /></label>
+        <label>
+          {{ t('settings.pwdCurrent') }}
+          <input v-model="pwd.current" type="password" autocomplete="current-password" />
+        </label>
+        <label>
+          {{ t('settings.pwdNew') }}
+          <input v-model="pwd.next" type="password" autocomplete="new-password" />
+        </label>
+        <label>
+          {{ t('settings.pwdConfirm') }}
+          <input v-model="pwd.confirm" type="password" autocomplete="new-password" />
+        </label>
         <p v-if="pwdErr" class="pf-err">{{ pwdErr }}</p>
         <footer>
-          <button type="button" class="pf-btn" @click="pwdOpen = false">取消</button>
+          <button type="button" class="pf-btn" @click="pwdOpen = false">{{ t('settings.cancel') }}</button>
           <button type="submit" class="pf-btn primary" :disabled="pwdSaving">
-            {{ pwdSaving ? '保存中…' : '确认修改' }}
+            {{ pwdSaving ? t('settings.saving') : t('settings.pwdConfirmBtn') }}
           </button>
         </footer>
       </form>

@@ -33,6 +33,7 @@ import {
   reloadPages,
 } from '@/store'
 import { countLegacyPages, importLegacyToPublic, legacyAlreadyImported } from '@/db/legacy'
+import { t } from '@/i18n'
 
 const treeRef = ref<InstanceType<typeof PageTree> | null>(null)
 const userMenuOpen = ref(false)
@@ -102,9 +103,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
     <div class="sb-head">
       <button class="sb-workspace" @click="goHome">
         <span class="sb-logo">🍃</span>
-        <span class="sb-name">银杏笔记</span>
+        <span class="sb-name">{{ t('app.name') }}</span>
       </button>
-      <button class="gn-icon-btn" v-tooltip="'收起侧边栏'" @click="store.sidebarOpen = false">
+      <button class="gn-icon-btn" v-tooltip="t('sidebar.collapse')" @click="store.sidebarOpen = false">
         <PanelLeftClose :size="15" :stroke-width="1.8" />
       </button>
     </div>
@@ -112,21 +113,21 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
     <div v-if="store.space === 'public'" class="sb-public">
       <div class="sb-public-title">
         <Globe :size="13" :stroke-width="2" />
-        <span>正在编辑公共原稿</span>
+        <span>{{ t('sidebar.publicEditing') }}</span>
       </div>
-      <p>新用户注册时会收到这里所有页面的副本；已发出的副本不会随之改变。</p>
-      <button @click="toSpace('me')">返回我的笔记</button>
+      <p>{{ t('sidebar.publicHint') }}</p>
+      <button @click="toSpace('me')">{{ t('sidebar.backToMine') }}</button>
     </div>
 
     <div class="sb-actions">
       <button class="sb-action" @click="onSearch">
         <Search :size="15" :stroke-width="1.9" />
-        <span class="sb-action-text">搜索</span>
+        <span class="sb-action-text">{{ t('sidebar.search') }}</span>
         <kbd class="sb-kbd">⌘K</kbd>
       </button>
       <button class="sb-action" @click="onNew">
         <Plus :size="15" :stroke-width="1.9" />
-        <span class="sb-action-text">新建页面</span>
+        <span class="sb-action-text">{{ t('sidebar.newPage') }}</span>
       </button>
     </div>
 
@@ -134,7 +135,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
       <template v-if="favoritePages.length">
         <div class="sb-section-title">
           <Star :size="12" :stroke-width="2" />
-          <span>收藏</span>
+          <span>{{ t('sidebar.favorites') }}</span>
         </div>
         <button
           v-for="p in favoritePages"
@@ -144,15 +145,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
           @click="goToPage(p.id)"
         >
           <PageIcon :icon="p.icon" :size="14" />
-          <span class="sb-fav-title">{{ p.title || '未命名' }}</span>
+          <span class="sb-fav-title">{{ p.title || t('app.untitled') }}</span>
         </button>
       </template>
 
       <div class="sb-section-title">
-        <span>私人</span>
+        <span>{{ t('sidebar.private') }}</span>
         <button
           class="sb-section-add"
-          v-tooltip="{ title: '创建新页面', desc: '只有你可以访问', placement: 'right' }"
+          v-tooltip="{ title: t('sidebar.newPageTip'), desc: t('sidebar.newPageDesc'), placement: 'right' }"
           @click="onNew"
         >
           <Plus :size="13" :stroke-width="2.2" />
@@ -165,11 +166,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
     <div class="sb-foot">
       <button class="sb-foot-btn" @click="goTrash">
         <Trash2 :size="14" :stroke-width="1.8" />
-        <span>回收站</span>
+        <span>{{ t('sidebar.trash') }}</span>
       </button>
       <button
         class="sb-foot-btn icon-only"
-        v-tooltip="store.theme === 'dark' ? '浅色' : '深色'"
+        v-tooltip="store.theme === 'dark' ? t('sidebar.light') : t('sidebar.dark')"
         @click="toggleTheme"
       >
         <component :is="store.theme === 'dark' ? Sun : Moon" :size="14" :stroke-width="1.8" />
@@ -180,8 +181,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
       <button class="sb-user" :class="{ open: userMenuOpen }" @click="userMenuOpen = !userMenuOpen">
         <UserAvatar :size="22" :radius="6" />
         <span class="sb-user-name">{{ displayName }}</span>
-        <span v-if="isAdmin" class="sb-badge" v-tooltip="'管理员'">
-          <ShieldCheck :size="11" :stroke-width="2.2" />管理员
+        <span v-if="isAdmin" class="sb-badge" v-tooltip="t('sidebar.admin')">
+          <ShieldCheck :size="11" :stroke-width="2.2" />{{ t('sidebar.admin') }}
         </span>
       </button>
 
@@ -190,24 +191,26 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
           :class="{ on: store.settingsOpen }"
           @click="userMenuOpen = false; goProfile()"
         >
-          <UserRound :size="14" :stroke-width="1.8" /><span>个人信息</span>
+          <UserRound :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.profile') }}</span>
         </button>
         <template v-if="isAdmin">
           <div class="sb-menu-sep"></div>
           <button :class="{ on: store.space === 'me' }" @click="toSpace('me')">
-            <NotebookPen :size="14" :stroke-width="1.8" /><span>我的笔记</span>
+            <NotebookPen :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.myNotes') }}</span>
           </button>
           <button :class="{ on: store.space === 'public' }" @click="toSpace('public')">
-            <Globe :size="14" :stroke-width="1.8" /><span>公共原稿</span>
+            <Globe :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.publicDraft') }}</span>
           </button>
           <button v-if="legacyCount > 0" :disabled="importing" @click="importLegacy">
             <Import :size="14" :stroke-width="1.8" />
-            <span>{{ importing ? '导入中…' : `导入本机旧笔记（${legacyCount}）` }}</span>
+            <span>{{
+              importing ? t('sidebar.importing') : t('sidebar.importLegacy', { n: legacyCount })
+            }}</span>
           </button>
         </template>
         <div class="sb-menu-sep"></div>
         <button class="danger" @click="onLogout">
-          <LogOut :size="14" :stroke-width="1.8" /><span>退出登录</span>
+          <LogOut :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.logout') }}</span>
         </button>
       </div>
     </div>

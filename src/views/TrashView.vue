@@ -4,6 +4,7 @@ import { RotateCcw, Trash2, AlertTriangle } from 'lucide-vue-next'
 import { store, trashedPages, reloadPages, goHome } from '@/store'
 import { deletePageForever, restorePage } from '@/db/repo'
 import PageIcon from '@/components/PageIcon.vue'
+import { t } from '@/i18n'
 
 const confirming = ref(false)
 
@@ -36,23 +37,23 @@ function timeLabel(ts: number | null) {
   <div class="trash">
     <header class="trash-head">
       <div>
-        <h1>回收站</h1>
-        <p>移到回收站的笔记会保留在这里，彻底删除后无法恢复。</p>
+        <h1>{{ t('trash.title') }}</h1>
+        <p>{{ t('trash.desc') }}</p>
       </div>
       <button
         v-if="trashedPages.length"
         class="gn-btn gn-btn-danger"
         @click="confirming = true"
       >
-        <Trash2 :size="14" :stroke-width="1.8" />清空回收站
+        <Trash2 :size="14" :stroke-width="1.8" />{{ t('trash.emptyAll') }}
       </button>
     </header>
 
     <div class="trash-scroll gn-scroll">
       <div v-if="!trashedPages.length" class="trash-empty">
         <Trash2 :size="24" :stroke-width="1.3" />
-        <p>回收站是空的</p>
-        <button class="gn-btn" @click="goHome">返回笔记</button>
+        <p>{{ t('trash.empty') }}</p>
+        <button class="gn-btn" @click="goHome">{{ t('trash.back') }}</button>
       </div>
 
       <div v-else class="trash-list">
@@ -61,15 +62,15 @@ function timeLabel(ts: number | null) {
             <PageIcon :icon="p.icon" :size="16" />
           </span>
           <div class="trash-body">
-            <div class="trash-title">{{ p.title || '未命名' }}</div>
-            <div class="trash-meta">删除于 {{ timeLabel(p.trashedAt) }}</div>
+            <div class="trash-title">{{ p.title || t('app.untitled') }}</div>
+            <div class="trash-meta">{{ t('trash.deletedAt', { time: timeLabel(p.trashedAt) }) }}</div>
           </div>
           <div class="trash-actions">
             <button class="gn-btn" @click="restore(p.id)">
-              <RotateCcw :size="13.5" :stroke-width="1.9" />恢复
+              <RotateCcw :size="13.5" :stroke-width="1.9" />{{ t('trash.restore') }}
             </button>
             <button class="gn-btn gn-btn-danger" @click="removeForever(p.id)">
-              <Trash2 :size="13.5" :stroke-width="1.9" />彻底删除
+              <Trash2 :size="13.5" :stroke-width="1.9" />{{ t('trash.deleteForever') }}
             </button>
           </div>
         </div>
@@ -79,11 +80,11 @@ function timeLabel(ts: number | null) {
     <div v-if="confirming" class="confirm-overlay gn-fade" @mousedown.self="confirming = false">
       <div class="confirm gn-pop">
         <div class="confirm-icon"><AlertTriangle :size="20" :stroke-width="1.8" /></div>
-        <h3>清空回收站？</h3>
-        <p>将永久删除 {{ trashedPages.length }} 篇笔记及其子页面，此操作不可撤销。</p>
+        <h3>{{ t('trash.confirmTitle') }}</h3>
+        <p>{{ t('trash.confirmDesc', { n: trashedPages.length }) }}</p>
         <div class="confirm-actions">
-          <button class="gn-btn" @click="confirming = false">取消</button>
-          <button class="gn-btn confirm-danger" @click="emptyTrash">确认清空</button>
+          <button class="gn-btn" @click="confirming = false">{{ t('trash.cancel') }}</button>
+          <button class="gn-btn confirm-danger" @click="emptyTrash">{{ t('trash.confirmOk') }}</button>
         </div>
       </div>
     </div>

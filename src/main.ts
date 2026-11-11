@@ -1,6 +1,9 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import { vTooltip } from './directives/tooltip'
+import { t } from './i18n'
 import './style.css'
 
-createApp(App).directive('tooltip', vTooltip).mount('#app')
+const app = createApp(App)
+app.config.globalProperties.$t = t
+app.directive('tooltip', vTooltip).mount('#app')

@@ -2,6 +2,14 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Eye, EyeOff, Loader2, Moon, Sun } from 'lucide-vue-next'
 import { goToPage, login, register, store, toggleTheme } from '@/store'
+import { LOCALES, locale, setLocale, t, type LocaleCode } from '@/i18n'
+import GnSelect from '@/components/GnSelect.vue'
+
+const localeOptions = LOCALES.map((l) => ({ value: l.code, label: l.label }))
+const localeValue = computed({
+  get: () => locale.value,
+  set: (v: string) => setLocale(v as LocaleCode),
+})
 
 type Mode = 'login' | 'register'
 
@@ -16,8 +24,10 @@ const usernameRef = ref<HTMLInputElement | null>(null)
 
 const USERNAME_RE = /^[A-Za-z0-9_\u4e00-\u9fa5]{3,24}$/
 
-const title = computed(() => (mode.value === 'login' ? '登录银杏笔记' : '创建账号'))
-const submitLabel = computed(() => (mode.value === 'login' ? '登录' : '注册并开始使用'))
+const title = computed(() => (mode.value === 'login' ? t('auth.loginTitle') : t('auth.registerTitle')))
+const submitLabel = computed(() =>
+  mode.value === 'login' ? t('auth.submitLogin') : t('auth.submitRegister'),
+)
 
 function switchMode(next: Mode) {
   mode.value = next
@@ -28,12 +38,12 @@ function switchMode(next: Mode) {
 
 function validate(): string {
   const name = username.value.trim()
-  if (!name) return '请输入用户名'
-  if (!password.value) return '请输入密码'
+  if (!name) return t('auth.errUsernameRequired')
+  if (!password.value) return t('auth.errPasswordRequired')
   if (mode.value === 'register') {
-    if (!USERNAME_RE.test(name)) return '用户名需为 3-24 位字母、数字、下划线或中文'
-    if (password.value.length < 6) return '密码至少 6 位'
-    if (password.value !== confirm.value) return '两次输入的密码不一致'
+    if (!USERNAME_RE.test(name)) return t('auth.errUsernameInvalid')
+    if (password.value.length < 6) return t('auth.errPasswordShort')
+    if (password.value !== confirm.value) return t('auth.errPasswordMismatch')
   }
   return ''
 }
@@ -56,7 +66,7 @@ async function submit() {
       if (first) goToPage(first.id)
     }
   } catch (err) {
-    error.value = err instanceof Error ? err.message : '操作失败，请稍后再试'
+    error.value = err instanceof Error ? err.message : t('auth.errFailed')
   } finally {
     busy.value = false
   }
@@ -71,9 +81,12 @@ onMounted(() => usernameRef.value?.focus())
 
 <template>
   <div class="auth">
+    <div class="auth-lang">
+      <GnSelect v-model="localeValue" :options="localeOptions" :min-width="112" />
+    </div>
     <button
       class="gn-icon-btn auth-theme"
-      v-tooltip="store.theme === 'dark' ? '浅色' : '深色'"
+      v-tooltip="store.theme === 'dark' ? t('auth.light') : t('auth.dark')"
       @click="toggleTheme"
     >
       <component :is="store.theme === 'dark' ? Sun : Moon" :size="15" :stroke-width="1.8" />
@@ -82,12 +95,12 @@ onMounted(() => usernameRef.value?.focus())
     <div class="auth-card gn-pop">
       <div class="auth-brand">
         <span class="auth-logo">🍃</span>
-        <span class="auth-name">银杏笔记</span>
+        <span class="auth-name">{{ t('app.name') }}</span>
       </div>
 
       <h1 class="auth-title">{{ title }}</h1>
       <p class="auth-sub">
-        {{ mode === 'login' ? '欢迎回来，继续写下你的想法。' : '注册后会收到几篇示例笔记，随时可以删除。' }}
+        {{ mode === 'login' ? t('auth.loginSub') : t('auth.registerSub') }}
       </p>
 
       <div class="auth-tabs" role="tablist">
@@ -97,7 +110,7 @@ onMounted(() => usernameRef.value?.focus())
           :class="{ on: mode === 'login' }"
           @click="switchMode('login')"
         >
-          登录
+          {{ t('auth.login') }}
         </button>
         <button
           role="tab"
@@ -105,36 +118,36 @@ onMounted(() => usernameRef.value?.focus())
           :class="{ on: mode === 'register' }"
           @click="switchMode('register')"
         >
-          注册
+          {{ t('auth.register') }}
         </button>
       </div>
 
       <form class="auth-form" @submit.prevent="submit">
         <label class="auth-field">
-          <span>用户名</span>
+          <span>{{ t('auth.username') }}</span>
           <input
             ref="usernameRef"
             v-model="username"
             autocomplete="username"
             maxlength="24"
-            :placeholder="mode === 'register' ? '3-24 位字母、数字、下划线或中文' : '请输入用户名'"
+            :placeholder="mode === 'register' ? t('auth.usernameRule') : t('auth.usernamePlaceholder')"
           />
         </label>
 
         <label class="auth-field">
-          <span>密码</span>
+          <span>{{ t('auth.password') }}</span>
           <div class="auth-pw">
             <input
               v-model="password"
               :type="showPassword ? 'text' : 'password'"
               :autocomplete="mode === 'login' ? 'current-password' : 'new-password'"
               maxlength="128"
-              :placeholder="mode === 'register' ? '至少 6 位' : '请输入密码'"
+              :placeholder="mode === 'register' ? t('auth.passwordRule') : t('auth.passwordPlaceholder')"
             />
             <button
               type="button"
               class="auth-eye"
-              v-tooltip="showPassword ? '隐藏密码' : '显示密码'"
+              v-tooltip="showPassword ? t('auth.hidePassword') : t('auth.showPassword')"
               @click="showPassword = !showPassword"
             >
               <component :is="showPassword ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
@@ -143,13 +156,13 @@ onMounted(() => usernameRef.value?.focus())
         </label>
 
         <label v-if="mode === 'register'" class="auth-field">
-          <span>确认密码</span>
+          <span>{{ t('auth.confirmPassword') }}</span>
           <input
             v-model="confirm"
             :type="showPassword ? 'text' : 'password'"
             autocomplete="new-password"
             maxlength="128"
-            placeholder="再输入一次密码"
+            :placeholder="t('auth.confirmPlaceholder')"
           />
         </label>
 
@@ -163,10 +176,10 @@ onMounted(() => usernameRef.value?.focus())
 
       <p class="auth-switch">
         <template v-if="mode === 'login'">
-          还没有账号？<button @click="switchMode('register')">立即注册</button>
+          {{ t('auth.noAccount') }}<button @click="switchMode('register')">{{ t('auth.registerNow') }}</button>
         </template>
         <template v-else>
-          已有账号？<button @click="switchMode('login')">去登录</button>
+          {{ t('auth.haveAccount') }}<button @click="switchMode('login')">{{ t('auth.goLogin') }}</button>
         </template>
       </p>
     </div>
@@ -191,6 +204,12 @@ onMounted(() => usernameRef.value?.focus())
   position: absolute;
   top: 14px;
   right: 14px;
+}
+.auth-lang {
+  position: absolute;
+  top: 14px;
+  right: 50px;
+  z-index: 2;
 }
 .auth-card {
   width: 100%;
