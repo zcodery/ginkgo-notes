@@ -12,6 +12,7 @@ import { store, recentPages, goToPage, reloadPages } from '@/store'
 import { createPage, listPages } from '@/db/repo'
 import { exportDatabaseData, importDatabaseData } from '@/db/databases'
 import PageIcon from '@/components/PageIcon.vue'
+import { t } from '@/i18n'
 
 const importInput = ref<HTMLInputElement | null>(null)
 const busy = ref(false)
@@ -32,14 +33,14 @@ async function newPage() {
 function timeAgo(ts: number) {
   const diff = Date.now() - ts
   const m = Math.floor(diff / 60000)
-  if (m < 1) return '刚刚'
-  if (m < 60) return `${m} 分钟前`
+  if (m < 1) return t('time.justNow')
+  if (m < 60) return t('time.minutesAgo', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
+  if (h < 24) return t('time.hoursAgo', { n: h })
   const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
+  if (d < 30) return t('time.daysAgo', { n: d })
   const date = new Date(ts)
-  return `${date.getMonth() + 1} 月 ${date.getDate()} 日`
+  return t('time.monthDay', { m: date.getMonth() + 1, d: date.getDate() })
 }
 
 async function onImport(e: Event) {
@@ -113,25 +114,23 @@ async function exportAll() {
       <div class="home-inner">
         <div class="home-hero">
           <div class="home-hero-text">
-            <h1>{{ store.space === 'public' ? '公共原稿' : '银杏笔记' }}</h1>
+            <h1>{{ store.space === 'public' ? t('home.publicTitle') : t('home.title') }}</h1>
             <p v-if="store.space === 'public'">
-              新用户注册时会收到这里的副本 · 共
-              <strong>{{ totalPages }}</strong> 篇
+              {{ t('home.publicSubtitle', { n: totalPages }) }}
             </p>
             <p v-else>
-              {{ store.user?.username }} 的 Markdown 笔记空间 · 共
-              <strong>{{ totalPages }}</strong> 篇笔记
+              {{ t('home.subtitle', { name: store.user?.nickname || store.user?.username || '', n: totalPages }) }}
             </p>
           </div>
           <div class="home-hero-actions">
             <button class="gn-btn gn-btn-primary" @click="newPage">
-              <Plus :size="15" :stroke-width="2.2" />新建笔记
+              <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
             </button>
             <button class="gn-btn" @click="importInput?.click()">
-              <Upload :size="14" :stroke-width="1.8" />导入
+              <Upload :size="14" :stroke-width="1.8" />{{ t('home.import') }}
             </button>
             <button class="gn-btn" @click="exportAll">
-              <Download :size="14" :stroke-width="1.8" />备份
+              <Download :size="14" :stroke-width="1.8" />{{ t('home.backup') }}
             </button>
           </div>
         </div>
@@ -139,21 +138,21 @@ async function exportAll() {
         <div class="home-stats">
           <div class="stat">
             <span class="stat-num">{{ totalPages }}</span>
-            <span class="stat-label">篇笔记</span>
+            <span class="stat-label">{{ t('home.statPages') }}</span>
           </div>
           <div class="stat">
             <span class="stat-num">{{ totalWords.toLocaleString() }}</span>
-            <span class="stat-label">字内容</span>
+            <span class="stat-label">{{ t('home.statWords') }}</span>
           </div>
           <div class="stat">
             <span class="stat-num">{{ store.pages.filter((p) => p.favorite).length }}</span>
-            <span class="stat-label">篇收藏</span>
+            <span class="stat-label">{{ t('home.statFav') }}</span>
           </div>
         </div>
 
         <div class="home-section-head">
           <Clock :size="13" :stroke-width="2" />
-          <span>最近编辑</span>
+          <span>{{ t('home.recent') }}</span>
         </div>
 
         <div v-if="recentPages.length" class="home-grid">
@@ -169,23 +168,21 @@ async function exportAll() {
               </span>
               <ArrowRight :size="13" class="card-arrow" />
             </div>
-            <div class="card-title">{{ p.title || '未命名' }}</div>
-            <div class="card-excerpt">{{ p.excerpt || '空白页面……' }}</div>
+            <div class="card-title">{{ p.title || t('app.untitled') }}</div>
+            <div class="card-excerpt">{{ p.excerpt || t('home.excerptEmpty') }}</div>
             <div class="card-foot">{{ timeAgo(p.updatedAt) }}</div>
           </button>
         </div>
 
         <div v-else class="home-empty">
           <div class="home-empty-icon"><Sparkles :size="22" :stroke-width="1.5" /></div>
-          <p>还没有笔记，从第一篇开始吧</p>
+          <p>{{ t('home.empty') }}</p>
           <button class="gn-btn gn-btn-primary" @click="newPage">
-            <Plus :size="15" :stroke-width="2.2" />新建笔记
+            <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
           </button>
         </div>
 
-        <div class="home-tip">
-          提示：按 <kbd>⌘/Ctrl + K</kbd> 全局搜索，正文中按 <kbd>/</kbd> 插入任意区块，所有内容自动保存到你的账号。
-        </div>
+        <div class="home-tip">{{ t('home.tip') }}</div>
       </div>
     </div>
 
@@ -197,7 +194,7 @@ async function exportAll() {
       class="hidden"
       @change="onImport"
     />
-    <div v-if="busy" class="home-busy">正在导入……</div>
+    <div v-if="busy" class="home-busy">{{ t('home.importing') }}</div>
   </div>
 </template>
 
