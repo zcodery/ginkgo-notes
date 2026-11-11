@@ -4,6 +4,7 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Heading4,
   List,
   ListOrdered,
   ListChecks,
@@ -31,15 +32,22 @@ export interface SlashItem {
   title: string
   desc: string
   icon: any
+  /** 菜单右侧显示的快捷输入，如 `/zw` 中的 `zw`（拼音首字母） */
+  shortcut: string
   keywords: string[]
   group: string
   run: (editor: Editor, ctx: SlashCtx) => void
 }
 
 /** 常用的几种图直接出现在命令菜单里，其余在图表块内切换 */
-const QUICK_DIAGRAMS = ['er', 'flow', 'sequence', 'mindmap']
+const QUICK_DIAGRAMS: Record<string, string> = {
+  er: 'er',
+  flow: 'llt',
+  sequence: 'sxt',
+  mindmap: 'swdt',
+}
 
-const diagramItems: SlashItem[] = QUICK_DIAGRAMS.flatMap((id) => {
+const diagramItems: SlashItem[] = Object.entries(QUICK_DIAGRAMS).flatMap(([id, shortcut]) => {
   const t = diagramTemplates.find((x) => x.id === id)
   if (!t) return []
   return [
@@ -48,8 +56,9 @@ const diagramItems: SlashItem[] = QUICK_DIAGRAMS.flatMap((id) => {
       title: t.title,
       desc: t.desc,
       icon: t.icon,
+      shortcut,
       keywords: [...t.keywords, 'tubiao', '图表'],
-      group: '图表',
+      group: '高级块',
       run: (editor: Editor) =>
         editor
           .chain()
@@ -66,71 +75,100 @@ export const slashItems: SlashItem[] = [
     title: '正文',
     desc: '普通文本段落',
     icon: Type,
+    shortcut: 'zw',
     keywords: ['text', 'p', 'wenben', '正文', '段落'],
-    group: '基础',
+    group: '基础块',
     run: (editor) => editor.chain().focus().setParagraph().run(),
   },
   {
+    id: 'todo',
+    title: '待办列表',
+    desc: '可勾选的任务列表',
+    icon: ListChecks,
+    shortcut: 'dblb',
+    keywords: ['todo', 'task', 'check', 'daiban', '待办', '任务'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().toggleTaskList().run(),
+  },
+  {
     id: 'h1',
-    title: '一级标题',
+    title: '标题1',
     desc: '页面内的大标题',
     icon: Heading1,
-    keywords: ['h1', 'heading', 'biaoti', '标题'],
-    group: '基础',
+    shortcut: 'h1',
+    keywords: ['heading', 'biaoti', '标题', '一级标题'],
+    group: '基础块',
     run: (editor) => editor.chain().focus().setNode('heading', { level: 1 }).run(),
   },
   {
     id: 'h2',
-    title: '二级标题',
+    title: '标题2',
     desc: '章节标题',
     icon: Heading2,
-    keywords: ['h2', 'heading', 'biaoti'],
-    group: '基础',
+    shortcut: 'h2',
+    keywords: ['heading', 'biaoti', '二级标题'],
+    group: '基础块',
     run: (editor) => editor.chain().focus().setNode('heading', { level: 2 }).run(),
   },
   {
     id: 'h3',
-    title: '三级标题',
+    title: '标题3',
     desc: '小节标题',
     icon: Heading3,
-    keywords: ['h3', 'heading', 'biaoti'],
-    group: '基础',
+    shortcut: 'h3',
+    keywords: ['heading', 'biaoti', '三级标题'],
+    group: '基础块',
     run: (editor) => editor.chain().focus().setNode('heading', { level: 3 }).run(),
   },
   {
+    id: 'h4',
+    title: '标题4',
+    desc: '更小一级的标题',
+    icon: Heading4,
+    shortcut: 'h4',
+    keywords: ['heading', 'biaoti', '四级标题'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().setNode('heading', { level: 4 }).run(),
+  },
+  {
+    id: 'table',
+    title: '简单表格',
+    desc: '插入 3×3 简单表格',
+    icon: Table,
+    shortcut: 'jdbg',
+    keywords: ['table', 'biaoge', '表格'],
+    group: '基础块',
+    run: (editor) =>
+      editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+  },
+  {
     id: 'bullet',
-    title: '无序列表',
+    title: '项目列表',
     desc: '带圆点的项目列表',
     icon: List,
-    keywords: ['ul', 'list', 'bullet', 'liebiao', '列表'],
-    group: '列表',
+    shortcut: 'xmlb',
+    keywords: ['ul', 'list', 'bullet', 'liebiao', '列表', '无序列表'],
+    group: '基础块',
     run: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
   {
     id: 'ordered',
-    title: '有序列表',
+    title: '编号列表',
     desc: '带编号的项目列表',
     icon: ListOrdered,
-    keywords: ['ol', 'number', 'youxu', '编号'],
-    group: '列表',
+    shortcut: 'bhlb',
+    keywords: ['ol', 'number', 'youxu', '编号', '有序列表'],
+    group: '基础块',
     run: (editor) => editor.chain().focus().toggleOrderedList().run(),
-  },
-  {
-    id: 'todo',
-    title: '待办清单',
-    desc: '可勾选的任务列表',
-    icon: ListChecks,
-    keywords: ['todo', 'task', 'check', 'daiban', '待办', '任务'],
-    group: '列表',
-    run: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
   {
     id: 'quote',
     title: '引用',
     desc: '高亮一段引用文字',
     icon: Quote,
+    shortcut: 'yy',
     keywords: ['quote', 'yinyong', '引用'],
-    group: '区块',
+    group: '基础块',
     run: (editor) => editor.chain().focus().setBlockquote().run(),
   },
   {
@@ -138,8 +176,9 @@ export const slashItems: SlashItem[] = [
     title: '提示块',
     desc: '引用样式的强调段落',
     icon: StickyNote,
+    shortcut: 'tsk',
     keywords: ['callout', 'note', 'tishi', '提示', '注意'],
-    group: '区块',
+    group: '基础块',
     run: (editor) => {
       editor.chain().focus().setBlockquote().run()
       const { from } = editor.state.selection
@@ -154,8 +193,9 @@ export const slashItems: SlashItem[] = [
     title: '代码块',
     desc: '带语法高亮的代码',
     icon: Code2,
+    shortcut: 'dmk',
     keywords: ['code', 'pre', 'daima', '代码'],
-    group: '区块',
+    group: '基础块',
     run: (editor) => editor.chain().focus().toggleCodeBlock().run(),
   },
   {
@@ -163,62 +203,59 @@ export const slashItems: SlashItem[] = [
     title: '分割线',
     desc: '分隔不同内容',
     icon: Minus,
+    shortcut: 'fgx',
     keywords: ['hr', 'divider', 'fenge', '分割线'],
-    group: '区块',
+    group: '基础块',
     run: (editor) => editor.chain().focus().setHorizontalRule().run(),
-  },
-  {
-    id: 'diagram',
-    title: '图表',
-    desc: 'ER 图、链路图、时序图等十种',
-    icon: Shapes,
-    keywords: ['diagram', 'mermaid', 'chart', 'tubiao', '图表', '绘图'],
-    group: '图表',
-    run: (_editor, ctx) => ctx.insertDiagram(),
-  },
-  ...diagramItems,
-  {
-    id: 'database',
-    title: '多维表格',
-    desc: '自定义字段、表格/看板视图',
-    icon: Table2,
-    keywords: ['database', 'db', 'table', 'duowei', '多维表格', '数据库', '看板'],
-    group: '数据',
-    run: (_editor, ctx) => ctx.insertDatabase(),
-  },
-  {
-    id: 'table',
-    title: '表格',
-    desc: '插入 3×3 简单表格',
-    icon: Table,
-    keywords: ['table', 'biaoge', '表格'],
-    group: '数据',
-    run: (editor) =>
-      editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
   },
   {
     id: 'image',
     title: '图片',
     desc: '上传本地图片',
     icon: ImageIcon,
+    shortcut: 'tp',
     keywords: ['img', 'image', 'photo', 'tupian', '图片'],
-    group: '其他',
+    group: '媒体',
     run: (_editor, ctx) => ctx.insertImage(),
   },
+  {
+    id: 'database',
+    title: '多维表格',
+    desc: '自定义字段、表格/看板视图',
+    icon: Table2,
+    shortcut: 'dwbg',
+    keywords: ['database', 'db', 'duowei', '多维表格', '数据库', '看板'],
+    group: '高级块',
+    run: (_editor, ctx) => ctx.insertDatabase(),
+  },
+  {
+    id: 'diagram',
+    title: '图表',
+    desc: 'ER 图、链路图、时序图等十种',
+    icon: Shapes,
+    shortcut: 'tb',
+    keywords: ['diagram', 'mermaid', 'chart', 'tubiao', '图表', '绘图'],
+    group: '高级块',
+    run: (_editor, ctx) => ctx.insertDiagram(),
+  },
+  ...diagramItems,
 ]
 
 export function filterSlashItems(query: string): SlashItem[] {
   const q = query.trim().toLowerCase()
   if (!q) return slashItems
 
-  // 打分排序：标题命中优先于关键词命中，前缀命中优先于任意位置命中。
+  // 打分排序：快捷词 / 标题命中优先于关键词命中，前缀命中优先于任意位置命中。
   // 否则输入 "er" 会先匹配到 "ordered list" 而不是 "ER 图"。
   const scored: { item: SlashItem; score: number; order: number }[] = []
   slashItems.forEach((item, order) => {
     const title = item.title.toLowerCase()
+    const sc = item.shortcut.toLowerCase()
     let score = 0
-    if (title === q) score = 100
+    if (sc === q) score = 100
+    else if (title === q) score = 98
     else if (title.startsWith(q)) score = 90
+    else if (sc.startsWith(q)) score = 85
     else if (title.includes(q)) score = 70
 
     for (const k of item.keywords) {

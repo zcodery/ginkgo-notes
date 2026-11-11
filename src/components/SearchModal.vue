@@ -145,7 +145,7 @@ onMounted(async () => {
             <span
               v-if="page.excerpt"
               class="sm-item-excerpt"
-              :title="pathOf(page.id)"
+              v-tooltip="pathOf(page.id)"
               v-html="highlight(page.excerpt, q.trim())"
             ></span>
           </span>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { EditorContent } from '@tiptap/vue-3'
 import { useEditor } from '@tiptap/vue-3'
 import {
@@ -24,20 +24,27 @@ import {
   resolveSwatch,
   type ColorValue,
 } from './marks/colors'
+import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { createDatabase } from '@/db/databases'
+import { getPage, saveContent, toPlainText } from '@/db/repo'
+import { pageUrl, store } from '@/store'
 import SlashMenu from './SlashMenu.vue'
-import BlockMenu from './BlockMenu.vue'
+import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from './BlockMenu.vue'
 
 const props = withDefaults(
   defineProps<{
     content: string
     pageId: string
     placeholder?: string
+    /** false 时进入只读，不可编辑 */
+    editable?: boolean
   }>(),
-  { placeholder: "输入 '/' 唤起命令……" },
+  { placeholder: "输入 '/' 唤起命令……", editable: true },
 )
 
 const emit = defineEmits<{ (e: 'change', markdown: string, pageId: string): void }>()
+
+const canEdit = computed(() => props.editable !== false)
 
 const rootRef = ref<HTMLElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -63,6 +70,7 @@ function runUndoRedo(e: KeyboardEvent): boolean {
   const mod = e.ctrlKey || e.metaKey
   if (!mod || e.altKey) return false
   if (isNativeEditableTarget(e.target)) return false
+  if (!canEdit.value) return false
 
   const ed = editor.value
   if (!ed) return false
@@ -91,10 +99,12 @@ function runUndoRedo(e: KeyboardEvent): boolean {
 const editor = useEditor({
   content: markdownToDoc(props.content),
   extensions: buildExtensions(props.placeholder),
+  editable: props.editable,
   editorProps: {
     attributes: { class: 'gn-prose' },
     handleKeyDown: (_view, event) => runUndoRedo(event),
     handleTextInput: (view, from, _to, text) => {
+      if (!canEdit.value) return false
       if (text === '/') {
         const before = from > 0 ? view.state.doc.textBetween(from - 1, from, '\n', '\0') : ''
         if (before === '' || /\s/.test(before)) pendingSlashPos = from
@@ -102,6 +112,7 @@ const editor = useEditor({
       return false
     },
     handlePaste: (_view, event) => {
+      if (!canEdit.value) return false
       const items = (event as ClipboardEvent).clipboardData?.items
       if (!items) return false
       for (const it of items) {
@@ -131,6 +142,7 @@ const editor = useEditor({
         .run()
       suppress = false
     }
+    ensureTrailingEmpty()
   },
   onUpdate: () => {
     if (pendingSlashPos != null) {
@@ -139,6 +151,9 @@ const editor = useEditor({
       if (!slash.value.open) openSlashAt(pos)
     }
     updateSlashQuery()
+    // 末尾空行可能刚被写上字 / 换成别的块，立刻再补一行
+    const added = ensureTrailingEmpty()
+    if (slash.value.open && added) repositionSlash()
     if (suppress) return
     scheduleEmit()
   },
@@ -189,6 +204,12 @@ defineExpose({
   getMarkdown: currentMarkdown,
   undo: () => editor.value?.commands.undo(),
   redo: () => editor.value?.commands.redo(),
+  canUndo: () => editor.value?.can().undo() ?? false,
+  canRedo: () => editor.value?.can().redo() ?? false,
+  /** 每次文档变更递增，供菜单等订阅撤销/重做可用性 */
+  historyRev: rev,
+  /** TipTap 实例，供查找替换等外部能力使用 */
+  editor,
   focus: () => {
     const ed = editor.value
     if (!ed) return
@@ -198,8 +219,10 @@ defineExpose({
 
 /* ---------------- 块悬浮手柄 ---------------- */
 
-const handle = ref({ visible: false, top: 0, headingLevel: 0 as 0 | 1 | 2 | 3 })
+const handle = ref({ visible: false, top: 0, headingLevel: 0 as HeadingLevel })
 let hoverBlock: { from: number; to: number } | null = null
+
+type HeadingLevel = 0 | 1 | 2 | 3 | 4
 
 /** 手柄按钮半高，原子块贴顶定位时用 */
 const HANDLE_HALF = 11
@@ -252,12 +275,12 @@ function handleCenterY(alignDom: HTMLElement | null, isText: boolean): number {
   return alignDom.getBoundingClientRect().top + HANDLE_HALF
 }
 
-function headingLevelOf(block: HoverBlock): 0 | 1 | 2 | 3 {
+function headingLevelOf(block: HoverBlock): HeadingLevel {
   if (block.node.type.name === 'heading') {
-    return Math.min(3, Math.max(1, Number(block.node.attrs?.level) || 1)) as 1 | 2 | 3
+    return Math.min(4, Math.max(1, Number(block.node.attrs?.level) || 1)) as HeadingLevel
   }
-  if (block.alignIsText && block.alignDom.tagName.match(/^H[1-3]$/)) {
-    return Number(block.alignDom.tagName[1]) as 1 | 2 | 3
+  if (block.alignIsText && block.alignDom.tagName.match(/^H[1-4]$/)) {
+    return Number(block.alignDom.tagName[1]) as HeadingLevel
   }
   return 0
 }
@@ -389,7 +412,10 @@ function blockAtPoint(clientX: number, clientY: number): HoverBlock | null {
 function onMouseMove(e: MouseEvent) {
   const ed = editor.value
   const root = rootRef.value
-  if (!ed || !root) return
+  if (!ed || !root || !canEdit.value) {
+    handle.value.visible = false
+    return
+  }
   if (slash.value.open || blockMenu.value.open) return
   // 鼠标悬停到手柄自身时保持当前状态，否则手柄会「跑掉」
   const target = e.target as HTMLElement | null
@@ -480,7 +506,7 @@ const bgBarColor = computed(() => {
 function updateBubble() {
   const ed = editor.value
   const root = rootRef.value
-  if (!ed || !root) {
+  if (!ed || !root || !canEdit.value) {
     bubble.value.visible = false
     return
   }
@@ -598,26 +624,130 @@ function applyLink() {
   updateBubble()
 }
 
+/* ---------------- 末尾空行 ---------------- */
+
+function isEmptyParagraph(node: { type: { name: string }; content: { size: number } } | null | undefined) {
+  return !!node && node.type.name === 'paragraph' && node.content.size === 0
+}
+
+/**
+ * 保证文档末尾恰好有一个空段落。
+ *
+ * - 最后一行被写上字 / 换成别的块 → 再补一行
+ * - 取消 `/` 后可能留下两个空段落 → 收成一个
+ * - 不进撤销栈，避免和 Ctrl+Z 打架
+ * - 返回文档是否被改过（调用方好据此重算斜杠菜单位置）
+ */
+function ensureTrailingEmpty(): boolean {
+  const ed = editor.value
+  if (!ed || ensuringTrail || !canEdit.value) return false
+  const doc = ed.state.doc
+  const last = doc.lastChild
+  if (!last) return false
+
+  ensuringTrail = true
+  try {
+    // 末尾已是空段落：若再前面还是空的，只留一个
+    if (isEmptyParagraph(last)) {
+      if (doc.childCount < 2) return false
+      const prev = doc.child(doc.childCount - 2)
+      if (!isEmptyParagraph(prev)) return false
+      const from = doc.content.size - last.nodeSize
+      const tr = ed.state.tr.delete(from, doc.content.size)
+      tr.setMeta('addToHistory', false)
+      ed.view.dispatch(tr)
+      return true
+    }
+
+    const para = ed.schema.nodes.paragraph?.create()
+    if (!para) return false
+    const tr = ed.state.tr.insert(doc.content.size, para)
+    tr.setMeta('addToHistory', false)
+    ed.view.dispatch(tr)
+    return true
+  } finally {
+    ensuringTrail = false
+  }
+}
+
+let ensuringTrail = false
+
 /* ---------------- 斜杠菜单 ---------------- */
 
-const slash = ref({ open: false, from: 0, query: '', x: 0, y: 0, index: 0 })
+const SLASH_MENU_W = 248
+const SLASH_MENU_MAX_H = 380
+const SLASH_MENU_MIN_H = 160
+
+const slash = ref({ open: false, from: 0, query: '', x: 0, y: 0, maxHeight: SLASH_MENU_MAX_H, index: 0 })
 const slashItems = computed(() => filterSlashItems(slash.value.query))
+
+/** 按光标视口坐标摆菜单：优先下方，空间不够就翻到上方，并钳进视口 */
+function placeSlashMenu(from: number): { x: number; y: number; maxHeight: number } | null {
+  const ed = editor.value
+  if (!ed) return null
+  const coords = ed.view.coordsAtPos(from)
+  const pad = 8
+  const gap = 6
+  const vh = window.innerHeight
+  const x = Math.max(pad, Math.min(coords.left, window.innerWidth - SLASH_MENU_W - pad))
+  const spaceBelow = vh - coords.bottom - pad
+  const spaceAbove = coords.top - pad
+  let y: number
+  let maxHeight: number
+  if (spaceBelow >= Math.min(SLASH_MENU_MAX_H, 220) || spaceBelow >= spaceAbove) {
+    maxHeight = Math.max(SLASH_MENU_MIN_H, Math.min(SLASH_MENU_MAX_H, Math.max(spaceBelow - gap, SLASH_MENU_MIN_H)))
+    y = coords.bottom + gap
+  } else {
+    maxHeight = Math.max(SLASH_MENU_MIN_H, Math.min(SLASH_MENU_MAX_H, Math.max(spaceAbove - gap, SLASH_MENU_MIN_H)))
+    y = coords.top - gap - maxHeight
+  }
+  // 光标偶尔会落在视口外（刚补了末尾空行还没滚过来），强制钳进可见区域
+  maxHeight = Math.min(maxHeight, vh - pad * 2)
+  y = Math.max(pad, Math.min(y, vh - maxHeight - pad))
+  return { x, y, maxHeight }
+}
 
 function openSlashAt(from: number) {
   const ed = editor.value
-  const root = rootRef.value
-  if (!ed || !root) return
-  const coords = ed.view.coordsAtPos(from)
-  const rect = root.getBoundingClientRect()
+  if (!ed || !canEdit.value) return
+  // 先让光标进视口，再算坐标，否则菜单会跑到屏幕外
+  try {
+    const dom = ed.view.domAtPos(from).node as Node
+    const el = (dom.nodeType === 1 ? (dom as HTMLElement) : dom.parentElement)
+    el?.scrollIntoView({ block: 'nearest' })
+  } catch {
+    /* pos 暂时无效时跳过 */
+  }
+  const place = placeSlashMenu(from)
+  if (!place) return
   slash.value = {
     open: true,
     from,
     query: '',
-    x: Math.min(coords.left - rect.left, rect.width - 300),
-    y: coords.bottom - rect.top + 6,
+    x: place.x,
+    y: place.y,
+    maxHeight: place.maxHeight,
     index: 0,
   }
   handle.value.visible = false
+}
+
+function repositionSlash() {
+  if (!slash.value.open) return
+  const ed = editor.value
+  if (!ed) return
+  try {
+    const dom = ed.view.domAtPos(slash.value.from).node as Node
+    const el = (dom.nodeType === 1 ? (dom as HTMLElement) : dom.parentElement)
+    el?.scrollIntoView({ block: 'nearest' })
+  } catch {
+    /* ignore */
+  }
+  const place = placeSlashMenu(slash.value.from)
+  if (!place) return
+  slash.value.x = place.x
+  slash.value.y = place.y
+  slash.value.maxHeight = place.maxHeight
 }
 
 function closeSlash() {
@@ -719,25 +849,238 @@ async function insertDatabase() {
 
 /* ---------------- 块菜单 ---------------- */
 
+const blockMenuRef = ref<InstanceType<typeof BlockMenu> | null>(null)
 const blockMenu = ref({ open: false, x: 0, y: 0 })
+const blockMenuInfo = ref<BlockMenuInfo>({
+  currentType: '',
+  canTurn: false,
+  canColor: false,
+  charCount: 0,
+  editorName: '',
+  editedAt: '',
+})
+
+/** 「移动到 / 复制到页面」可选的目标：当前空间里除本页外的未删除页面 */
+const blockMenuPages = computed<BlockMenuPage[]>(() =>
+  store.pages
+    .filter((p) => !p.trashed && p.id !== props.pageId)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .map((p) => ({ id: p.id, title: p.title, icon: p.icon })),
+)
+
+/** 没有可编辑文字的块：不能转换类型、不能上色 */
+const ATOM_BLOCKS = new Set(['diagram', 'databaseBlock', 'horizontalRule', 'table'])
+
+function isListItem(name: string) {
+  return name === 'listItem' || name === 'taskItem'
+}
+
+function formatEditedAt(ts: number): string {
+  const d = new Date(ts)
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  if (d.toDateString() === new Date().toDateString()) return `今天 ${hh}:${mm}`
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hh}:${mm}`
+}
+
+const notice = ref('')
+let noticeTimer: number | null = null
+
+function notify(msg: string) {
+  notice.value = msg
+  if (noticeTimer) window.clearTimeout(noticeTimer)
+  noticeTimer = window.setTimeout(() => {
+    notice.value = ''
+    noticeTimer = null
+  }, 1800)
+}
+
+async function writeClipboard(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    return
+  } catch {
+    /* 非安全上下文（局域网 http）没有 clipboard API，退回 execCommand */
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  ta.remove()
+}
 
 function openBlockMenu() {
   const ed = editor.value
   const root = rootRef.value
-  if (!ed || !root || !hoverBlock) return
+  if (!ed || !root || !hoverBlock || !canEdit.value) return
+  const node = ed.state.doc.nodeAt(hoverBlock.from)
+  if (!node) return
+  const name = node.type.name
+  const $from = ed.state.doc.resolve(hoverBlock.from)
+  const page = store.pages.find((p) => p.id === props.pageId)
+  blockMenuInfo.value = {
+    currentType:
+      name === 'heading'
+        ? `h${node.attrs.level}`
+        : isListItem(name)
+          ? $from.parent.type.name
+          : name,
+    canTurn: !ATOM_BLOCKS.has(name),
+    canColor: !ATOM_BLOCKS.has(name) && name !== 'codeBlock' && !!node.textContent.trim(),
+    charCount: node.textContent.replace(/\s/g, '').length,
+    editorName: store.user?.username ?? '—',
+    editedAt: page ? formatEditedAt(page.updatedAt) : '',
+  }
+
   const rect = root.getBoundingClientRect()
   const coords = ed.view.coordsAtPos(hoverBlock.from + 1)
   blockMenu.value = { open: true, x: coords.left - rect.left + 6, y: coords.top - rect.top + 26 }
+
+  // 靠近视口底部时整体上移，保证菜单完整可见
+  void nextTick(() => {
+    const el = root.querySelector<HTMLElement>('.block-menu')
+    if (!el) return
+    const overflow = el.getBoundingClientRect().bottom - (window.innerHeight - 8)
+    if (overflow <= 0) return
+    const minY = 8 - rect.top
+    blockMenu.value.y = Math.max(minY, blockMenu.value.y - overflow)
+  })
+}
+
+/** 把一个块导出为 Markdown（列表项补上外层列表，图片换回 asset: 引用） */
+function blockMarkdown(from: number): string {
+  const ed = editor.value
+  if (!ed) return ''
+  const doc = ed.state.doc
+  const node = doc.nodeAt(from)
+  if (!node) return ''
+  let content: unknown[] = [node.toJSON()]
+  if (isListItem(node.type.name)) {
+    const list = doc.resolve(from).parent
+    content = [{ type: list.type.name, attrs: list.attrs, content }]
+  }
+  const json = dehydrateAssets(JSON.stringify({ type: 'doc', content }))
+  return docToMarkdown(JSON.parse(json))
+}
+
+/** 走 ProseMirror 自己的复制 / 剪切，粘贴回编辑器时块结构不丢 */
+function copyBlock(from: number, cut: boolean) {
+  const ed = editor.value
+  if (!ed) return
+  const fallback = blockMarkdown(from)
+  const to = from + (ed.state.doc.nodeAt(from)?.nodeSize ?? 0)
+  ed.view.dispatch(ed.state.tr.setSelection(NodeSelection.create(ed.state.doc, from)))
+  ed.view.focus()
+  if (!document.execCommand(cut ? 'cut' : 'copy')) {
+    void writeClipboard(fallback)
+    if (cut) ed.chain().focus().deleteRange({ from, to }).run()
+  }
+  notify(cut ? '已剪切' : '已复制')
+}
+
+function insertEmptyBlock(at: number, likeName: string) {
+  const ed = editor.value
+  if (!ed) return
+  const item = isListItem(likeName)
+  const json = item ? { type: likeName, content: [{ type: 'paragraph' }] } : { type: 'paragraph' }
+  ed.chain()
+    .focus()
+    .insertContentAt(at, json)
+    .setTextSelection(at + (item ? 2 : 1))
+    .run()
+}
+
+function selectBlockText(from: number, to: number) {
+  return ({ tr }: { tr: Transaction }) => {
+    tr.setSelection(TextSelection.between(tr.doc.resolve(from), tr.doc.resolve(to)))
+    return true
+  }
+}
+
+function colorBlock(from: number, to: number, kind: 'font' | 'bg', value: string) {
+  const ed = editor.value
+  if (!ed) return
+  const c = ed.chain().focus().command(selectBlockText(from, to))
+  if (kind === 'font') {
+    if (value === 'none') c.unsetFontColor()
+    else c.setFontColor(value)
+  } else if (value === 'none') c.unsetBgColor()
+  else c.setBgColor(value)
+  c.command(({ tr }) => {
+    tr.setSelection(Selection.near(tr.doc.resolve(to), -1))
+    return true
+  }).run()
+}
+
+function turnBlock(from: number, to: number, type: string) {
+  const ed = editor.value
+  if (!ed) return
+  ed.chain().focus().command(selectBlockText(from, to)).run()
+  const c = ed.chain().focus()
+  const level = /^h([1-4])$/.exec(type)
+  if (type === 'paragraph') c.setParagraph().run()
+  else if (level) c.setNode('heading', { level: Number(level[1]) }).run()
+  else if (type === 'bulletList') c.toggleBulletList().run()
+  else if (type === 'orderedList') c.toggleOrderedList().run()
+  else if (type === 'taskList') c.toggleTaskList().run()
+  else if (type === 'blockquote') c.toggleBlockquote().run()
+  else if (type === 'codeBlock') c.toggleCodeBlock().run()
+}
+
+/** 把块追加到另一个页面末尾；move 为 true 时成功后从本页删除 */
+async function sendBlockToPage(targetId: string, from: number, to: number, move: boolean) {
+  const ed = editor.value
+  if (!ed) return
+  const node = ed.state.doc.nodeAt(from)
+  if (!node) return
+  const md = blockMarkdown(from)
+  const target = store.pages.find((p) => p.id === targetId)
+  const targetName = target?.title || '未命名'
+  try {
+    const cur = await getPage(targetId)
+    if (!cur) throw new Error('目标页面不存在')
+    const base = cur.content.replace(/\s+$/, '')
+    const next = base ? `${base}\n\n${md}` : md
+    const excerpt = await saveContent(targetId, next)
+    if (target) {
+      target.content = next
+      target.excerpt = excerpt || toPlainText(next)
+      target.updatedAt = Date.now()
+    }
+  } catch {
+    notify('操作失败，请重试')
+    return
+  }
+  if (move) {
+    // 等待保存期间本页可能又被编辑过，块没动才删，避免删错
+    const now = editor.value?.state.doc.nodeAt(from)
+    if (now && now.eq(node)) {
+      editor.value?.chain().focus().deleteRange({ from, to }).run()
+      handle.value.visible = false
+    }
+    notify(`已移动到「${targetName}」`)
+  } else {
+    notify(`已复制到「${targetName}」`)
+  }
 }
 
 function runBlockAction(action: string) {
   const ed = editor.value
-  if (!ed || !hoverBlock) return
+  if (!ed || !hoverBlock || !canEdit.value) return
   const { from, to } = hoverBlock
+  const name = ed.state.doc.nodeAt(from)?.type.name ?? 'paragraph'
   blockMenu.value.open = false
 
+  if (action === 'copy' || action === 'cut') {
+    copyBlock(from, action === 'cut')
+    if (action === 'cut') handle.value.visible = false
+    return
+  }
   if (action === 'delete') {
     ed.chain().focus().deleteRange({ from, to }).run()
+    handle.value.visible = false
     return
   }
   if (action === 'duplicate') {
@@ -745,51 +1088,91 @@ function runBlockAction(action: string) {
     ed.chain().focus().insertContentAt(to, slice.content.toJSON()).run()
     return
   }
-  if (action === 'moveUp') {
-    const doc = ed.state.doc
-    const $from = doc.resolve(from)
-    const idx = $from.index(0)
-    if (idx <= 0) return
-    const prevNode = doc.child(idx - 1)
-    const prevStart = from - prevNode.nodeSize
-    const slice = doc.slice(from, to)
-    const tr = ed.state.tr
-    tr.delete(from, to)
-    tr.insert(prevStart, slice.content)
-    ed.view.dispatch(tr)
+  if (action === 'copyLink') {
+    const index = ed.state.doc.resolve(from).index(0)
+    const url = pageUrl(props.pageId, index)
+    void writeClipboard(url).then(() => notify('已复制块链接'))
     return
   }
-  if (action === 'moveDown') {
-    const doc = ed.state.doc
-    const $from = doc.resolve(from)
-    const idx = $from.index(0)
-    if (idx >= doc.childCount - 1) return
-    const nextNode = doc.child(idx + 1)
-    const insertAt = from + nextNode.nodeSize
-    const slice = doc.slice(from, to)
-    const tr = ed.state.tr
-    tr.delete(from, to)
-    tr.replaceWith(insertAt, insertAt, slice.content)
-    ed.view.dispatch(tr)
+  if (action === 'insertAbove') return insertEmptyBlock(from, name)
+  if (action === 'insertBelow') return insertEmptyBlock(to, name)
+  if (action.startsWith('turn:')) return turnBlock(from, to, action.slice(5))
+  if (action.startsWith('font:')) return colorBlock(from, to, 'font', action.slice(5))
+  if (action.startsWith('bg:')) return colorBlock(from, to, 'bg', action.slice(3))
+  if (action.startsWith('moveTo:')) return void sendBlockToPage(action.slice(7), from, to, true)
+  if (action.startsWith('copyTo:')) return void sendBlockToPage(action.slice(7), from, to, false)
+}
+
+/** 菜单打开时的单键 / 组合键快捷操作（和菜单右侧的提示一致） */
+function onBlockMenuKeyDown(e: KeyboardEvent) {
+  if (!blockMenu.value.open || !canEdit.value) return
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    blockMenu.value.open = false
     return
   }
-  if (action.startsWith('turn:')) {
-    const type = action.slice(5)
-    ed.chain()
-      .focus()
-      .setTextSelection({ from: from + 1, to: Math.max(from + 1, to - 1) })
-      .run()
-    const c = ed.chain().focus()
-    if (type === 'paragraph') c.setParagraph().run()
-    else if (type === 'h1') c.setNode('heading', { level: 1 }).run()
-    else if (type === 'h2') c.setNode('heading', { level: 2 }).run()
-    else if (type === 'h3') c.setNode('heading', { level: 3 }).run()
-    else if (type === 'bulletList') c.toggleBulletList().run()
-    else if (type === 'orderedList') c.toggleOrderedList().run()
-    else if (type === 'taskList') c.toggleTaskList().run()
-    else if (type === 'blockquote') c.toggleBlockquote().run()
-    else if (type === 'codeBlock') c.toggleCodeBlock().run()
+  // 页面搜索框里正常打字
+  if (isNativeEditableTarget(e.target)) return
+
+  const mod = e.ctrlKey || e.metaKey
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+  if (mod && e.shiftKey && k === 'p') {
+    e.preventDefault()
+    e.stopPropagation()
+    blockMenuRef.value?.openSub('move')
+    return
   }
+  let action: string | null = null
+  if (mod && !e.shiftKey && !e.altKey) {
+    if (k === 'c') action = 'copy'
+    else if (k === 'x') action = 'cut'
+    else if (k === 'd') action = 'duplicate'
+  } else if (!mod && !e.altKey && !e.shiftKey) {
+    if (k === 'Delete' || k === 'Backspace') action = 'delete'
+    else if (k === 'f') action = 'copyLink'
+    else if (k === 'a') action = 'insertAbove'
+    else if (k === 'b') action = 'insertBelow'
+  }
+  if (!action) return
+  e.preventDefault()
+  e.stopPropagation()
+  runBlockAction(action)
+}
+
+/**
+ * 块链接定位后的高亮框。
+ * 画在编辑器外层而不是给块加 class：ProseMirror 会把它管理的 DOM 上的外来改动重绘掉。
+ */
+const flashBox = ref<{ top: number; height: number; key: number } | null>(null)
+let flashTimer: number | null = null
+
+/** 打开 `/<id>?b=<序号>`（兼容旧 `#/p/<id>?b=`）时，滚到对应块并闪一下 */
+function revealBlockFromUrl() {
+  let raw: string | null = null
+  const path = window.location.pathname.replace(/\/+$/, '') || '/'
+  if (path === `/${props.pageId}`) {
+    raw = new URLSearchParams(window.location.search).get('b')
+  } else {
+    const m = /^#\/?p\/([^?]+)\?(.*)$/.exec(window.location.hash)
+    if (m && m[1] === props.pageId) raw = new URLSearchParams(m[2]).get('b')
+  }
+  const index = raw == null ? NaN : Number(raw)
+  if (!Number.isInteger(index) || index < 0) return
+  window.setTimeout(() => {
+    const el = editor.value?.view.dom.children[index] as HTMLElement | undefined
+    const root = rootRef.value
+    if (!el || !root) return
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const r = el.getBoundingClientRect()
+    const base = root.getBoundingClientRect()
+    flashBox.value = { top: r.top - base.top - 2, height: r.height + 4, key: Date.now() }
+    if (flashTimer) window.clearTimeout(flashTimer)
+    flashTimer = window.setTimeout(() => {
+      flashBox.value = null
+      flashTimer = null
+    }, 1800)
+  }, 120)
 }
 
 /* ---------------- 拖拽移动块 ---------------- */
@@ -800,7 +1183,7 @@ const dropLineY = ref<number | null>(null)
 let dropPos: number | null = null
 
 function onDragStart(e: DragEvent) {
-  if (!hoverBlock) {
+  if (!hoverBlock || !canEdit.value) {
     e.preventDefault()
     return
   }
@@ -814,7 +1197,7 @@ function onDragStart(e: DragEvent) {
 }
 
 function onDragOver(e: DragEvent) {
-  if (dragFrom.value == null) return
+  if (dragFrom.value == null || !canEdit.value) return
   const ed = editor.value
   const root = rootRef.value
   if (!ed || !root) return
@@ -833,7 +1216,7 @@ function onDragOver(e: DragEvent) {
 }
 
 function onDrop(e: DragEvent) {
-  if (dragFrom.value == null) return
+  if (dragFrom.value == null || !canEdit.value) return
   e.preventDefault()
   e.stopPropagation()
   const ed = editor.value
@@ -930,19 +1313,18 @@ function onKeyDown(e: KeyboardEvent) {
     colorPanelOpen.value = false
     return
   }
-
-  if (e.key === 'Escape' && blockMenu.value.open) {
-    blockMenu.value.open = false
-    return
-  }
 }
 
 function onGlobalMouseDown(e: MouseEvent) {
   const root = rootRef.value
   if (!root) return
   const target = e.target as Node
-  if (slash.value.open && !root.contains(target)) {
-    cancelSlash()
+  if (slash.value.open) {
+    const menuEl = document.querySelector('.slash-menu')
+    // 菜单已挂到 body，不能只看 note-editor 是否包含点击目标
+    if (!root.contains(target) && !menuEl?.contains(target)) {
+      cancelSlash()
+    }
   }
   if (blockMenu.value.open) {
     const menuEl = document.querySelector('.block-menu')
@@ -953,6 +1335,25 @@ function onGlobalMouseDown(e: MouseEvent) {
   }
 }
 
+watch(
+  canEdit,
+  (v) => {
+    const ed = editor.value
+    if (!ed) return
+    ed.setEditable(v)
+    if (!v) {
+      handle.value = { ...handle.value, visible: false }
+      slash.value.open = false
+      blockMenu.value.open = false
+      bubble.value.visible = false
+      linkMode.value = false
+      colorPanelOpen.value = false
+      resetDrag()
+    }
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   const el = rootRef.value
   if (el) {
@@ -960,7 +1361,19 @@ onMounted(() => {
     el.addEventListener('drop', onDrop, true)
   }
   document.addEventListener('mousedown', onGlobalMouseDown)
+  // 捕获阶段：抢在 ProseMirror 之前处理，否则 A / B 会被当成正文输入
+  document.addEventListener('keydown', onBlockMenuKeyDown, true)
+  // 捕获阶段：笔记滚动容器滚动时，固定定位的斜杠菜单要跟着光标重算
+  window.addEventListener('scroll', onSlashViewportChange, true)
+  window.addEventListener('resize', onSlashViewportChange)
+  window.addEventListener('popstate', revealBlockFromUrl)
+  revealBlockFromUrl()
+  editor.value?.setEditable(canEdit.value)
 })
+
+function onSlashViewportChange() {
+  if (slash.value.open) repositionSlash()
+}
 
 onBeforeUnmount(() => {
   const el = rootRef.value
@@ -969,12 +1382,19 @@ onBeforeUnmount(() => {
     el.removeEventListener('drop', onDrop, true)
   }
   document.removeEventListener('mousedown', onGlobalMouseDown)
+  document.removeEventListener('keydown', onBlockMenuKeyDown, true)
+  window.removeEventListener('scroll', onSlashViewportChange, true)
+  window.removeEventListener('resize', onSlashViewportChange)
+  window.removeEventListener('popstate', revealBlockFromUrl)
+  if (noticeTimer) window.clearTimeout(noticeTimer)
+  if (flashTimer) window.clearTimeout(flashTimer)
 })
 </script>
 
 <template>
   <div
     class="note-editor"
+    :class="{ 'is-readonly': !canEdit }"
     ref="rootRef"
     @mousemove="onMouseMove"
     @mouseleave="onMouseLeaveRoot"
@@ -994,7 +1414,7 @@ onBeforeUnmount(() => {
       <button
         v-if="handle.headingLevel"
         class="bh-level"
-        :title="`拖动排序 / 打开菜单 · H${handle.headingLevel}`"
+        v-tooltip="`拖动排序 / 打开菜单 · H${handle.headingLevel}`"
         draggable="true"
         @dragstart="onDragStart"
         @dragend="resetDrag"
@@ -1005,7 +1425,7 @@ onBeforeUnmount(() => {
       <button
         v-else
         class="bh-grip"
-        title="拖动排序 / 打开菜单"
+        v-tooltip="'拖动排序 / 打开菜单'"
         draggable="true"
         @dragstart="onDragStart"
         @dragend="resetDrag"
@@ -1014,6 +1434,13 @@ onBeforeUnmount(() => {
         <GripVertical :size="15" :stroke-width="2" />
       </button>
     </div>
+
+    <div
+      v-if="flashBox"
+      :key="flashBox.key"
+      class="block-flash"
+      :style="{ top: flashBox.top + 'px', height: flashBox.height + 'px' }"
+    ></div>
 
     <!-- 拖拽指示线 -->
     <div v-if="dropLineY !== null" class="block-drop-line" :style="{ top: dropLineY + 'px' }"></div>
@@ -1027,35 +1454,35 @@ onBeforeUnmount(() => {
       <template v-if="!linkMode">
         <button
           :class="{ on: editor?.isActive('bold') }"
-          title="粗体 ⌘B"
+          v-tooltip="'粗体 ⌘B'"
           @mousedown.prevent="editor?.chain().focus().toggleBold().run()"
         >
           <Bold :size="15" :stroke-width="2.2" />
         </button>
         <button
           :class="{ on: editor?.isActive('italic') }"
-          title="斜体 ⌘I"
+          v-tooltip="'斜体 ⌘I'"
           @mousedown.prevent="editor?.chain().focus().toggleItalic().run()"
         >
           <Italic :size="15" :stroke-width="2.2" />
         </button>
         <button
           :class="{ on: editor?.isActive('underline') }"
-          title="下划线 ⌘U"
+          v-tooltip="'下划线 ⌘U'"
           @mousedown.prevent="editor?.chain().focus().toggleUnderline().run()"
         >
           <Underline :size="15" :stroke-width="2.2" />
         </button>
         <button
           :class="{ on: editor?.isActive('strike') }"
-          title="删除线"
+          v-tooltip="'删除线'"
           @mousedown.prevent="editor?.chain().focus().toggleStrike().run()"
         >
           <Strikethrough :size="15" :stroke-width="2.2" />
         </button>
         <button
           :class="{ on: editor?.isActive('code') }"
-          title="行内代码"
+          v-tooltip="'行内代码'"
           @mousedown.prevent="editor?.chain().focus().toggleCode().run()"
         >
           <Code :size="15" :stroke-width="2.2" />
@@ -1064,7 +1491,7 @@ onBeforeUnmount(() => {
         <button
           class="bubble-color-btn"
           :class="{ on: !!activeFontColor || !!activeBgColor || colorPanelOpen }"
-          title="文字 / 背景颜色"
+          v-tooltip="'文字 / 背景颜色'"
           @mousedown.prevent="toggleColorPanel"
         >
           <Baseline :size="15" :stroke-width="2.2" />
@@ -1076,13 +1503,13 @@ onBeforeUnmount(() => {
         <span class="bubble-sep"></span>
         <button
           :class="{ on: editor?.isActive('link') }"
-          title="链接 ⌘K"
+          v-tooltip="'链接 ⌘K'"
           @mousedown.prevent="toggleLink"
         >
           <Link2 :size="15" :stroke-width="2.2" />
         </button>
         <button
-          title="清除格式"
+          v-tooltip="'清除格式'"
           @mousedown.prevent="
             colorPanelOpen = false;
             editor?.chain().focus().unsetAllMarks().run()
@@ -1098,7 +1525,7 @@ onBeforeUnmount(() => {
               <button
                 class="bubble-swatch default"
                 :class="{ on: !activeFontColor }"
-                title="默认"
+                v-tooltip="'默认'"
                 @mousedown.prevent="applyFontColor(null)"
               >
                 <span class="bubble-swatch-none">A</span>
@@ -1108,13 +1535,13 @@ onBeforeUnmount(() => {
                 :key="`font-${opt.key}`"
                 class="bubble-swatch"
                 :class="{ on: activeFontColor === opt.key }"
-                :title="opt.label"
+                v-tooltip="opt.label"
                 :style="fontSwatchStyle(opt.swatch)"
                 @mousedown.prevent="applyFontColor(opt.key)"
               ></button>
             </div>
             <div class="bubble-custom-row">
-              <label class="bubble-custom-pick" title="自定义颜色">
+              <label class="bubble-custom-pick" v-tooltip="'自定义颜色'">
                 <input
                   type="color"
                   :value="customFontHex"
@@ -1150,7 +1577,7 @@ onBeforeUnmount(() => {
               <button
                 class="bubble-swatch default"
                 :class="{ on: !activeBgColor }"
-                title="默认"
+                v-tooltip="'默认'"
                 @mousedown.prevent="applyBgColor(null)"
               >
                 <span class="bubble-swatch-none">A</span>
@@ -1160,13 +1587,13 @@ onBeforeUnmount(() => {
                 :key="`bg-${opt.key}`"
                 class="bubble-swatch bg"
                 :class="{ on: activeBgColor === opt.key }"
-                :title="opt.label"
+                v-tooltip="opt.label"
                 :style="bgSwatchStyle(opt.swatch)"
                 @mousedown.prevent="applyBgColor(opt.key)"
               ></button>
             </div>
             <div class="bubble-custom-row">
-              <label class="bubble-custom-pick" title="自定义颜色">
+              <label class="bubble-custom-pick" v-tooltip="'自定义颜色'">
                 <input type="color" :value="customBgHex" @input="onCustomBgPick" />
                 <span class="bubble-custom-preview" :style="{ background: customBgHex }"></span>
               </label>
@@ -1208,6 +1635,7 @@ onBeforeUnmount(() => {
       :visible="slash.open"
       :x="slash.x"
       :y="slash.y"
+      :max-height="slash.maxHeight"
       :items="slashItems"
       :active-index="slash.index"
       @select="pickSlash"
@@ -1215,11 +1643,18 @@ onBeforeUnmount(() => {
     />
 
     <BlockMenu
+      ref="blockMenuRef"
       :visible="blockMenu.open"
       :x="blockMenu.x"
       :y="blockMenu.y"
+      :info="blockMenuInfo"
+      :pages="blockMenuPages"
       @action="runBlockAction"
     />
+
+    <Teleport to="body">
+      <div v-if="notice" class="block-notice">{{ notice }}</div>
+    </Teleport>
 
     <input
       ref="fileInput"
@@ -1235,6 +1670,39 @@ onBeforeUnmount(() => {
 <style scoped>
 .note-editor {
   position: relative;
+}
+.block-flash {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--gn-accent) 16%, transparent);
+  pointer-events: none;
+  z-index: 0;
+  animation: block-flash 1.8s ease forwards;
+}
+@keyframes block-flash {
+  0%,
+  55% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.block-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  z-index: 200;
+  padding: 7px 14px;
+  border-radius: 8px;
+  background: var(--gn-text);
+  color: var(--gn-bg);
+  font-size: 13px;
+  box-shadow: var(--gn-shadow-md);
+  pointer-events: none;
 }
 .block-drop-line {
   position: absolute;
@@ -1467,5 +1935,36 @@ onBeforeUnmount(() => {
 .bubble-custom-apply.on {
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
+}
+
+/* 锁定只读：隐藏块手柄 / 编辑控件，禁用待办勾选 */
+.note-editor.is-readonly .block-handle {
+  display: none !important;
+}
+.note-editor.is-readonly :deep(ul[data-type='taskList'] input[type='checkbox']) {
+  pointer-events: none;
+  cursor: default;
+}
+.note-editor.is-readonly :deep(.ProseMirror) {
+  caret-color: transparent;
+}
+.note-editor.is-readonly :deep(.cb-btn.danger),
+.note-editor.is-readonly :deep(.cb-lang .cb-caret),
+.note-editor.is-readonly :deep(.dg-tools button.danger),
+.note-editor.is-readonly :deep(.dg-tools button:has(svg.lucide-pencil)),
+.note-editor.is-readonly :deep(.dg-tools button:has(svg.lucide-replace)),
+.note-editor.is-readonly :deep(.dbb-del),
+.note-editor.is-readonly :deep(.dbb-tools),
+.note-editor.is-readonly :deep(.db-add-row),
+.note-editor.is-readonly :deep(.db-th-add),
+.note-editor.is-readonly :deep(.db-col-add),
+.note-editor.is-readonly :deep(.db-card-add) {
+  display: none !important;
+}
+.note-editor.is-readonly :deep(.cb-title),
+.note-editor.is-readonly :deep(.cb-lang-btn),
+.note-editor.is-readonly :deep(.dbb-title) {
+  pointer-events: none;
+  cursor: default;
 }
 </style>

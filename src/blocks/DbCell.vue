@@ -230,7 +230,7 @@ defineExpose({ autoPickNew })
           :href="textValue"
           target="_blank"
           rel="noopener noreferrer"
-          title="打开链接"
+          v-tooltip="'打开链接'"
           @mousedown.stop
           @click.stop
         >

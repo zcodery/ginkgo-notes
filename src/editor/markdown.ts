@@ -587,6 +587,11 @@ export function markdownToDoc(content: string): JSONContent {
   const tokens = md.parse(content, {})
   let nodes = convertBlocks(tokens, 0, tokens.length)
   if (!nodes.length) nodes = [{ type: 'paragraph' }]
+  // 末尾永远留一个空段落：保存时会被滤掉，打开后再补回来，方便继续输入
+  const last = nodes[nodes.length - 1]
+  if (!(last?.type === 'paragraph' && !last.content?.length)) {
+    nodes.push({ type: 'paragraph' })
+  }
   return { type: 'doc', content: nodes }
 }
 

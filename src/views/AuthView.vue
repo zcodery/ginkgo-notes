@@ -73,7 +73,7 @@ onMounted(() => usernameRef.value?.focus())
   <div class="auth">
     <button
       class="gn-icon-btn auth-theme"
-      :title="store.theme === 'dark' ? '浅色' : '深色'"
+      v-tooltip="store.theme === 'dark' ? '浅色' : '深色'"
       @click="toggleTheme"
     >
       <component :is="store.theme === 'dark' ? Sun : Moon" :size="15" :stroke-width="1.8" />
@@ -134,7 +134,7 @@ onMounted(() => usernameRef.value?.focus())
             <button
               type="button"
               class="auth-eye"
-              :title="showPassword ? '隐藏密码' : '显示密码'"
+              v-tooltip="showPassword ? '隐藏密码' : '显示密码'"
               @click="showPassword = !showPassword"
             >
               <component :is="showPassword ? EyeOff : Eye" :size="15" :stroke-width="1.8" />

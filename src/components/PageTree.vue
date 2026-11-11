@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, provide, onMounted, onBeforeUnmount } from 'vue'
+import { reactive, provide, onMounted, onBeforeUnmount, watch } from 'vue'
 import {
   Pencil,
   Plus,
@@ -32,6 +32,7 @@ const ctx = reactive({
   dropTarget: null as { id: string; mode: 'before' | 'after' | 'inside' } | null,
 
   select(id: string) {
+    ctx.activeId = id
     ctx.persist()
     goToPage(id)
   },
@@ -112,6 +113,23 @@ const ctx = reactive({
 })
 
 provide('pageTree', ctx)
+
+/** 跟当前路由同步高亮；从搜索/面包屑/新建进入时也要亮起来 */
+watch(
+  () => store.route.pageId,
+  (id) => {
+    ctx.activeId = id
+    if (!id) return
+    // 展开祖先，保证嵌套页的聚焦项可见
+    let cur = store.pages.find((p) => p.id === id)
+    while (cur?.parentId) {
+      ctx.expanded.add(cur.parentId)
+      cur = store.pages.find((p) => p.id === cur!.parentId)
+    }
+    ctx.persist()
+  },
+  { immediate: true },
+)
 
 const menu = reactive({ open: false, x: 0, y: 0, node: null as TreeNode | null })
 

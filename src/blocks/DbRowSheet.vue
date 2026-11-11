@@ -8,6 +8,7 @@ import DbCell from './DbCell.vue'
 const props = defineProps<{
   db: Database
   row: DbRow | null
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -32,7 +33,7 @@ function onCreateOption(field: DbField, name: string) {
       <div class="rs-panel" @mousedown.stop>
         <header class="rs-head">
           <span class="rs-badge">{{ db.icon || '🗂️' }} {{ db.title }}</span>
-          <button class="rs-close" title="关闭" @click="emit('close')"><X :size="15" /></button>
+          <button class="rs-close" v-tooltip="'关闭'" @click="emit('close')"><X :size="15" /></button>
         </header>
 
         <div class="rs-body gn-scroll">
@@ -41,6 +42,7 @@ function onCreateOption(field: DbField, name: string) {
               v-if="titleField"
               :field="titleField"
               :value="row.cells[titleField.id]"
+              :readonly="readonly"
               @update="(v: unknown) => titleField && emit('update-cell', titleField.id, v)"
             />
           </div>
@@ -55,6 +57,7 @@ function onCreateOption(field: DbField, name: string) {
                 <DbCell
                   :field="f"
                   :value="row.cells[f.id]"
+                  :readonly="readonly"
                   @update="(v: unknown) => emit('update-cell', f.id, v)"
                   @create-option="(name: string) => onCreateOption(f, name)"
                 />
@@ -64,10 +67,10 @@ function onCreateOption(field: DbField, name: string) {
         </div>
 
         <footer class="rs-foot">
-          <button class="rs-del" @click="emit('delete'); emit('close')">
+          <button v-if="!readonly" class="rs-del" @click="emit('delete'); emit('close')">
             <Trash2 :size="13" /> 删除这一行
           </button>
-          <span class="rs-hint">改动即时保存</span>
+          <span class="rs-hint">{{ readonly ? '页面已锁定，仅可查看' : '改动即时保存' }}</span>
         </footer>
       </div>
     </div>

@@ -13,7 +13,19 @@ export interface Page {
   createdAt: number
   updatedAt: number
   order: number
+  /** 封面：`gradient:<预设 id>` 或 `asset:<图片 id>` */
   cover: string | null
+  /** 页面级评论，旧数据没有此字段 */
+  comments?: PageComment[]
+  /** 锁定后页面只读，不可编辑 */
+  locked?: boolean
+}
+
+export interface PageComment {
+  id: string
+  author: string
+  text: string
+  createdAt: number
 }
 
 export interface Asset {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
+import { useEditorEditable } from '@/editor/editableContext'
 import {
   Copy,
   Pencil,
@@ -23,6 +24,8 @@ const props = defineProps<{
   selected: boolean
   getPos: () => number
 }>()
+
+const canEdit = useEditorEditable()
 
 const code = computed<string>(() => props.node?.attrs?.code ?? '')
 const hasCode = computed(() => code.value.trim().length > 0)
@@ -114,6 +117,7 @@ function focusAfterBlock() {
 }
 
 function pickTemplate(tplCode: string) {
+  if (!canEdit.value) return
   props.updateAttributes({ code: tplCode })
   showPicker.value = false
   focusAfterBlock()
@@ -129,6 +133,7 @@ const draftRef = ref<HTMLTextAreaElement | null>(null)
 let draftToken = 0
 
 async function openEditor() {
+  if (!canEdit.value) return
   draft.value = code.value
   draftErr.value = null
   draftSvg.value = svg.value
@@ -164,6 +169,7 @@ function onDraftInput() {
 }
 
 function applyEdit() {
+  if (!canEdit.value) return
   props.updateAttributes({ code: draft.value })
   editing.value = false
   focusAfterBlock()
@@ -199,6 +205,7 @@ async function copyCode() {
 }
 
 function removeSelf() {
+  if (!canEdit.value) return
   const ed = props.editor
   if (!ed) return
   // 用节点自身位置删除，避免选中态下误删相邻块
@@ -239,10 +246,10 @@ const kindLabel = computed(() => {
         <GitBranch :size="18" />
         <div>
           <div class="dg-empty-title">插入图表</div>
-          <div class="dg-empty-sub">选一个模板，或从空白 Mermaid 开始</div>
+          <div class="dg-empty-sub">{{ canEdit ? '选一个模板，或从空白 Mermaid 开始' : '页面已锁定' }}</div>
         </div>
       </div>
-      <div class="dg-tpl-grid">
+      <div v-if="canEdit" class="dg-tpl-grid">
         <button
           v-for="t in diagramTemplates"
           :key="t.id"
@@ -255,7 +262,7 @@ const kindLabel = computed(() => {
           <span class="dg-tpl-desc">{{ t.desc }}</span>
         </button>
       </div>
-      <button class="dg-blank" @mousedown.prevent @click="openEditor">从空白开始 →</button>
+      <button v-if="canEdit" class="dg-blank" @mousedown.prevent @click="openEditor">从空白开始 →</button>
     </div>
 
     <!-- 图表本体 -->
@@ -266,7 +273,7 @@ const kindLabel = computed(() => {
           <div class="dg-error-title">图表渲染失败</div>
           <div class="dg-error-msg">{{ error }}</div>
         </div>
-        <button class="dg-error-fix" @mousedown.prevent @click="openEditor">修改源码</button>
+        <button v-if="canEdit" class="dg-error-fix" @mousedown.prevent @click="openEditor">修改源码</button>
       </div>
       <div v-else class="dg-canvas">
         <div v-if="rendering && !svg" class="dg-loading"><Loader2 :size="16" class="spin" /> 渲染中…</div>
@@ -276,21 +283,21 @@ const kindLabel = computed(() => {
       <!-- 悬浮工具条 -->
       <div class="dg-tools" :class="{ show: hovered || props.selected }">
         <span class="dg-kind">{{ kindLabel }}</span>
-        <button title="编辑源码" @mousedown.prevent @click="openEditor"><Pencil :size="14" /></button>
-        <button title="换个模板" @mousedown.prevent @click="showPicker = !showPicker">
+        <button v-if="canEdit" v-tooltip="'编辑源码'" @mousedown.prevent @click="openEditor"><Pencil :size="14" /></button>
+        <button v-if="canEdit" v-tooltip="'换个模板'" @mousedown.prevent @click="showPicker = !showPicker">
           <Replace :size="14" />
         </button>
-        <button title="复制源码" @mousedown.prevent @click="copyCode">
+        <button v-tooltip="'复制源码'" @mousedown.prevent @click="copyCode">
           <Check v-if="copied" :size="14" />
           <Copy v-else :size="14" />
         </button>
-        <button title="删除图表" class="danger" @mousedown.prevent @click="removeSelf">
+        <button v-if="canEdit" v-tooltip="'删除图表'" class="danger" @mousedown.prevent @click="removeSelf">
           <Trash2 :size="14" />
         </button>
       </div>
 
       <!-- 模板替换面板 -->
-      <div v-if="showPicker" class="dg-picker" @mousedown.stop>
+      <div v-if="showPicker && canEdit" class="dg-picker" @mousedown.stop>
         <button
           v-for="t in diagramTemplates"
           :key="t.id"
@@ -309,7 +316,7 @@ const kindLabel = computed(() => {
       <div v-if="editing" class="dg-modal-mask" @mousedown.self="cancelEdit">
         <div class="dg-modal" @mousedown.stop>
           <header class="dg-modal-head">
-            <button class="dg-back" title="取消" @click="cancelEdit"><ArrowLeft :size="16" /></button>
+            <button class="dg-back" v-tooltip="'取消'" @click="cancelEdit"><ArrowLeft :size="16" /></button>
             <div class="dg-modal-title">
               <span>{{ kindLabel }}</span>
               <span class="dg-modal-hint">Mermaid 源码 · ⌘/Ctrl + Enter 应用</span>

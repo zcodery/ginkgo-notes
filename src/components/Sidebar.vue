@@ -8,20 +8,24 @@ import {
   PanelLeftClose,
   Moon,
   Sun,
-  FileText,
   LogOut,
   Globe,
   NotebookPen,
   Import,
   ShieldCheck,
+  UserRound,
 } from 'lucide-vue-next'
 import PageTree from './PageTree.vue'
+import PageIcon from './PageIcon.vue'
+import UserAvatar from './UserAvatar.vue'
 import {
   store,
+  displayName,
   favoritePages,
   goToPage,
   goTrash,
   goHome,
+  goProfile,
   toggleTheme,
   isAdmin,
   logout,
@@ -100,7 +104,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
         <span class="sb-logo">🍃</span>
         <span class="sb-name">银杏笔记</span>
       </button>
-      <button class="gn-icon-btn" title="收起侧边栏" @click="store.sidebarOpen = false">
+      <button class="gn-icon-btn" v-tooltip="'收起侧边栏'" @click="store.sidebarOpen = false">
         <PanelLeftClose :size="15" :stroke-width="1.8" />
       </button>
     </div>
@@ -139,15 +143,18 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
           :class="{ active: store.route.pageId === p.id }"
           @click="goToPage(p.id)"
         >
-          <span v-if="p.icon" class="sb-fav-icon">{{ p.icon }}</span>
-          <FileText v-else :size="13" :stroke-width="1.7" class="sb-fav-doc" />
+          <PageIcon :icon="p.icon" :size="14" />
           <span class="sb-fav-title">{{ p.title || '未命名' }}</span>
         </button>
       </template>
 
       <div class="sb-section-title">
-        <span>页面</span>
-        <button class="sb-section-add" title="新建页面" @click="onNew">
+        <span>私人</span>
+        <button
+          class="sb-section-add"
+          v-tooltip="{ title: '创建新页面', desc: '只有你可以访问', placement: 'right' }"
+          @click="onNew"
+        >
           <Plus :size="13" :stroke-width="2.2" />
         </button>
       </div>
@@ -160,22 +167,33 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
         <Trash2 :size="14" :stroke-width="1.8" />
         <span>回收站</span>
       </button>
-      <button class="sb-foot-btn icon-only" :title="store.theme === 'dark' ? '浅色' : '深色'" @click="toggleTheme">
+      <button
+        class="sb-foot-btn icon-only"
+        v-tooltip="store.theme === 'dark' ? '浅色' : '深色'"
+        @click="toggleTheme"
+      >
         <component :is="store.theme === 'dark' ? Sun : Moon" :size="14" :stroke-width="1.8" />
       </button>
     </div>
 
     <div class="sb-user-wrap">
       <button class="sb-user" :class="{ open: userMenuOpen }" @click="userMenuOpen = !userMenuOpen">
-        <span class="sb-avatar">{{ (store.user?.username ?? '?').slice(0, 1).toUpperCase() }}</span>
-        <span class="sb-user-name">{{ store.user?.username }}</span>
-        <span v-if="isAdmin" class="sb-badge" title="管理员">
+        <UserAvatar :size="22" :radius="6" />
+        <span class="sb-user-name">{{ displayName }}</span>
+        <span v-if="isAdmin" class="sb-badge" v-tooltip="'管理员'">
           <ShieldCheck :size="11" :stroke-width="2.2" />管理员
         </span>
       </button>
 
       <div v-if="userMenuOpen" class="sb-user-menu gn-pop">
+        <button
+          :class="{ on: store.settingsOpen }"
+          @click="userMenuOpen = false; goProfile()"
+        >
+          <UserRound :size="14" :stroke-width="1.8" /><span>个人信息</span>
+        </button>
         <template v-if="isAdmin">
+          <div class="sb-menu-sep"></div>
           <button :class="{ on: store.space === 'me' }" @click="toSpace('me')">
             <NotebookPen :size="14" :stroke-width="1.8" /><span>我的笔记</span>
           </button>
@@ -186,8 +204,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
             <Import :size="14" :stroke-width="1.8" />
             <span>{{ importing ? '导入中…' : `导入本机旧笔记（${legacyCount}）` }}</span>
           </button>
-          <div class="sb-menu-sep"></div>
         </template>
+        <div class="sb-menu-sep"></div>
         <button class="danger" @click="onLogout">
           <LogOut :size="14" :stroke-width="1.8" /><span>退出登录</span>
         </button>
@@ -337,14 +355,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
 .sb-fav.active {
   background: var(--gn-bg-active);
   color: var(--gn-text);
-}
-.sb-fav-icon {
-  font-size: 13px;
-  width: 16px;
-  text-align: center;
-}
-.sb-fav-doc {
-  color: var(--gn-text-muted);
+  font-weight: 560;
+  box-shadow: inset 3px 0 0 var(--gn-accent);
 }
 .sb-fav-title {
   flex: 1 1 auto;

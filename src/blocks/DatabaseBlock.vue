@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { NodeViewWrapper } from '@tiptap/vue-3'
+import { useEditorEditable } from '@/editor/editableContext'
 import {
   Table2,
   Columns3,
@@ -46,6 +47,8 @@ const props = defineProps<{
   selected: boolean
   getPos: () => number
 }>()
+
+const canEdit = useEditorEditable()
 
 const dbId = computed<string>(() => props.node?.attrs?.dbId ?? '')
 
@@ -113,6 +116,7 @@ async function persistDb() {
 }
 
 function updateCell(rowId: string, fieldId: string, value: unknown) {
+  if (!canEdit.value) return
   const row = rows.value.find((r) => r.id === rowId)
   if (!row) return
   row.cells = { ...row.cells, [fieldId]: value }
@@ -121,20 +125,21 @@ function updateCell(rowId: string, fieldId: string, value: unknown) {
 }
 
 async function onAddRow(cells: Record<string, unknown> = {}, afterOrder?: number) {
-  if (!db.value) return
+  if (!canEdit.value || !db.value) return
   const row = await dbAddRow(db.value.id, cells, afterOrder)
   rows.value = [...rows.value, row].sort((a, b) => a.order - b.order)
   return row
 }
 
 async function onDeleteRow(rowId: string) {
+  if (!canEdit.value) return
   rows.value = rows.value.filter((r) => r.id !== rowId)
   if (sheetRowId.value === rowId) sheetRowId.value = null
   await dbDeleteRow(rowId)
 }
 
 function onUpdateField(fieldId: string, patch: Partial<DbField>) {
-  if (!db.value) return
+  if (!canEdit.value || !db.value) return
   const f = db.value.fields.find((x) => x.id === fieldId)
   if (!f) return
   Object.assign(f, patch)
@@ -142,7 +147,7 @@ function onUpdateField(fieldId: string, patch: Partial<DbField>) {
 }
 
 async function onDeleteField(fieldId: string) {
-  if (!db.value || db.value.fields.length <= 1) return
+  if (!canEdit.value || !db.value || db.value.fields.length <= 1) return
   db.value.fields = db.value.fields.filter((f) => f.id !== fieldId)
   db.value.views = db.value.views.map((v) => ({
     ...v,
@@ -162,10 +167,12 @@ async function onDeleteField(fieldId: string) {
 }
 
 async function onAddField() {
+  if (!canEdit.value) return
   await addFieldOfType('text')
 }
 
 async function addFieldOfType(type: FieldType) {
+  if (!canEdit.value) return
   const d = db.value
   if (!d) return
   const f = newField(`字段 ${d.fields.length + 1}`, type)
@@ -174,7 +181,7 @@ async function addFieldOfType(type: FieldType) {
 }
 
 async function onInsertField(side: 'left' | 'right', nearId: string) {
-  if (!db.value) return
+  if (!canEdit.value || !db.value) return
   const f = newField(`字段 ${db.value.fields.length + 1}`)
   const idx = db.value.fields.findIndex((x) => x.id === nearId)
   const at = side === 'left' ? idx : idx + 1
@@ -185,11 +192,12 @@ async function onInsertField(side: 'left' | 'right', nearId: string) {
 }
 
 function onHideField(fieldId: string) {
+  if (!canEdit.value) return
   patchView({ hiddenFields: [...(activeView.value?.hiddenFields ?? []), fieldId] })
 }
 
 function onCreateOption(fieldId: string, name: string) {
-  if (!db.value) return
+  if (!canEdit.value || !db.value) return
   const f = db.value.fields.find((x) => x.id === fieldId)
   if (!f) return
   const opts = f.options ?? []
@@ -215,6 +223,7 @@ async function switchView(id: string) {
 }
 
 function patchView(patch: Partial<DbView>) {
+  if (!canEdit.value) return
   const d = db.value
   const v = activeView.value
   if (!d || !v) return
@@ -223,6 +232,7 @@ function patchView(patch: Partial<DbView>) {
 }
 
 async function addView(type: ViewType) {
+  if (!canEdit.value) return
   const d = db.value
   if (!d) return
   const name = type === 'table' ? `表格 ${d.views.filter((v) => v.type === 'table').length + 1}` : `看板 ${d.views.filter((v) => v.type === 'board').length + 1}`
@@ -234,6 +244,7 @@ async function addView(type: ViewType) {
 }
 
 async function removeView(id: string) {
+  if (!canEdit.value) return
   const d = db.value
   if (!d || d.views.length <= 1) return
   d.views = d.views.filter((v) => v.id !== id)
@@ -245,6 +256,7 @@ const renamingView = ref<string | null>(null)
 const viewNameDraft = ref('')
 
 function startRename(v: DbView) {
+  if (!canEdit.value) return
   renamingView.value = v.id
   viewNameDraft.value = v.name
   void nextTick(() => {
@@ -255,6 +267,10 @@ function startRename(v: DbView) {
 }
 
 function commitRename() {
+  if (!canEdit.value) {
+    renamingView.value = null
+    return
+  }
   const v = db.value?.views.find((x) => x.id === renamingView.value)
   if (v && viewNameDraft.value.trim()) {
     v.name = viewNameDraft.value.trim()
@@ -298,6 +314,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 const fields = computed(() => db.value?.fields ?? [])
 
 function addFilter() {
+  if (!canEdit.value) return
   const v = activeView.value
   const f = fields.value[0]
   if (!v || !f) return
@@ -309,6 +326,7 @@ function addFilter() {
 }
 
 function updateFilter(id: string, patch: Record<string, unknown>) {
+  if (!canEdit.value) return
   const v = activeView.value
   if (!v) return
   v.filters = v.filters.map((f) => (f.id === id ? { ...f, ...patch } : f))
@@ -316,6 +334,7 @@ function updateFilter(id: string, patch: Record<string, unknown>) {
 }
 
 function removeFilter(id: string) {
+  if (!canEdit.value) return
   const v = activeView.value
   if (!v) return
   v.filters = v.filters.filter((f) => f.id !== id)
@@ -334,6 +353,7 @@ function opsOf(fieldId: string) {
 /* ---------------- 排序 ---------------- */
 
 function addSort() {
+  if (!canEdit.value) return
   const v = activeView.value
   const f = fields.value[0]
   if (!v || !f) return
@@ -342,6 +362,7 @@ function addSort() {
 }
 
 function updateSort(idx: number, patch: Partial<{ fieldId: string; dir: 'asc' | 'desc' }>) {
+  if (!canEdit.value) return
   const v = activeView.value
   if (!v) return
   v.sorts = v.sorts.map((s, i) => (i === idx ? { ...s, ...patch } : s))
@@ -349,6 +370,7 @@ function updateSort(idx: number, patch: Partial<{ fieldId: string; dir: 'asc' | 
 }
 
 function removeSort(idx: number) {
+  if (!canEdit.value) return
   const v = activeView.value
   if (!v) return
   v.sorts = v.sorts.filter((_, i) => i !== idx)
@@ -358,6 +380,7 @@ function removeSort(idx: number) {
 /* ---------------- 字段显隐 ---------------- */
 
 function toggleFieldVisible(id: string) {
+  if (!canEdit.value) return
   const v = activeView.value
   if (!v) return
   const set = new Set(v.hiddenFields ?? [])
@@ -378,6 +401,7 @@ const sheetRow = computed(() => rows.value.find((r) => r.id === sheetRowId.value
  * ============================================================ */
 
 async function onTitleChange(e: Event) {
+  if (!canEdit.value) return
   const t = (e.target as HTMLInputElement).value.trim()
   if (!db.value) return
   db.value.title = t || '未命名多维表格'
@@ -385,6 +409,7 @@ async function onTitleChange(e: Event) {
 }
 
 async function repairCreate() {
+  if (!canEdit.value) return
   const d = await createDatabase({ title: '恢复的多维表格' })
   db.value = d
   rows.value = await listRows(d.id)
@@ -393,6 +418,7 @@ async function repairCreate() {
 }
 
 function removeSelf() {
+  if (!canEdit.value) return
   const pos = props.getPos()
   if (typeof pos !== 'number') return
   props.editor
@@ -407,7 +433,7 @@ function removeSelf() {
 <template>
   <NodeViewWrapper
     class="gn-db"
-    :class="{ selected: props.selected }"
+    :class="{ selected: props.selected, readonly: !canEdit }"
     data-ginkgo-db=""
     contenteditable="false"
   >
@@ -427,7 +453,7 @@ function removeSelf() {
           数据可能被清理，或这是一份从别处导入的笔记（原表不在当前账号下）。
         </div>
       </div>
-      <button class="gn-btn" @mousedown.stop @click="repairCreate">新建一张空表</button>
+      <button v-if="canEdit" class="gn-btn" @mousedown.stop @click="repairCreate">新建一张空表</button>
     </div>
 
     <template v-else>
@@ -439,12 +465,19 @@ function removeSelf() {
             class="dbb-title"
             :value="db.title"
             spellcheck="false"
+            :readonly="!canEdit"
             @keydown.stop
             @keydown.enter="($event.target as HTMLInputElement).blur()"
             @change="onTitleChange"
           />
           <span class="dbb-count">{{ rows.length }} 行</span>
-          <button class="dbb-del" title="删除整张表" @mousedown.stop @click="removeSelf">
+          <button
+            v-if="canEdit"
+            class="dbb-del"
+            v-tooltip="'删除整张表'"
+            @mousedown.stop
+            @click="removeSelf"
+          >
             <Trash2 :size="13" />
           </button>
         </div>
@@ -477,17 +510,18 @@ function removeSelf() {
               />
               <span v-else class="dbb-view-name">{{ v.name }}</span>
               <button
-                v-if="db.views.length > 1 && v.id === activeViewId"
+                v-if="canEdit && db.views.length > 1 && v.id === activeViewId"
                 class="dbb-view-x"
-                title="删除这个视图"
+                v-tooltip="'删除这个视图'"
                 @click.stop="removeView(v.id)"
               >
                 <X :size="10" />
               </button>
             </div>
             <button
+              v-if="canEdit"
               class="dbb-view-add"
-              title="新建视图"
+              v-tooltip="'新建视图'"
               @mousedown.stop
               @click="togglePanel('addView', $event)"
             >
@@ -495,11 +529,11 @@ function removeSelf() {
             </button>
           </div>
 
-          <div class="dbb-tools">
+          <div v-if="canEdit" class="dbb-tools">
             <button
               v-if="activeView?.type === 'board'"
               class="dbb-group-pick"
-              :title="'看板按这个字段分组'"
+              v-tooltip="'看板按这个字段分组'"
             >
               <span class="dbb-group-label">分组</span>
               <select v-model="groupFieldId" @mousedown.stop>
@@ -514,7 +548,7 @@ function removeSelf() {
             <button
               class="dbb-tool"
               :class="{ on: !!activeView?.filters.length }"
-              title="筛选"
+              v-tooltip="'筛选'"
               @mousedown.stop
               @click="togglePanel('filter', $event)"
             >
@@ -526,7 +560,7 @@ function removeSelf() {
             <button
               class="dbb-tool"
               :class="{ on: !!activeView?.sorts.length }"
-              title="排序"
+              v-tooltip="'排序'"
               @mousedown.stop
               @click="togglePanel('sort', $event)"
             >
@@ -538,7 +572,7 @@ function removeSelf() {
             <button
               class="dbb-tool"
               :class="{ on: !!activeView?.hiddenFields.length }"
-              title="显示字段"
+              v-tooltip="'显示字段'"
               @mousedown.stop
               @click="togglePanel('fields', $event)"
             >
@@ -554,6 +588,7 @@ function removeSelf() {
         :db="db"
         :rows="displayRows"
         :view="activeView"
+        :readonly="!canEdit"
         @update-cell="updateCell"
         @add-row="(afterOrder?: number) => onAddRow({}, afterOrder)"
         @delete-row="onDeleteRow"
@@ -568,6 +603,7 @@ function removeSelf() {
         :db="db"
         :rows="displayRows"
         :view="activeView"
+        :readonly="!canEdit"
         @update-cell="updateCell"
         @add-row="(cells: Record<string, unknown>) => onAddRow(cells)"
         @delete-row="onDeleteRow"
@@ -674,7 +710,7 @@ function removeSelf() {
                 v-for="t in FIELD_TYPE_ORDER"
                 :key="t"
                 class="dbb-type-btn"
-                :title="FIELD_TYPE_META[t].hint"
+                v-tooltip="FIELD_TYPE_META[t].hint"
                 @click="addFieldOfType(t)"
               >
                 <component :is="FIELD_TYPE_META[t].icon" :size="12" />
@@ -706,6 +742,7 @@ function removeSelf() {
         v-if="db"
         :db="db"
         :row="sheetRow"
+        :readonly="!canEdit"
         @update-cell="(fid: string, v: unknown) => sheetRow && updateCell(sheetRow.id, fid, v)"
         @create-option="onCreateOption"
         @delete="sheetRow && onDeleteRow(sheetRow.id)"

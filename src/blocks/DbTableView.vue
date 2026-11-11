@@ -10,6 +10,7 @@ const props = defineProps<{
   db: Database
   rows: DbRow[]
   view: DbView
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -87,6 +88,7 @@ onBeforeUnmount(() => {
 const menu = ref<{ field: DbField; x: number; y: number } | null>(null)
 
 function openFieldMenu(f: DbField, e: MouseEvent) {
+  if (props.readonly) return
   const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
   menu.value = {
     field: f,
@@ -140,7 +142,7 @@ const hoveredRow = ref<string | null>(null)
       <colgroup>
         <col style="width: 42px" />
         <col v-for="f in visibleFields" :key="f.id" :style="{ width: widthOf(f) + 'px' }" />
-        <col style="width: 44px" />
+        <col v-if="!readonly" style="width: 44px" />
       </colgroup>
       <thead>
         <tr>
@@ -149,7 +151,7 @@ const hoveredRow = ref<string | null>(null)
             v-for="f in visibleFields"
             :key="f.id"
             class="db-th"
-            :title="f.name"
+            v-tooltip="f.name"
           >
             <div class="db-th-inner" @click="openFieldMenu(f, $event)">
               <component
@@ -159,10 +161,10 @@ const hoveredRow = ref<string | null>(null)
               />
               <span class="db-th-name">{{ f.name }}</span>
             </div>
-            <div class="db-th-resize" @mousedown="startResize(f, $event)"></div>
+            <div v-if="!readonly" class="db-th-resize" @mousedown="startResize(f, $event)"></div>
           </th>
-          <th class="db-th-add">
-            <button title="新增字段" @mousedown.stop @click="emit('add-field')">
+          <th v-if="!readonly" class="db-th-add">
+            <button v-tooltip="'新增字段'" @mousedown.stop @click="emit('add-field')">
               <Plus :size="14" />
             </button>
           </th>
@@ -178,19 +180,21 @@ const hoveredRow = ref<string | null>(null)
           <td class="db-td-idx">
             <span v-if="hoveredRow !== row.id" class="db-idx-num">{{ idx + 1 }}</span>
             <button
-              v-else
+              v-else-if="!readonly"
               class="db-row-del"
-              title="删除这一行"
+              v-tooltip="'删除这一行'"
               @mousedown.stop
               @click="emit('delete-row', row.id)"
             >
               <Trash2 :size="12" />
             </button>
+            <span v-else class="db-idx-num">{{ idx + 1 }}</span>
           </td>
           <td v-for="f in visibleFields" :key="f.id" class="db-td">
             <DbCell
               :field="f"
               :value="row.cells[f.id]"
+              :readonly="readonly"
               @update="(v: unknown) => cellUpdate(row.id, f.id, v)"
               @create-option="(name: string) => onCreateOption(f, name, row.id)"
             />
@@ -204,12 +208,12 @@ const hoveredRow = ref<string | null>(null)
       <span>还没有行</span>
     </div>
 
-    <button class="db-add-row" @mousedown.stop @click="emit('add-row')">
+    <button v-if="!readonly" class="db-add-row" @mousedown.stop @click="emit('add-row')">
       <Plus :size="13" /> 新建一行
     </button>
 
     <DbFieldMenu
-      v-if="menu"
+      v-if="menu && !readonly"
       :field="menu.field"
       :x="menu.x"
       :y="menu.y"

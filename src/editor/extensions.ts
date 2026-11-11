@@ -8,12 +8,13 @@ import { DiagramNode } from './nodes/diagram'
 import { DatabaseNode } from './nodes/database'
 import { EnhancedCodeBlock } from './nodes/codeBlock'
 import { FontColor, BgColor } from './marks/colors'
+import { SearchReplace } from './searchReplace'
 
 export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
   return [
     StarterKit.configure({
       codeBlock: false,
-      heading: { levels: [1, 2, 3] },
+      heading: { levels: [1, 2, 3, 4] },
       link: {
         openOnClick: false,
         autolink: true,
@@ -36,5 +37,6 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
     BgColor,
     DiagramNode,
     DatabaseNode,
+    SearchReplace,
   ]
 }
