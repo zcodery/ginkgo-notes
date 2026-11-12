@@ -17,6 +17,7 @@ import {
   StickyNote,
   Shapes,
   Sparkles,
+  FileText,
 } from 'lucide-vue-next'
 import { diagramTemplates } from '@/blocks/diagramTemplates'
 
@@ -26,6 +27,8 @@ export interface SlashCtx {
   insertDatabase: () => void
   /** 插入空图表块（展开模板选择器） */
   insertDiagram: () => void
+  /** 新建子页面并在正文插入页面卡片 */
+  insertPageLink: () => void
   /** 在光标处打开 AI 面板，可指定立即执行的动作 */
   openAi: (action?: string) => void
 }
@@ -240,6 +243,16 @@ export const slashItems: SlashItem[] = [
     keywords: ['diagram', 'mermaid', 'chart', 'tubiao', '图表', '绘图'],
     group: '高级块',
     run: (_editor, ctx) => ctx.insertDiagram(),
+  },
+  {
+    id: 'page-link',
+    title: '子页面',
+    desc: '新建子页面，并在正文插入可点击的页面卡片',
+    icon: FileText,
+    shortcut: 'zym',
+    keywords: ['page', 'subpage', 'child', 'ziyemian', '子页面', '页面卡片', '链接页面'],
+    group: '高级块',
+    run: (_editor, ctx) => ctx.insertPageLink(),
   },
   ...diagramItems,
   {

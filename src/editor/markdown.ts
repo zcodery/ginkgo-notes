@@ -307,6 +307,9 @@ function serializeNode(node: JSONContent): string {
       // 多维表格在正文里只留一个引用，数据在独立 store 里
       return `\`\`\`ginkgo-db\n${node.attrs?.dbId ?? ''}\n\`\`\``
     }
+    case 'pageLink': {
+      return `\`\`\`ginkgo-page\n${node.attrs?.pageId ?? ''}\n\`\`\``
+    }
     case 'horizontalRule':
       return '---'
     case 'image':
@@ -615,6 +618,11 @@ function convertBlocks(
       }
       if (language === 'ginkgo-db') {
         nodes.push({ type: 'databaseBlock', attrs: { dbId: code.trim() } })
+        i++
+        continue
+      }
+      if (language === 'ginkgo-page') {
+        nodes.push({ type: 'pageLink', attrs: { pageId: code.trim() } })
         i++
         continue
       }

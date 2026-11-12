@@ -28,8 +28,9 @@ import {
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
 import { CellSelection } from '@tiptap/pm/tables'
 import { createDatabase } from '@/db/databases'
-import { getPage, saveContent, toPlainText } from '@/db/repo'
-import { pageUrl, store } from '@/store'
+import { createPage, getPage, movePage, saveContent, toPlainText } from '@/db/repo'
+import { pageUrl, reloadPages, store } from '@/store'
+import { hasPageDrag, readPageDragId } from './pageDrag'
 import SlashMenu from './SlashMenu.vue'
 import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from './BlockMenu.vue'
 import TableControls from './TableControls.vue'
@@ -829,6 +830,7 @@ function pickSlash(item: SlashItem) {
     insertImage: () => openFilePicker(),
     insertDiagram,
     insertDatabase: () => void insertDatabase(),
+    insertPageLink: () => void insertSubPageLink(),
     openAi: (action) => openAi('cursor', action),
   })
 }
@@ -890,6 +892,14 @@ async function insertDatabase() {
   const d = await createDatabase()
   if (!editor.value) return
   insertAtomBlock({ type: 'databaseBlock', attrs: { dbId: d.id } })
+}
+
+/** 斜杠命令：新建子页面并在正文插入页面卡片 */
+async function insertSubPageLink() {
+  const page = await createPage({ parentId: props.pageId, title: '' })
+  await reloadPages()
+  if (!editor.value) return
+  insertAtomBlock({ type: 'pageLink', attrs: { pageId: page.id } })
 }
 
 /* ---------------- 块菜单 ---------------- */
@@ -1241,14 +1251,10 @@ function onDragStart(e: DragEvent) {
   handle.value.visible = false
 }
 
-function onDragOver(e: DragEvent) {
-  if (dragFrom.value == null || !canEdit.value) return
+function updateDropLine(e: DragEvent) {
   const ed = editor.value
   const root = rootRef.value
   if (!ed || !root) return
-  e.preventDefault()
-  e.stopPropagation()
-  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
   const block = resolveBlock(e.clientX, e.clientY)
   if (!block) return
   const dom = ed.view.nodeDOM(block.from) as HTMLElement | null
@@ -1260,12 +1266,64 @@ function onDragOver(e: DragEvent) {
   dropLineY.value = (upper ? b.top : b.bottom) - rect.top
 }
 
-function onDrop(e: DragEvent) {
-  if (dragFrom.value == null || !canEdit.value) return
+function onDragOver(e: DragEvent) {
+  if (!canEdit.value) return
+  const pageDrop = hasPageDrag(e.dataTransfer) && dragFrom.value == null
+  if (dragFrom.value == null && !pageDrop) return
+  const ed = editor.value
+  const root = rootRef.value
+  if (!ed || !root) return
   e.preventDefault()
   e.stopPropagation()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = pageDrop ? 'copy' : 'move'
+  updateDropLine(e)
+}
+
+async function insertPageLinkAt(pos: number, pageId: string) {
   const ed = editor.value
-  if (!ed || dropPos == null) return resetDrag()
+  if (!ed || !pageId || pageId === props.pageId) return
+  const page = store.pages.find((p) => p.id === pageId && !p.trashed)
+  if (!page) return
+
+  // 拖入正文时，若还不是当前页子页面，先挂到当前页下
+  if (page.parentId !== props.pageId) {
+    const kids = store.pages.filter((p) => p.parentId === props.pageId && !p.trashed)
+    const maxOrder = kids.reduce((m, p) => Math.max(m, p.order), 0)
+    await movePage(pageId, props.pageId, maxOrder + 1)
+    await reloadPages()
+  }
+
+  ed.chain()
+    .focus()
+    .insertContentAt(pos, [
+      { type: 'pageLink', attrs: { pageId } },
+      { type: 'paragraph' },
+    ])
+    .run()
+  scheduleEmit()
+}
+
+function onDrop(e: DragEvent) {
+  if (!canEdit.value) return
+  const ed = editor.value
+  if (!ed) return
+
+  // 从侧栏 / 子页面列表拖入 → 插入页面卡片
+  if (dragFrom.value == null && hasPageDrag(e.dataTransfer)) {
+    e.preventDefault()
+    e.stopPropagation()
+    const pageId = readPageDragId(e.dataTransfer)
+    const target = dropPos
+    resetDrag()
+    if (!pageId || target == null) return
+    void insertPageLinkAt(target, pageId)
+    return
+  }
+
+  if (dragFrom.value == null) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (dropPos == null) return resetDrag()
   const from = dragFrom.value
   const to = dragTo.value!
   const target = dropPos

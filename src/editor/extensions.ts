@@ -7,6 +7,7 @@ import { TableKit } from '@tiptap/extension-table'
 import { GnTableCell, GnTableHeader } from './nodes/tableCell'
 import { DiagramNode } from './nodes/diagram'
 import { DatabaseNode } from './nodes/database'
+import { PageLinkNode } from './nodes/pageLink'
 import { EnhancedCodeBlock } from './nodes/codeBlock'
 import { FontColor, BgColor } from './marks/colors'
 import { SearchReplace } from './searchReplace'
@@ -50,6 +51,7 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
     BgColor,
     DiagramNode,
     DatabaseNode,
+    PageLinkNode,
     SearchReplace,
   ]
 }
