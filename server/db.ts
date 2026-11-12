@@ -64,10 +64,118 @@ db.exec(`
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  -- 登录会话：一次登录一条，可在「设备管理」里单独退出
+  CREATE TABLE IF NOT EXISTS sessions (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_seen  INTEGER NOT NULL,
+    ip         TEXT,
+    ua         TEXT,
+    revoked    INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
+  -- 个人访问令牌：供 MCP / 脚本调用，只存哈希
+  CREATE TABLE IF NOT EXISTS api_tokens (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    token_hash   TEXT NOT NULL UNIQUE,
+    prefix       TEXT NOT NULL,
+    scope        TEXT NOT NULL DEFAULT 'read',
+    created_at   INTEGER NOT NULL,
+    last_used_at INTEGER,
+    expires_at   INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+
+  -- 用户级设置（空间名称、AI 配置、通知偏好等），value 为 JSON
+  CREATE TABLE IF NOT EXISTS user_settings (
+    user_id TEXT NOT NULL,
+    key     TEXT NOT NULL,
+    value   TEXT NOT NULL,
+    PRIMARY KEY (user_id, key)
+  );
+
+  -- 公开分享链接
+  CREATE TABLE IF NOT EXISTS shares (
+    id               TEXT PRIMARY KEY,
+    token            TEXT NOT NULL UNIQUE,
+    owner            TEXT NOT NULL,
+    page_id          TEXT NOT NULL,
+    password_hash    TEXT,
+    expires_at       INTEGER,
+    include_children INTEGER NOT NULL DEFAULT 1,
+    created_at       INTEGER NOT NULL,
+    views            INTEGER NOT NULL DEFAULT 0,
+    last_viewed_at   INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(owner);
+
+  CREATE TABLE IF NOT EXISTS webhooks (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    url         TEXT NOT NULL,
+    events      TEXT NOT NULL,
+    secret      TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    last_status INTEGER,
+    last_error  TEXT,
+    last_at     INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_webhooks_user ON webhooks(user_id);
+
+  CREATE TABLE IF NOT EXISTS notifications (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    type       TEXT NOT NULL,
+    title      TEXT NOT NULL,
+    body       TEXT,
+    link       TEXT,
+    created_at INTEGER NOT NULL,
+    read_at    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS feedback (
+    id         TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    contact    TEXT,
+    created_at INTEGER NOT NULL,
+    reply      TEXT,
+    replied_at INTEGER
+  );
+
+  -- 成员协作：把自己的页面（含子页面）授权给其他用户
+  CREATE TABLE IF NOT EXISTS page_grants (
+    id         TEXT PRIMARY KEY,
+    owner      TEXT NOT NULL,
+    page_id    TEXT NOT NULL,
+    grantee_id TEXT NOT NULL,
+    role       TEXT NOT NULL DEFAULT 'viewer',
+    created_at INTEGER NOT NULL,
+    UNIQUE (page_id, grantee_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_grants_grantee ON page_grants(grantee_id);
+  CREATE INDEX IF NOT EXISTS idx_grants_owner ON page_grants(owner);
 `)
 
-// 旧库补列：昵称与头像（头像为压缩后的 data URL）
-for (const col of ['nickname TEXT', 'avatar TEXT']) {
+// 旧库补列：昵称、头像、联系方式、PIN、两步验证、第三方账号
+for (const col of [
+  'nickname TEXT',
+  'avatar TEXT',
+  'email TEXT',
+  'phone TEXT',
+  'pin_hash TEXT',
+  'totp_secret TEXT',
+  'totp_enabled INTEGER NOT NULL DEFAULT 0',
+  'github_id TEXT',
+  'github_login TEXT',
+]) {
   try {
     db.exec(`ALTER TABLE users ADD COLUMN ${col}`)
   } catch {
@@ -112,6 +220,25 @@ export function setSetting(key: string, value: string): void {
   db.prepare(
     'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
   ).run(key, value)
+}
+
+export function getUserSetting<T>(userId: string, key: string, fallback: T): T {
+  const row = db
+    .prepare('SELECT value FROM user_settings WHERE user_id = ? AND key = ?')
+    .get(userId, key) as { value: string } | undefined
+  if (!row) return fallback
+  try {
+    return JSON.parse(row.value) as T
+  } catch {
+    return fallback
+  }
+}
+
+export function setUserSetting(userId: string, key: string, value: unknown): void {
+  db.prepare(
+    `INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?)
+     ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value`,
+  ).run(userId, key, JSON.stringify(value))
 }
 
 /* ---------------- 文档表（pages / databases / db_rows）通用读写 ---------------- */

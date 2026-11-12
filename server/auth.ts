@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { NextFunction, Request, Response } from 'express'
@@ -14,6 +14,13 @@ export interface UserRow {
   created_at: number
   nickname?: string | null
   avatar?: string | null
+  email?: string | null
+  phone?: string | null
+  pin_hash?: string | null
+  totp_secret?: string | null
+  totp_enabled?: number
+  github_id?: string | null
+  github_login?: string | null
 }
 
 export interface PublicUser {
@@ -23,12 +30,21 @@ export interface PublicUser {
   createdAt: number
   nickname: string | null
   avatar: string | null
+  email: string | null
+  phone: string | null
+  hasPin: boolean
+  twoFactor: boolean
+  github: string | null
 }
 
 export interface AuthLocals {
   user: PublicUser
   /** 本次请求读写的数据归属：用户 id，或管理员切到公共空间时的 PUBLIC_OWNER */
   owner: string
+  /** 当前登录会话；旧令牌或 API Token 调用时为 null */
+  sid: string | null
+  /** 通过个人访问令牌调用时的令牌信息 */
+  apiToken: { id: string; scope: 'read' | 'write' } | null
 }
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
@@ -66,16 +82,27 @@ function sign(data: string): string {
   return createHmac('sha256', SECRET).update(data).digest('base64url')
 }
 
-export function issueToken(userId: string): string {
+interface TokenPayload {
+  sub: string
+  exp: number
+  iat?: number
+  /** 会话 id */
+  sid?: string
+  /** 票据类型：缺省为登录令牌；'2fa' 为两步验证中间票据 */
+  typ?: string
+  [k: string]: unknown
+}
+
+function signPayload(data: Record<string, unknown>, ttlSeconds: number): string {
   const now = Math.floor(Date.now() / 1000)
   const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url')
-  const payload = Buffer.from(
-    JSON.stringify({ sub: userId, iat: now, exp: now + TOKEN_TTL_SECONDS }),
-  ).toString('base64url')
+  const payload = Buffer.from(JSON.stringify({ ...data, iat: now, exp: now + ttlSeconds })).toString(
+    'base64url',
+  )
   return `${header}.${payload}.${sign(`${header}.${payload}`)}`
 }
 
-function readToken(token: string): string | null {
+function readPayload(token: string): TokenPayload | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
   const [header, payload, signature] = parts as [string, string, string]
@@ -83,15 +110,134 @@ function readToken(token: string): string | null {
   const actual = Buffer.from(signature)
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null
   try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      sub?: string
-      exp?: number
-    }
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as TokenPayload
     if (!data.sub || !data.exp || data.exp < Math.floor(Date.now() / 1000)) return null
-    return data.sub
+    return data
   } catch {
     return null
   }
+}
+
+export function issueToken(userId: string, sid?: string): string {
+  return signPayload({ sub: userId, ...(sid ? { sid } : {}) }, TOKEN_TTL_SECONDS)
+}
+
+/** 短期票据：两步验证、第三方登录 state 等 */
+export function issueTicket(userId: string, typ: string, ttlSeconds: number, extra: Record<string, unknown> = {}): string {
+  return signPayload({ sub: userId, typ, ...extra }, ttlSeconds)
+}
+
+export function readTicket(token: string, typ: string): TokenPayload | null {
+  const data = readPayload(token)
+  return data && data.typ === typ ? data : null
+}
+
+/* ---------------- 会话 ---------------- */
+
+export interface SessionRow {
+  id: string
+  user_id: string
+  created_at: number
+  last_seen: number
+  ip: string | null
+  ua: string | null
+  revoked: number
+}
+
+export function createSession(userId: string, ip: string | undefined, ua: string | undefined): string {
+  const id = randomUUID()
+  const now = Date.now()
+  db.prepare(
+    'INSERT INTO sessions (id, user_id, created_at, last_seen, ip, ua) VALUES (?, ?, ?, ?, ?, ?)',
+  ).run(id, userId, now, now, ip ?? null, (ua ?? '').slice(0, 300) || null)
+  return id
+}
+
+export function listSessions(userId: string): SessionRow[] {
+  return db
+    .prepare('SELECT * FROM sessions WHERE user_id = ? AND revoked = 0 ORDER BY last_seen DESC')
+    .all(userId) as unknown as SessionRow[]
+}
+
+export function revokeSession(userId: string, sid: string): void {
+  db.prepare('UPDATE sessions SET revoked = 1 WHERE id = ? AND user_id = ?').run(sid, userId)
+}
+
+/** 退出除 keepSid 之外的全部会话（改密码、注销其它设备） */
+export function revokeOtherSessions(userId: string, keepSid: string | null): void {
+  db.prepare('UPDATE sessions SET revoked = 1 WHERE user_id = ? AND id != ?').run(userId, keepSid ?? '')
+}
+
+export function hasSessionWithUa(userId: string, ua: string | undefined): boolean {
+  if (!ua) return false
+  return !!db.prepare('SELECT 1 FROM sessions WHERE user_id = ? AND ua = ? LIMIT 1').get(userId, ua.slice(0, 300))
+}
+
+const lastTouch = new Map<string, number>()
+
+function touchSession(sid: string): void {
+  const now = Date.now()
+  if ((lastTouch.get(sid) ?? 0) > now - 60_000) return
+  lastTouch.set(sid, now)
+  db.prepare('UPDATE sessions SET last_seen = ? WHERE id = ?').run(now, sid)
+}
+
+/* ---------------- 个人访问令牌 ---------------- */
+
+export interface ApiTokenRow {
+  id: string
+  user_id: string
+  name: string
+  token_hash: string
+  prefix: string
+  scope: 'read' | 'write'
+  created_at: number
+  last_used_at: number | null
+  expires_at: number | null
+}
+
+export const API_TOKEN_PREFIX = 'gn_'
+
+export function hashApiToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+export function createApiToken(
+  userId: string,
+  name: string,
+  scope: 'read' | 'write',
+  expiresAt: number | null,
+): { row: ApiTokenRow; token: string } {
+  const token = API_TOKEN_PREFIX + randomBytes(24).toString('base64url')
+  const row: ApiTokenRow = {
+    id: randomUUID(),
+    user_id: userId,
+    name,
+    token_hash: hashApiToken(token),
+    prefix: token.slice(0, 10),
+    scope,
+    created_at: Date.now(),
+    last_used_at: null,
+    expires_at: expiresAt,
+  }
+  db.prepare(
+    `INSERT INTO api_tokens (id, user_id, name, token_hash, prefix, scope, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(row.id, userId, name, row.token_hash, row.prefix, scope, row.created_at, expiresAt)
+  return { row, token }
+}
+
+function findApiToken(token: string): ApiTokenRow | null {
+  const row = db.prepare('SELECT * FROM api_tokens WHERE token_hash = ?').get(hashApiToken(token)) as
+    | ApiTokenRow
+    | undefined
+  if (!row) return null
+  if (row.expires_at && row.expires_at < Date.now()) return null
+  const now = Date.now()
+  if (!row.last_used_at || row.last_used_at < now - 60_000) {
+    db.prepare('UPDATE api_tokens SET last_used_at = ? WHERE id = ?').run(now, row.id)
+  }
+  return row
 }
 
 /* ---------------- 用户 ---------------- */
@@ -104,6 +250,11 @@ export function toPublicUser(row: UserRow): PublicUser {
     createdAt: row.created_at,
     nickname: row.nickname ?? null,
     avatar: row.avatar ?? null,
+    email: row.email ?? null,
+    phone: row.phone ?? null,
+    hasPin: !!row.pin_hash,
+    twoFactor: !!row.totp_enabled,
+    github: row.github_login ?? null,
   }
 }
 
@@ -136,15 +287,17 @@ export function updateUserPassword(userId: string, password: string): void {
   db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), userId)
 }
 
+const PROFILE_COLUMNS = ['nickname', 'avatar', 'email', 'phone'] as const
+type ProfileColumn = (typeof PROFILE_COLUMNS)[number]
+
 export function updateUserProfile(
   userId: string,
-  patch: { nickname?: string | null; avatar?: string | null },
+  patch: Partial<Record<ProfileColumn, string | null>>,
 ): void {
-  if (patch.nickname !== undefined) {
-    db.prepare('UPDATE users SET nickname = ? WHERE id = ?').run(patch.nickname, userId)
-  }
-  if (patch.avatar !== undefined) {
-    db.prepare('UPDATE users SET avatar = ? WHERE id = ?').run(patch.avatar, userId)
+  for (const col of PROFILE_COLUMNS) {
+    if (patch[col] !== undefined) {
+      db.prepare(`UPDATE users SET ${col} = ? WHERE id = ?`).run(patch[col] ?? null, userId)
+    }
   }
 }
 
@@ -186,10 +339,41 @@ export function clearFailures(key: string): void {
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization ?? ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : ''
-  const userId = token ? readToken(token) : null
-  const row = userId ? findUserById(userId) : null
+  let row: UserRow | null = null
+  let sid: string | null = null
+  let apiToken: AuthLocals['apiToken'] = null
+
+  if (token.startsWith(API_TOKEN_PREFIX)) {
+    const t = findApiToken(token)
+    if (t) {
+      row = findUserById(t.user_id)
+      apiToken = { id: t.id, scope: t.scope }
+    }
+  } else if (token) {
+    const data = readPayload(token)
+    if (data && !data.typ) {
+      if (data.sid) {
+        const s = db.prepare('SELECT user_id, revoked FROM sessions WHERE id = ?').get(data.sid) as
+          | { user_id: string; revoked: number }
+          | undefined
+        if (s && !s.revoked && s.user_id === data.sub) {
+          sid = data.sid
+          touchSession(sid)
+          row = findUserById(data.sub)
+        }
+      } else {
+        row = findUserById(data.sub)
+      }
+    }
+  }
+
   if (!row) {
     res.status(401).json({ error: '登录已失效，请重新登录' })
+    return
+  }
+  // 只读令牌不能写数据；MCP 接口自己按工具区分读写
+  if (apiToken?.scope === 'read' && req.method !== 'GET' && req.path !== '/mcp') {
+    res.status(403).json({ error: '该访问令牌只有读取权限' })
     return
   }
   const user = toPublicUser(row)
@@ -198,8 +382,18 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     res.status(403).json({ error: '只有管理员可以编辑公共原稿' })
     return
   }
-  const locals: AuthLocals = { user, owner: wantsPublic ? PUBLIC_OWNER : user.id }
+  const locals: AuthLocals = { user, owner: wantsPublic ? PUBLIC_OWNER : user.id, sid, apiToken }
   res.locals.auth = locals
+  next()
+}
+
+/** 账号安全相关接口只允许网页登录会话调用，不接受 API Token */
+export function requireSession(_req: Request, res: Response, next: NextFunction): void {
+  const auth = res.locals.auth as AuthLocals | undefined
+  if (!auth || auth.apiToken) {
+    res.status(403).json({ error: '该操作需要在网页中登录后进行' })
+    return
+  }
   next()
 }
 

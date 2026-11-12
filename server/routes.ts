@@ -3,19 +3,26 @@ import express, { Router, type Request, type Response } from 'express'
 import {
   authOf,
   clearFailures,
+  createSession,
   createUser,
   findUserById,
   findUserByName,
+  hasSessionWithUa,
   isLocked,
+  issueTicket,
+  readTicket,
   recordFailure,
   requireAdmin,
   requireAuth,
+  requireSession,
+  revokeOtherSessions,
   toPublicUser,
   updateUserPassword,
   updateUserProfile,
   validateCredentials,
   verifyPassword,
   issueToken,
+  type UserRow,
 } from './auth.ts'
 import {
   PUBLIC_OWNER,
@@ -33,16 +40,13 @@ import {
   transaction,
 } from './db.ts'
 import { copyTemplatesToUser } from './templates.ts'
-
-const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
-
-class HttpError extends Error {
-  status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.status = status
-  }
-}
+import { HttpError, ID_RE, clientIp, param } from './http.ts'
+import { describeUa, notify } from './notify.ts'
+import { verifyTotp } from './totp.ts'
+import { emitPageEvent, pageEventOf } from './webhooks.ts'
+import { accountRouter } from './account.ts'
+import { featuresRouter, publicRouter } from './features.ts'
+import { canSeeAssetsOf } from './members.ts'
 
 function asDoc(value: unknown, id?: string): Doc {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -68,12 +72,6 @@ function asIdList(value: unknown): string[] {
   return value as string[]
 }
 
-function param(req: Request, name: string): string {
-  const v = req.params[name]
-  if (typeof v !== 'string' || !ID_RE.test(v)) throw new HttpError(400, 'id 不合法')
-  return v
-}
-
 /** 同一个 id 已属于别人时拒绝写入，防止越权覆盖 */
 function assertWritable(table: DocTable, id: string, owner: string): void {
   const current = getDocOwner(table, id)
@@ -92,6 +90,22 @@ api.use(express.json({ limit: '20mb' }))
 
 /* ---------------- 账号 ---------------- */
 
+/** 登录成功：建会话、发令牌；新设备登录时站内提醒 */
+export function finishLogin(req: Request, res: Response, row: UserRow, status = 200): void {
+  const ua = req.headers['user-agent']
+  const known = hasSessionWithUa(row.id, ua)
+  const sid = createSession(row.id, clientIp(req), ua)
+  if (!known && status === 200) {
+    notify(
+      row.id,
+      'security',
+      '新设备登录',
+      `${describeUa(ua)}${clientIp(req) ? ` · IP ${clientIp(req)}` : ''}。如果不是你本人操作，请到「设置 → 账号设置 → 设备管理」退出该设备并修改密码。`,
+    )
+  }
+  res.status(status).json({ token: issueToken(row.id, sid), user: toPublicUser(row) })
+}
+
 api.post('/auth/register', (req, res) => {
   const { username, password } = req.body ?? {}
   const invalid = validateCredentials(username, password)
@@ -102,7 +116,7 @@ api.post('/auth/register', (req, res) => {
     copyTemplatesToUser(created.id)
     return created
   })
-  res.status(201).json({ token: issueToken(row.id), user: toPublicUser(row) })
+  finishLogin(req, res, row, 201)
 })
 
 api.post('/auth/login', (req, res) => {
@@ -118,8 +132,32 @@ api.post('/auth/login', (req, res) => {
     throw new HttpError(401, '用户名或密码错误')
   }
   clearFailures(key)
-  res.json({ token: issueToken(row.id), user: toPublicUser(row) })
+  if (row.totp_enabled && row.totp_secret) {
+    res.json({ twoFactor: true, ticket: issueTicket(row.id, '2fa', 300) })
+    return
+  }
+  finishLogin(req, res, row)
 })
+
+/** 两步验证第二步：密码通过后拿到的短期票据 + 动态码 */
+api.post('/auth/login/2fa', (req, res) => {
+  const { ticket, code } = req.body ?? {}
+  if (typeof ticket !== 'string' || typeof code !== 'string') throw new HttpError(400, '请输入验证码')
+  const data = readTicket(ticket, '2fa')
+  if (!data) throw new HttpError(401, '验证已超时，请重新登录')
+  const key = `2fa|${data.sub}`
+  if (isLocked(key)) throw new HttpError(429, '尝试次数过多，请 10 分钟后再试')
+  const row = findUserById(data.sub)
+  if (!row?.totp_secret || !verifyTotp(row.totp_secret, code)) {
+    recordFailure(key)
+    throw new HttpError(401, '验证码不正确')
+  }
+  clearFailures(key)
+  finishLogin(req, res, row)
+})
+
+/* 无需登录的公开接口：分享页、版本号、第三方登录回调 */
+api.use(publicRouter)
 
 api.use(requireAuth)
 
@@ -127,7 +165,9 @@ api.get('/auth/me', (_req, res) => {
   res.json({ user: authOf(res).user })
 })
 
-api.post('/auth/password', (req, res) => {
+api.use(accountRouter)
+
+api.post('/auth/password', requireSession, (req, res) => {
   const { currentPassword, newPassword } = req.body ?? {}
   if (typeof currentPassword !== 'string' || typeof newPassword !== 'string') {
     throw new HttpError(400, '请填写当前密码和新密码')
@@ -141,14 +181,31 @@ api.post('/auth/password', (req, res) => {
     throw new HttpError(401, '当前密码不正确')
   }
   updateUserPassword(row.id, newPassword)
+  // 改密码后其它设备一律下线
+  revokeOtherSessions(row.id, auth.sid)
+  notify(row.id, 'security', '登录密码已修改', '其它设备上的登录已全部退出。')
   res.json({ ok: true })
 })
 
 const AVATAR_MAX = 300_000
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^\+?[0-9][0-9\- ]{5,19}$/
 
-api.patch('/auth/profile', (req, res) => {
-  const { nickname, avatar } = req.body ?? {}
-  const patch: { nickname?: string | null; avatar?: string | null } = {}
+api.patch('/auth/profile', requireSession, (req, res) => {
+  const { nickname, avatar, email, phone } = req.body ?? {}
+  const patch: { nickname?: string | null; avatar?: string | null; email?: string | null; phone?: string | null } = {}
+  if (email !== undefined) {
+    if (email !== null && (typeof email !== 'string' || (email.trim() && !EMAIL_RE.test(email.trim())))) {
+      throw new HttpError(400, '邮箱格式不正确')
+    }
+    patch.email = typeof email === 'string' ? email.trim().slice(0, 120) || null : null
+  }
+  if (phone !== undefined) {
+    if (phone !== null && (typeof phone !== 'string' || (phone.trim() && !PHONE_RE.test(phone.trim())))) {
+      throw new HttpError(400, '手机号格式不正确')
+    }
+    patch.phone = typeof phone === 'string' ? phone.replace(/[\s-]/g, '') || null : null
+  }
   if (nickname !== undefined) {
     if (nickname !== null && typeof nickname !== 'string') throw new HttpError(400, '昵称格式不正确')
     const v = typeof nickname === 'string' ? nickname.trim() : ''
@@ -187,7 +244,9 @@ api.put('/pages/:id', (req, res) => {
   const { owner } = authOf(res)
   const page = asDoc(req.body, param(req, 'id'))
   assertWritable('pages', page.id, owner)
+  const before = getDoc('pages', page.id, owner)
   putPage(owner, page)
+  emitPageEvent(owner, pageEventOf(before, page), page)
   res.json({ ok: true })
 })
 
@@ -196,15 +255,23 @@ api.post('/pages/batch', (req, res) => {
   const upsert = asDocList(req.body?.upsert)
   const remove = asIdList(req.body?.remove)
   for (const p of upsert) assertWritable('pages', p.id, owner)
+  const befores = new Map(upsert.map((p) => [p.id, getDoc<Doc>('pages', p.id, owner)]))
+  const removed = remove.map((id) => getDoc('pages', id, owner)).filter((p): p is Doc => !!p)
   transaction(() => {
     for (const p of upsert) putPage(owner, p)
     for (const id of remove) deleteDoc('pages', id, owner)
   })
+  for (const p of upsert) emitPageEvent(owner, pageEventOf(befores.get(p.id) ?? null, p), p)
+  for (const p of removed) emitPageEvent(owner, 'page.deleted', p)
   res.json({ ok: true })
 })
 
 api.delete('/pages/:id', (req, res) => {
-  deleteDoc('pages', param(req, 'id'), authOf(res).owner)
+  const { owner } = authOf(res)
+  const id = param(req, 'id')
+  const before = getDoc('pages', id, owner)
+  deleteDoc('pages', id, owner)
+  if (before) emitPageEvent(owner, 'page.deleted', before)
   res.json({ ok: true })
 })
 
@@ -325,8 +392,14 @@ api.get('/assets/:id', (req, res) => {
   const meta = db
     .prepare('SELECT id, owner, name, type, size, created_at FROM assets WHERE id = ?')
     .get(id) as AssetMetaRow | undefined
-  // 公共图片对所有登录用户只读可见（用户副本里的图片仍引用公共图片）
-  if (!meta || (meta.owner !== owner && meta.owner !== user.id && meta.owner !== PUBLIC_OWNER)) {
+  // 公共图片对所有登录用户只读可见（用户副本里的图片仍引用公共图片）；共享页面里的图片对协作双方可见
+  if (
+    !meta ||
+    (meta.owner !== owner &&
+      meta.owner !== user.id &&
+      meta.owner !== PUBLIC_OWNER &&
+      !canSeeAssetsOf(user.id, meta.owner))
+  ) {
     throw new HttpError(404, '图片不存在')
   }
   const row = db.prepare('SELECT data FROM assets WHERE id = ?').get(id) as { data: Uint8Array }
@@ -363,6 +436,10 @@ api.post('/admin/import', requireAdmin, (req, res) => {
   })
   res.json({ ok: true, pages: pages.length, databases: databases.length, rows: rows.length })
 })
+
+/* ---------------- 分享、集成、AI、通知等 ---------------- */
+
+api.use(featuresRouter)
 
 /* ---------------- 错误处理 ---------------- */
 
