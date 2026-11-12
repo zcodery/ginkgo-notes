@@ -459,14 +459,20 @@ function mergeText(nodes: JSONContent[]): JSONContent[] {
 
 const TASK_RE = /^\[([ xX])\]\s+/
 
-function stripTaskPrefix(paragraph: JSONContent): boolean | null {
+/** 只判断是否为待办项，不修改内容 */
+function taskStateOf(paragraph: JSONContent): boolean | null {
   const first = paragraph.content?.[0]
   if (!first || first.type !== 'text') return null
   const m = TASK_RE.exec(first.text ?? '')
-  if (!m) return null
+  return m ? m[1].toLowerCase() === 'x' : null
+}
+
+/** 整个列表都是待办时才去掉 `[ ]` 前缀；混合列表保留原文，避免吞字 */
+function stripTaskPrefix(paragraph: JSONContent): void {
+  const first = paragraph.content?.[0]
+  if (!first || first.type !== 'text') return
   first.text = (first.text ?? '').replace(TASK_RE, '')
   if (!first.text) paragraph.content!.shift()
-  return m[1].toLowerCase() === 'x'
 }
 
 function convertBlocks(
@@ -522,8 +528,7 @@ function convertBlocks(
         if (tokens[j].type === 'list_item_open') {
           const itemClose = matchClose(tokens, j)
           const inner = convertBlocks(tokens, j + 1, itemClose)
-          let checked: boolean | null = null
-          if (inner[0]?.type === 'paragraph') checked = stripTaskPrefix(inner[0])
+          const checked = inner[0]?.type === 'paragraph' ? taskStateOf(inner[0]) : null
           items.push({ content: inner, checked })
           j = itemClose + 1
         } else {
@@ -533,6 +538,7 @@ function convertBlocks(
 
       const allTasks = items.length > 0 && items.every((it) => it.checked !== null)
       if (allTasks) {
+        for (const it of items) stripTaskPrefix(it.content[0]!)
         nodes.push({
           type: 'taskList',
           content: items.map((it) => ({
