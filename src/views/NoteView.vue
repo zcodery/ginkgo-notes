@@ -1182,8 +1182,7 @@ onBeforeUnmount(() => {
 .note-view.is-exporting :deep(.block-handle),
 .note-view.is-exporting :deep(.slash-menu),
 .note-view.is-exporting :deep(.bubble-bar),
-.note-view.is-exporting :deep(.tc-toolbar),
-.note-view.is-exporting :deep(.tc-bar),
+.note-view.is-exporting :deep(.tc-ui),
 .note-view.is-exporting :deep(.column-resize-handle) {
   display: none !important;
 }

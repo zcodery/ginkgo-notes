@@ -4,6 +4,7 @@ import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Image from '@tiptap/extension-image'
 import { TableKit } from '@tiptap/extension-table'
+import { GnTableCell, GnTableHeader } from './nodes/tableCell'
 import { DiagramNode } from './nodes/diagram'
 import { DatabaseNode } from './nodes/database'
 import { EnhancedCodeBlock } from './nodes/codeBlock'
@@ -39,7 +40,12 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
         lastColumnResizable: true,
         HTMLAttributes: { class: 'gn-table' },
       },
+      // 单元格换成带背景色 / 对齐属性的扩展版本
+      tableCell: false,
+      tableHeader: false,
     }),
+    GnTableCell,
+    GnTableHeader,
     FontColor,
     BgColor,
     DiagramNode,

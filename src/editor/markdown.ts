@@ -160,6 +160,8 @@ interface TableMeta {
   cols: (number | null)[]
   headerRow: boolean
   headerCol: boolean
+  /** 单元格背景色：`行-列` → 预设色键 */
+  bg: Record<string, string>
 }
 
 const TABLE_META_RE = /^<!--\s*gn-table\b([^>]*?)-->\s*$/
@@ -177,7 +179,13 @@ function tableMetaOf(node: JSONContent): TableMeta {
     rows.every((r) => r.content?.[0]?.type === 'tableHeader') &&
     // 只有一行时首列是否表头无从区分，按首行表头算
     !(rows.length === 1 && headerRow)
-  return { cols, headerRow, headerCol }
+  const bg: Record<string, string> = {}
+  rows.forEach((r, ri) =>
+    (r.content ?? []).forEach((c, ci) => {
+      if (typeof c.attrs?.bg === 'string' && /^[a-z]+$/.test(c.attrs.bg)) bg[`${ri}-${ci}`] = c.attrs.bg
+    }),
+  )
+  return { cols, headerRow, headerCol, bg }
 }
 
 function serializeTableMeta(meta: TableMeta): string {
@@ -185,6 +193,8 @@ function serializeTableMeta(meta: TableMeta): string {
   if (meta.cols.some((w) => w != null)) parts.push(`cols="${meta.cols.map((w) => w ?? '').join(',')}"`)
   if (!meta.headerRow) parts.push('header-row="0"')
   if (meta.headerCol) parts.push('header-col="1"')
+  const bg = Object.entries(meta.bg)
+  if (bg.length) parts.push(`bg="${bg.map(([k, v]) => `${k}:${v}`).join(';')}"`)
   return parts.length ? `<!-- gn-table ${parts.join(' ')} -->` : ''
 }
 
@@ -195,10 +205,16 @@ function parseTableMeta(raw: string): TableMeta | null {
   const cols = (attr('cols') ?? '')
     .split(',')
     .map((s) => (/^\d+$/.test(s.trim()) ? Number(s.trim()) : null))
+  const bg: Record<string, string> = {}
+  for (const pair of (attr('bg') ?? '').split(';')) {
+    const pm = /^(\d+-\d+):([a-z]+)$/.exec(pair.trim())
+    if (pm) bg[pm[1]!] = pm[2]!
+  }
   return {
     cols: attr('cols') == null ? [] : cols,
     headerRow: attr('header-row') !== '0',
     headerCol: attr('header-col') === '1',
+    bg,
   }
 }
 
@@ -207,6 +223,8 @@ function applyTableMeta(rows: JSONContent[], meta: TableMeta) {
     ;(row.content ?? []).forEach((cell, ci) => {
       const w = meta.cols[ci]
       if (w) cell.attrs = { ...cell.attrs, colwidth: [w] }
+      const bg = meta.bg[`${ri}-${ci}`]
+      if (bg) cell.attrs = { ...cell.attrs, bg }
       const isHeader = (ri === 0 && meta.headerRow) || (ci === 0 && meta.headerCol)
       cell.type = isHeader ? 'tableHeader' : 'tableCell'
     })
@@ -225,11 +243,21 @@ function serializeTable(node: JSONContent): string {
   const lines: string[] = []
   const meta = serializeTableMeta(tableMetaOf(node))
   if (meta) lines.push(meta)
+  // 列对齐写进 GFM 分隔行（:--- / :---: / ---:），取每列第一个设置了对齐的单元格
+  const width = rows[0]?.content?.length ?? 0
+  const aligns = Array.from({ length: width }, (_, ci) => {
+    for (const r of rows) {
+      const a = r.content?.[ci]?.attrs?.align
+      if (a) return a as string
+    }
+    return null
+  })
+  const delimiter = (a: string | null) => (a === 'center' ? ':---:' : a === 'right' ? '---:' : a === 'left' ? ':---' : '---')
   rows.forEach((row, ri) => {
     const cells = (row.content ?? []).map(cellText)
     lines.push(`| ${cells.join(' | ')} |`)
     if (ri === 0) {
-      lines.push(`| ${cells.map(() => '---').join(' | ')} |`)
+      lines.push(`| ${cells.map((_, ci) => delimiter(aligns[ci] ?? null)).join(' | ')} |`)
     }
   })
   return lines.join('\n')
@@ -624,9 +652,10 @@ function convertBlocks(
                   break
                 }
               }
+              const alignMatch = /text-align:\s*(left|center|right)/.exec(String(tokens[k].attrGet('style') ?? ''))
               cells.push({
                 type: tokens[k].type === 'th_open' ? 'tableHeader' : 'tableCell',
-                attrs: { colspan: 1, rowspan: 1, colwidth: null },
+                attrs: { colspan: 1, rowspan: 1, colwidth: null, align: alignMatch?.[1] ?? null },
                 content: [{ type: 'paragraph', ...(inline.length ? { content: inline } : {}) }],
               })
               k = cellClose + 1

@@ -26,6 +26,7 @@ import {
   type ColorValue,
 } from './marks/colors'
 import { NodeSelection, Selection, TextSelection, type Transaction } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { createDatabase } from '@/db/databases'
 import { getPage, saveContent, toPlainText } from '@/db/repo'
 import { pageUrl, store } from '@/store'
@@ -533,6 +534,12 @@ function updateBubble() {
     return
   }
   if (ed.isActive('codeBlock')) {
+    bubble.value.visible = false
+    colorPanelOpen.value = false
+    return
+  }
+  // 整行 / 整列等单元格选区由表格菜单接管
+  if (ed.state.selection instanceof CellSelection) {
     bubble.value.visible = false
     colorPanelOpen.value = false
     return
