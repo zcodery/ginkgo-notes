@@ -366,9 +366,11 @@ onMounted(() => load())
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.sv-body :deep(mark) {
+.sv-body :deep(mark.sv-highlight),
+.sv-body :deep(mark:not([data-bg])) {
   border-radius: 3px;
   padding: 0 2px;
+  background: color-mix(in srgb, #fef08a 70%, transparent);
 }
 .sv-body :deep(p) {
   margin: 0.4em 0;

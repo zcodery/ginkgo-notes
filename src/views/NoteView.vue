@@ -32,6 +32,8 @@ import {
   Sparkles,
   Languages,
   ListChecks,
+  Bug,
+  GripVertical,
 } from 'lucide-vue-next'
 import type { Editor } from '@tiptap/core'
 import BlockEditor from '@/editor/BlockEditor.vue'
@@ -60,6 +62,8 @@ import {
   setNoteFontStyle,
   setNoteLayout,
   toggleTocVisible,
+  isAdmin,
+  setGutterTuning,
   type NoteFontSize,
   type NoteFontStyle,
   type NoteLayout,
@@ -92,6 +96,7 @@ const fontSizeMenuOpen = ref(false)
 const fontStyleMenuOpen = ref(false)
 const layoutMenuOpen = ref(false)
 const exportMenuOpen = ref(false)
+const debugMenuOpen = ref(false)
 const findOpen = ref(false)
 const findStartWithReplace = ref(false)
 const imageExportOpen = ref(false)
@@ -195,18 +200,35 @@ function closeExportMenu() {
   exportMenuOpen.value = false
 }
 
+function closeDebugMenu() {
+  debugMenuOpen.value = false
+}
+
 function togglePrefMenu(which: PrefMenu) {
   const open = prefMenus[which]
   const next = !open.value
   closePrefMenus()
   closeExportMenu()
+  closeDebugMenu()
   open.value = next
 }
 
 function toggleExportMenu() {
   const next = !exportMenuOpen.value
   closePrefMenus()
+  closeDebugMenu()
   exportMenuOpen.value = next
+}
+
+function toggleDebugMenu() {
+  const next = !debugMenuOpen.value
+  closePrefMenus()
+  closeExportMenu()
+  debugMenuOpen.value = next
+}
+
+function toggleGutterTuning() {
+  setGutterTuning(!store.gutterTuning)
 }
 
 function toggleMoreMenu() {
@@ -214,6 +236,7 @@ function toggleMoreMenu() {
   if (!menuOpen.value) {
     closePrefMenus()
     closeExportMenu()
+    closeDebugMenu()
   }
 }
 
@@ -652,6 +675,7 @@ function onGlobalDown(e: MouseEvent) {
     menuOpen.value = false
     closePrefMenus()
     closeExportMenu()
+    closeDebugMenu()
   }
   if (
     (widthMenuOpen.value ||
@@ -664,6 +688,9 @@ function onGlobalDown(e: MouseEvent) {
   }
   if (exportMenuOpen.value && !target.closest('.nv-sub-row')) {
     closeExportMenu()
+  }
+  if (debugMenuOpen.value && !target.closest('.nv-sub-row')) {
+    closeDebugMenu()
   }
   if (
     emojiOpen.value &&
@@ -855,6 +882,29 @@ onBeforeUnmount(() => {
               <button :disabled="exporting" @click.stop="exportImage">
                 <ImageDown :size="14" :stroke-width="1.8" />
                 <span>{{ tr('图片') }}</span>
+              </button>
+            </div>
+          </div>
+          <div v-if="isAdmin" class="nv-sub-row">
+            <button
+              class="nv-sub-trigger"
+              :class="{ open: debugMenuOpen }"
+              @click.stop="toggleDebugMenu"
+            >
+              <Bug :size="14" :stroke-width="1.8" />
+              <span>{{ tr('调试') }}</span>
+              <ChevronRight class="nv-sub-arrow" :size="14" :stroke-width="1.8" />
+            </button>
+            <div v-if="debugMenuOpen" class="nv-sub-menu gn-pop">
+              <button type="button" @click.stop="toggleGutterTuning">
+                <GripVertical :size="14" :stroke-width="1.8" />
+                <span>{{ tr('装订区调校') }}</span>
+                <Check
+                  v-if="store.gutterTuning"
+                  :size="14"
+                  :stroke-width="2"
+                  class="nv-pref-check"
+                />
               </button>
             </div>
           </div>
@@ -1145,6 +1195,7 @@ onBeforeUnmount(() => {
             :content="editorHtml"
             :page-id="pageId"
             :editable="canEdit"
+            :gutter-tuning="isAdmin && store.gutterTuning"
             @change="onContentChange"
           />
 
@@ -1774,7 +1825,6 @@ onBeforeUnmount(() => {
 }
 .nv-title {
   display: block;
-  width: 100%;
   border: none;
   outline: none;
   resize: none;
@@ -1785,7 +1835,9 @@ onBeforeUnmount(() => {
   line-height: 1.25;
   letter-spacing: -0.022em;
   color: var(--gn-text);
-  padding: 2px 0 0;
+  padding-top: 2px;
+  padding-right: 0;
+  padding-bottom: 0;
   overflow: hidden;
 }
 .nv-title::placeholder {
