@@ -444,7 +444,7 @@ watch(
 <style scoped>
 .gn-codeblock {
   position: relative;
-  margin: 10px 0;
+  margin-block: 10px;
   border: 1px solid var(--gn-border);
   border-radius: var(--gn-radius);
   background: var(--gn-bg-code);
@@ -469,9 +469,11 @@ watch(
 }
 /* ---------- 工具栏 ---------- */
 .cb-toolbar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
   padding: 5px 8px;
   border-bottom: 1px solid var(--gn-border);
   border-radius: calc(var(--gn-radius) - 1px) calc(var(--gn-radius) - 1px) 0 0;
@@ -479,6 +481,11 @@ watch(
   font-size: 12px;
   user-select: none;
   transition: border-color 0.2s ease;
+}
+.gn-codeblock:hover .cb-title,
+.gn-codeblock:focus-within .cb-title,
+.gn-codeblock.ProseMirror-selectednode .cb-title {
+  padding-right: 168px;
 }
 .gn-codeblock.collapsed .cb-toolbar {
   border-bottom-color: transparent;
@@ -656,18 +663,50 @@ watch(
   outline: none;
 }
 
-/* 操作区 */
+/* 操作区：贴右悬浮，避免挤爆工具栏；默认隐藏，移入代码块后显示 */
 .cb-actions {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  bottom: 4px;
   display: flex;
   align-items: center;
   gap: 2px;
-  flex: 0 0 auto;
+  max-width: calc(100% - 12px);
+  padding-left: 20px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    transparent 0,
+    color-mix(in srgb, var(--gn-bg-sidebar) 45%, transparent) 22%,
+    color-mix(in srgb, var(--gn-bg-sidebar) 55%, var(--gn-bg-code)) 100%
+  );
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 .cb-stats {
-  margin-right: 6px;
+  margin-right: 4px;
   font-size: 11px;
   color: var(--gn-text-muted);
   white-space: nowrap;
+}
+@media (hover: hover) {
+  .gn-codeblock:hover .cb-actions,
+  .gn-codeblock:focus-within .cb-actions,
+  .gn-codeblock.ProseMirror-selectednode .cb-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+@media (hover: none) {
+  .cb-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .gn-codeblock .cb-title {
+    padding-right: 168px;
+  }
 }
 .cb-btn {
   display: flex;

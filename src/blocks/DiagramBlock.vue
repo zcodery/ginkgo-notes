@@ -368,7 +368,7 @@ const kindLabel = computed(() => {
 <style scoped>
 .gn-diagram {
   position: relative;
-  margin: 10px 0;
+  margin-block: 10px;
   border: 1px solid transparent;
   border-radius: 10px;
   transition: border-color 0.15s ease, background 0.15s ease;

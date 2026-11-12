@@ -754,12 +754,18 @@ function removeSelf() {
 
 <style scoped>
 .gn-db {
-  margin: 12px 0;
+  margin-block: 12px;
   border: 1px solid var(--gn-border);
   border-radius: 11px;
   background: var(--gn-bg);
-  overflow: hidden;
+  overflow: visible;
   transition: border-color 0.15s ease;
+}
+.dbb-skeleton,
+.dbb-missing,
+.dbb-panel {
+  overflow: hidden;
+  border-radius: 0 0 10px 10px;
 }
 .gn-db:hover,
 .gn-db.selected {
