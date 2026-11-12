@@ -32,6 +32,8 @@ const PHRASES: Record<string, { tw: string; en: string }> = {
   '问问 AI…': { tw: '問問 AI…', en: 'Ask AI…' },
   '导出中…': { tw: '匯出中…', en: 'Exporting…' },
   导出: { tw: '匯出', en: 'Export' },
+  调试: { tw: '偵錯', en: 'Debug' },
+  装订区调校: { tw: '裝訂區調校', en: 'Gutter alignment tuning' },
   图片: { tw: '圖片', en: 'Image' },
   页面宽度: { tw: '頁面寬度', en: 'Page width' },
   字体大小: { tw: '字體大小', en: 'Font size' },
