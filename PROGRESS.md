@@ -1,0 +1,379 @@
+# 银杏笔记 (Ginkgo Notes) — 开发进度
+
+> 版本 0.3.0 | 更新于 2026-11-12
+> 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
+> 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
+
+---
+
+## 一、项目概览
+
+一个基于 **Vue 3 + TipTap (ProseMirror) + Express + SQLite** 的自托管 Markdown 笔记应用，支持多维表格、Mermaid 图表、代码块、公开分享、成员协作、AI 助手、Webhook 和 MCP 协议接入。
+
+| 维度 | 选择 |
+|---|---|
+| 前端 | Vue 3.5 + TipTap 3.33 + Vite 8 + TailwindCSS 4 + lucide-vue-next |
+| 后端 | Express 5 + Node.js `node:sqlite` (DatabaseSync, WAL 模式) |
+| 通信 | 统一 fetch 封装 (`src/api/client.ts`)，JWT 会话 + Bearer 个人令牌 |
+| 序列化 | TipTap JSON ↔ Markdown **块级 1:1 映射** (`src/editor/markdown.ts`) |
+| 存储 | 服务端 SQLite 为主；IndexedDB 仅作旧版迁移 (`src/db/legacy.ts`) |
+| 构建 | pnpm + concurrently（开发时前后端同时起） |
+
+### 关键设计原则
+
+1. **Markdown 是唯一事实来源**：正文存 Markdown 字符串，TipTap 仅编辑期存在。保证 .md 可被 GitHub/Obsidian/Typora 直接渲染。
+2. **引用式高级块**：多维表格是独立实体（`server/db.ts` 里的 `databases` + `db_rows` 表），正文只写 ` ```ginkgo-db <id>` fence，支持跨页复用与同步。
+3. **写操作串行化**：`src/db/repo.ts` 的 `serial('page:<id>')` / `serial('db:<id>')` 防止标题/正文两路保存交错导致旧快照覆盖。
+4. **只读内容走 HTML 渲染**：公开分享页用 `src/utils/renderMarkdown.ts` 白名单清洗后输出 HTML，不加载 TipTap，也不暴露任何编辑路径。
+
+---
+
+## 二、目录与分层
+
+```
+ginkgoNotes/
+├── server/              # Express + node:sqlite 后端 (TS, tsx watch)
+│   ├── index.ts         # 入口：种子数据 + Express 挂载
+│   ├── routes.ts        # 主路由 + 认证入口 + 页面/表格/资源 CRUD
+│   ├── features.ts      # 功能路由聚合（共享/成员/AI/MCP/通知/Webhook/反馈）
+│   ├── auth.ts          # JWT + scrypt + 会话 + API 令牌 + 中间件
+│   ├── account.ts       # 会话管理 / 2FA / PIN / GitHub OAuth / 令牌管理
+│   ├── totp.ts          # RFC 6238 TOTP
+│   ├── db.ts            # SQLite 建表/连接/通用 CRUD/设置
+│   ├── http.ts          # HttpError / 参数校验 / IP 归一化
+│   ├── templates.ts     # 公共原稿种子 + 新用户模板拷贝
+│   ├── share.ts         # 公开分享链接（密码/有效期/子页）
+│   ├── members.ts       # 成员协作（viewer/editor 角色）
+│   ├── ai.ts            # OpenAI 兼容转发 + SSE 流式
+│   ├── mcp.ts           # MCP Streamable HTTP 服务（JSON-RPC 2.0，个人令牌认证）
+│   ├── webhooks.ts      # 页面事件 Webhook（HMAC-SHA256 签名）
+│   ├── notify.ts        # 站内通知 + 可选 SMTP 邮件
+│   └── mailer.ts        # nodemailer 懒加载封装
+├── src/
+│   ├── App.vue          # 路由外壳
+│   ├── main.ts
+│   ├── store.ts         # Pinia 全局状态
+│   ├── types.ts         # 前后端共用类型
+│   ├── api/             # fetch 封装 + 按领域分组的接口清单
+│   │   ├── client.ts    # Bearer 头 / 401 清理 / 空间切换头 / SSE 手写解析
+│   │   └── features.ts
+│   ├── db/              # 数据访问层
+│   │   ├── repo.ts      # 页面/资源仓储 + serial() 写保护
+│   │   ├── databases.ts # 多维表格仓储（表/字段/视图/行）
+│   │   ├── legacy.ts    # 旧 IndexedDB → 新后端迁移
+│   │   └── index.ts     # 旧 IndexedDB schema（只剩迁移时用）
+│   ├── editor/          # TipTap 编辑器内核
+│   │   ├── BlockEditor.vue   # 主编排：扩展装配、防抖保存、Slash/块/表格/AI 面板
+│   │   ├── extensions.ts    # 扩展清单（含自定义 GnTableCell/Diagram/Database/PageLink）
+│   │   ├── markdown.ts      # Markdown ↔ ProseMirror 块级 1:1 映射
+│   │   ├── nodes/           # database / diagram / pageLink / codeBlock / tableCell
+│   │   ├── marks/colors.ts  # FontColor / BgColor + 18 预设色
+│   │   ├── SlashMenu.vue    # / 命令菜单
+│   │   ├── BlockMenu.vue    # 块级手柄菜单（类型转换、颜色、上下移动、生成子页）
+│   │   ├── TableControls.vue # 仿飞书表格交互（行/列手柄、标题、背景色、对齐、拷贝）
+│   │   ├── AiPanel.vue + ai.ts # 13 个内置 AI 动作 + SSE 流式渲染
+│   │   ├── searchReplace.ts # 自建查找替换插件
+│   │   ├── highlight.ts     # lowlight + import.meta.glob 按需加载 192 种语言
+│   │   ├── format.ts        # 浏览器端 prettier 动态 import
+│   │   ├── assets.ts        # asset:<id> 协议（blob URL ↔ data URL ↔ 清理）
+│   │   └── codePrefs.ts     # 代码块行号开关（localStorage 持久化）
+│   ├── blocks/          # NodeView Vue 实现
+│   │   ├── DatabaseBlock.vue   # 多维表格宿主 + 表格/看板/行详情视图
+│   │   ├── DbTableView.vue     # 表格视图（可拖列宽、字段过滤）
+│   │   ├── DbBoardView.vue     # 看板视图（按 select 字段分组、卡片拖拽）
+│   │   ├── DbRowSheet.vue      # 行详情侧滑面板（Teleport body）
+│   │   ├── DbCell.vue          # 七种字段类型输入控件
+│   │   ├── DbFieldMenu.vue     # 字段列头菜单
+│   │   ├── dbFields.ts         # 字段元数据 + 视图计算
+│   │   ├── exportDatabases.ts   # 导出 .md 时展开成真实 Markdown 表格
+│   │   ├── DiagramBlock.vue    # Mermaid 图表块
+│   │   ├── diagramTemplates.ts # 8 个图表模板
+│   │   ├── mermaid.ts          # Mermaid 封装（动态 import + 明暗配色）
+│   │   ├── CodeBlockView.vue   # 代码块工具栏（语言选择、文件名、复制、prettier、折叠、行号）
+│   │   └── PageLinkBlock.vue    # 子页面卡片
+│   ├── components/      # 编辑器外部通用 UI
+│   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间切换）
+│   │   ├── PageTree.vue / Item.vue # 页面树（拖拽、重命名、右键菜单）
+│   │   ├── SearchModal.vue     # 全局搜索（打分排序、关键词高亮）
+│   │   ├── PageToc.vue         # 右侧目录（IntersectionObserver 跟踪）
+│   │   ├── FindReplaceBar.vue  # 页内查找替换条
+│   │   ├── ShareDialog.vue     # 分享（公开链接 Tab + 成员授权 Tab）
+│   │   ├── NotificationBell.vue # 通知铃铛（静默时段、按类型图标）
+│   │   ├── ImageExportModal.vue # 笔记导出图片预览弹层
+│   │   ├── IconPicker.vue      # 页面图标（emoji / Lucide / 上传 / 外链）
+│   │   ├── CoverPicker.vue     # 页面封面（渐变预设 / 图库 / 上传 / Unsplash / AI）
+│   │   ├── PinLock.vue         # PIN 锁屏层
+│   │   └── GnSelect.vue        # 项目自定义下拉
+│   ├── views/           # 路由级页面
+│   │   ├── NoteView.vue        # 主笔记页（最重文件，布局偏好 50-90%、字号、字体、疏密）
+│   │   ├── HomeView.vue        # 首页仪表盘
+│   │   ├── TrashView.vue       # 回收站
+│   │   ├── AuthView.vue        # 登录/注册/2FA/GitHub OAuth
+│   │   ├── ProfileView.vue     # 个人中心
+│   │   ├── SharedNoteView.vue  # 共享给我（只读/可编辑按角色）
+│   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录）
+│   │   └── settings/           # 10 个设置子组件
+│   ├── utils/           # 导入导出与只读渲染
+│   │   ├── importExport.ts     # Markdown/Notion/Zip/JSON 全链路迁移
+│   │   ├── exportPage.ts       # html2canvas → 图片 / jsPDF → PDF
+│   │   └── renderMarkdown.ts   # 只读 Markdown→HTML（白名单清洗）
+│   ├── i18n/            # 简 / 繁 / 英三套界面语言
+│   ├── shortcuts.ts     # 快捷键定义
+│   ├── userState.ts    # 登录态 / 用户信息
+│   └── pinLock.ts      # PIN 状态机
+├── package.json
+├── vite.config.ts       # @tailwindcss/vite + vue-tsc
+└── run.bat              # Windows 一键启动脚本
+```
+
+---
+
+## 三、已实现功能清单
+
+### P0 — 核心闭环（均可编译运行）
+
+| # | 模块 | 状态 | 说明 |
+|---|---|---|---|
+| 1 | 鉴权注册登录 | ✅ | 用户名规则、scrypt 密码哈希、JWT 会话 |
+| 2 | 两步验证 (2FA) | ✅ | RFC 6238 TOTP，Google/Microsoft 验证器兼容 |
+| 3 | GitHub OAuth | ✅ | 绑定已有账号 + 免注册登录 |
+| 4 | 会话管理 | ✅ | 列表查看、远程撤销、"踢出其它会话" |
+| 5 | PIN 锁屏 | ✅ | 已登录态下的额外保护层，支持退出登录绕开 |
+| 6 | 个人访问令牌 | ✅ | `gn_` 前缀、SHA256 存库、只读 scope 禁止写操作（`/mcp` 例外）、上限 30 |
+| 7 | 页面 CRUD | ✅ | 新建、重命名、删除、回收站（单页 + 永久 + 清空）、父子层级、拖拽移动、同级重排 |
+| 8 | TipTap 编辑器 | ✅ | StarterKit + Placeholder + Image + TableKit + TaskList/Item + 自定义节点 |
+| 9 | Markdown 双向 | ✅ | 块级 1:1 映射，三种 fence 扩展 (`mermaid` / `ginkgo-db` / `ginkgo-page`) |
+| 10 | 撤销/重做 | ✅ | 显式拦截，不被浏览器监听抢走 |
+| 11 | Slash (`/`) 命令 | ✅ | 基础块、表格、图片、多维表格、页面卡片、图表模板、AI 动作；中文 + 拼音首字母过滤 |
+| 12 | 块级手柄菜单 | ✅ | 类型转换（段落 ↔ H1-H4 ↔ 列表 ↔ 引用 ↔ 代码）、颜色、上下移动、生成子页、删除 |
+| 13 | 表格精细控制 | ✅ | 仿飞书交互：行/列悬停手柄、标题行/列开关、背景色（10 种）、列对齐、两侧插入、拷贝副本（Ctrl+D）、清除、删除、均分列宽 |
+| 14 | 代码块增强 | ✅ | 192 种语言选择、文件名 (`title` 属性)、复制、prettier 格式化、折叠、换行开关、行号（全局偏好） |
+| 15 | 代码高亮 | ✅ | lowlight + import.meta.glob 按需加载，未知语言降级为纯文本 |
+| 16 | 多维表格块 | ✅ | 表格视图（可拖列宽、字段过滤）+ 看板视图（按 select 分组、卡片拖拽）+ 七种字段类型 + 行详情侧滑面板 |
+| 17 | Mermaid 图表块 | ✅ | 动态 import、明暗两套配色、主题切换后重绘；8 个开箱模板 |
+| 18 | 页面卡片 | ✅ | 正文中的子页面卡片，点击跳转，页面被删时显示"已删除或不存在" |
+| 19 | 全局搜索 | ✅ | 标题/摘要打分排序、关键词片段高亮、空查询显示最近 12 篇 |
+| 20 | 右侧目录 (TOC) | ✅ | IntersectionObserver 跟踪当前章节、点击平滑滚动 |
+| 21 | 页内查找替换 | ✅ | 大小写敏感、全词匹配，锁定页禁用替换 |
+| 22 | 页面锁定 | ✅ | 锁定后只读，编辑器浮条自动隐藏 |
+| 23 | 布局偏好 | ✅ | 页面宽度 50-90% 滑块、字号、字体风格、疏密 |
+| 24 | 主题切换 | ✅ | 明/暗主题，点击处圆形扩散过渡动画 |
+| 25 | 页面图标/封面 | ✅ | emoji / Lucide / 上传 / 外链 / Unsplash / AI 生成封面 |
+| 26 | AI 助手 | ✅ | OpenAI 兼容转发 + SSE 流式透传；13 个内置动作（润色、续写、总结、翻译、提炼要点、生成大纲、改写风格、修复语法、扩写、缩短、添加示例、生成表格、生成代码）；选区改写 / 光标续写 / 整页总结三种模式 |
+| 27 | 公开分享链接 | ✅ | 密码门、有效期、是否含子页、重新生成 token；访客端免登录 Markdown 只读渲染 + Mermaid 异步渲染 |
+| 28 | 成员协作 | ✅ | 作者按用户名邀请 viewer/editor；editor 且页面未锁定时可编辑；双向资源可见性 |
+| 29 | MCP 服务 | ✅ | Streamable HTTP `/api/mcp`、JSON-RPC 2.0、个人令牌认证；工具 `search_pages` / `list_pages` / `read_page` / `create_page` / `update_page` (含 `mode=append`) / `trash_page`；只读令牌禁止写工具 |
+| 30 | Webhook | ✅ | 页面事件 `page.created/updated/trashed/restored/deleted`；HMAC-SHA256 签名投递；自动保存场景 5 秒防抖合并；8s 超时；失败通知 |
+| 31 | 站内通知 | ✅ | 6 种类型（security/share/member/feedback/webhook/system）、按类型图标、静默时段（`inQuietHours`）、每人最多 500 条、安全类不可关闭 |
+| 32 | 邮件通知 (SMTP) | ✅ | 懒加载 nodemailer；`SMTP_URL` + `SMTP_FROM` 配置；未配置时静默跳过 |
+| 33 | Markdown 导入导出 | ✅ | 单文件 / 文件夹 / zip / Notion 导出包（剥掉 32 位 id 后缀）；还原父子层级；导出时多维表格展开成真实 Markdown 表格快照 |
+| 34 | JSON 全库备份 | ✅ | `importBackupJson` / `exportBackupJson` 完整往返 |
+| 35 | 空间 zip 导出 | ✅ | 含资源，多维表格展开，带进度回调 |
+| 36 | 笔记导出图片 | ✅ | html2canvas-pro（scale ≤2）、纸张样式（白纸/米纸/横线/方格）、深浅主题、平铺旋转水印、下载 + 复制到剪贴板 |
+| 37 | 笔记导出 PDF | ✅ | jsPDF A4 纵向、按页切片 `addImage` |
+| 38 | 设置弹窗 | ✅ | 10 个 section（account/account-security/general/notify/space/members/share/data/integrations/ai/about），Esc 捕获阶段拦截只关自己 |
+| 39 | 个人资料 + 修改密码 | ✅ | 改密后踢掉其它会话 |
+| 40 | 存储用量统计 | ✅ | 资源/页面/多维表格分项、最大 5 个图片 |
+| 41 | 快捷键 | ✅ | 录制、冲突检测、恢复默认 |
+| 42 | i18n 三语 | ✅ | 简体 / 繁体 / 英文；全部 UI 文案覆盖 |
+| 43 | 公共原稿 | ✅ | 首次启动自动生成（欢迎页 + Markdown 速查页 + 示例多维表格）；管理员可切到公共空间；新用户注册时深拷贝独立副本 |
+| 44 | 旧数据迁移 | ✅ | 旧版 IndexedDB（v2）一键导入到后端，图片保持原 id |
+| 45 | 意见反馈 | ✅ | 提交到 `feedback` 表 + 通知所有管理员；管理员可见全部、可回复 |
+| 46 | 版本检测 | ✅ | 设置页 About 区域 |
+
+### P1 — 部分完成 / 待完善
+
+| # | 模块 | 状态 | 缺失项 |
+|---|---|---|---|
+| — | 无 | — | 当前所有已开始的模块都已闭环 |
+
+### P2 — 尚未开始
+
+| # | 模块 | 说明 |
+|---|---|---|
+| — | 无 | — |
+
+---
+
+## 四、API 路由速查
+
+所有接口挂在 `/api` 前缀下（Express `app.use('/api', api)`）。
+
+### 认证 (`server/auth.ts` + `server/account.ts` + `server/routes.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| POST | `/auth/register` | 注册 | 无 |
+| POST | `/auth/login` | 登录 | 无 |
+| POST | `/auth/login/2fa` | 2FA 二次验证 | 票据 |
+| GET | `/auth/me` | 当前用户信息 | 会话/令牌 |
+| PATCH | `/auth/profile` | 修改资料 | 会话 |
+| POST | `/auth/password` | 修改密码（踢其它会话） | 会话 + 旧密码 |
+| GET | `/auth/sessions` | 设备会话列表 | 会话 |
+| DELETE | `/auth/sessions/:id` | 撤销设备 | 会话 |
+| POST | `/auth/sessions/revoke-others` | 踢出其它设备 | 会话 |
+| POST | `/auth/2fa/setup` / `/enable` / `/disable` | 两步验证 | 会话 |
+| PUT / DELETE | `/auth/pin` | PIN 管理 | 会话 |
+| POST | `/auth/pin/verify` | PIN 验证 | 会话 |
+| GET/POST/DELETE | `/tokens` | 个人访问令牌管理（上限 30） | 会话 |
+| DELETE | `/auth/account` | 注销账号（级联删除） | 会话 + 密码 |
+| GET | `/auth/providers` | 可用 OAuth 提供商 | 无 |
+| GET | `/auth/github/login` → callback | GitHub OAuth | 无 |
+
+### 页面与资源 (`server/routes.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/pages` | 列出全部页面（含删除态） | 会话/令牌 |
+| GET / PUT / DELETE | `/pages/:id` | 单页 CRUD | 会话/令牌 |
+| POST | `/pages/batch` | 批量 upsert/删除 + 触发 Webhook | 会话/令牌 |
+| GET | `/databases` | 列出多维表格 | 会话/令牌 |
+| GET / PUT / DELETE | `/databases/:id` | 单表 CRUD | 会话/令牌 |
+| GET | `/databases/:id/rows` | 表格行列表 | 会话/令牌 |
+| GET / PUT / DELETE | `/rows/:id` | 单行 CRUD | 会话/令牌 |
+| POST | `/rows/batch` | 批量行 CRUD | 会话/令牌 |
+| POST | `/assets` | 上传图片（`X-Asset-Name` 头 + 原始字节） | 会话/令牌 |
+| GET | `/assets/:id` | 读取图片（私有/公共/协作可见性） | 视情况 |
+
+### 功能路由 (`server/features.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/version` | 版本信息 | 无 |
+| GET/POST/PATCH/DELETE | `/shares` | 公开分享管理 | 会话/令牌 |
+| GET | `/shares/page/:pageId` | 查询页的分享 | 会话/令牌 |
+| POST | `/public/shares/:token` | 访客读分享内容 | 密码/票据 |
+| GET | `/public/shares/:token/assets/:id` | 访客读分享图片 | `?k=` 票据 |
+| GET/POST/PATCH/DELETE | `/grants` | 成员授权管理 | 会话/令牌 |
+| GET | `/shared` | 共享给我的页面 | 会话/令牌 |
+| GET / PUT | `/shared/pages/:id` | 读/写共享页 | 按角色 |
+| GET | `/ai/config` / PUT `/ai/config` | AI 配置读写 | 会话（写需会话） |
+| POST | `/ai/chat` | SSE 流式 AI 对话 | 会话/令牌 |
+| POST | `/mcp` | MCP JSON-RPC 2.0 入口 | 个人令牌 |
+| GET/POST/PATCH/DELETE | `/webhooks` | Webhook 管理 | 会话/令牌 |
+| POST | `/webhooks/:id/test` | 测试投递 | 会话/令牌 |
+| GET/POST/DELETE | `/notifications` | 通知管理 | 会话/令牌 |
+| GET / PUT | `/settings/:key` | 用户设置（space/notify/shortcuts，20KB） | 会话/令牌 |
+| GET | `/storage` | 存储用量统计 | 会话/令牌 |
+| GET/POST | `/feedback` | 意见反馈 | 会话/令牌 |
+| GET/POST | `/admin/feedback[/:id/reply]` | 管理员看全部/回复 | requireAdmin |
+| POST | `/admin/import` | 导入公共原稿 | requireAdmin |
+
+### `X-Space: public` 头
+管理员可在任意请求中加此头，切换读写到公共空间（`owner = 'public'`）。
+
+---
+
+## 五、Git 提交历史（按模块分层）
+
+> 已完成的提交按依赖顺序排列，每个提交自身可编译运行。
+
+| # | Hash | 类型 | 说明 |
+|---|---|---|---|
+| 1 | `6139389f` | chore | 初始化项目骨架与构建配置 |
+| 2 | `ba52dcd8` | feat(server) | 实现后端服务、鉴权与数据层 |
+| 3 | `da98fb91` | feat(core) | 新增数据模型、IndexedDB 仓储与全局状态 |
+| 4 | `ec40d620` | feat(editor) | 实现 TipTap 编辑器内核与 Markdown 双向转换 |
+| 5 | `fc342929` | feat(blocks) | 实现代码块工具栏、图表块与多维表格块 |
+| 6 | `7f90cb0b` | feat(ui) | 实现应用外壳、页面视图与全局样式 |
+| 7 | `ee8a9771` | chore | 添加 .gitattributes 统一跨端行尾符 |
+| 8 | `68307025` | feat(server) | 支持个人资料与修改密码 |
+| 9 | `0b9e8545` | feat(ui) | 完善笔记能力与设置弹窗 |
+| 10 | `021566bc` | feat(i18n) | 搭建简繁英三套界面语言 |
+| 11 | `188e3895` | （合并） | — |
+| 12 | `583ebe97` | feat(editor) | 表格精细控制、代码块行号与多端适配 |
+| 13 | `ac56efe0` | merge | 合并 origin/main，保留本地表格、行号与多端改动 |
+| 14 | `c92fef65` | feat(theme) | 主题切换增加从点击处圆形扩散的过渡效果 |
+| 15 | `c9e737de` | feat(server) | 新增会话、令牌、分享、集成、AI、通知、反馈与成员协作接口 |
+| 16 | `eacab0b5` | fix(server) | 已登录时密码/PIN输错改返回 400，避免被前端当成登录失效而登出 |
+| 17 | `9302a945` | feat(ui) | 实现设置中全部「即将上线」模块与分享、协作、AI、PIN 锁屏等前端功能 |
+| 18 | `cfe7ba02` | fix(editor) | 混合列表中的 [ ] 不再被吞掉；版本号升至 0.3.0 |
+| 19 | `3b8d15f5` | feat(notify) | 通知支持同步发送到绑定邮箱（SMTP） |
+| 20 | `c11df82f` | feat(i18n) | 笔记页、侧栏、通知、锁屏等界面接入繁体与英文 |
+| 21 | `5265b8df` | feat(table) | 表格改为行列手柄 + 菜单操作，支持单元格颜色、列对齐与拷贝副本 |
+
+**HEAD**: `5265b8df` — feat(table): 表格改为行列手柄 + 菜单操作，支持单元格颜色、列对齐与拷贝副本
+
+---
+
+## 六、新建提交的模块分层规范
+
+未来提交必须遵循**自底向上的依赖顺序**，每个提交自身可编译运行：
+
+```
+基础设施 → 数据层 → 后端路由 → 编辑器内核 → 高级块 → UI 外壳 → 集成功能
+   ├─ config          ├─ db.ts         ├─ routes.ts   ├─ extensions.ts  ├─ blocks/   ├─ App.vue    ├─ ai/mcp/webhook
+   ├─ http.ts         ├─ auth.ts       └─ features.ts └─ markdown.ts   └─ ...       ├─ views/     └─ notify/mail
+   └─ package.json    └─ templates.ts                                └─ components/
+```
+
+提交信息格式：`<type>(<scope>): <subject>`，body 分点说明关键改动。
+
+---
+
+## 七、构建与启动
+
+```bash
+# 开发
+pnpm dev              # concurrently 起 api (3101) + web (5173)
+# Windows 一键
+run.bat               # 同上 + 自动开浏览器
+
+# 生产
+pnpm build            # vue-tsc --noEmit + vite build
+pnpm start            # node server/index.ts  (Express 同时托管 dist)
+
+# 类型检查
+pnpm typecheck        # vue-tsc + tsc -p server
+```
+
+环境变量（全部可选）：
+- `PORT` 默认 3101
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` 默认 admin / admin123
+- `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 服务端 AI 默认值
+- `SMTP_URL` / `SMTP_FROM` 邮件通知
+
+---
+
+## 八、数据库表结构（摘要）
+
+SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
+
+| 表 | 说明 |
+|---|---|
+| `users` | 用户名（唯一）、密码哈希、role、profile、totpSecret、pinHash、githubId |
+| `sessions` | 用户会话（token 哈希、UA、创建/过期时间） |
+| `api_tokens` | 个人访问令牌（sha256 哈希、scope、最后使用时间） |
+| `pages` | id / owner / title / content(Markdown) / excerpt / icon / cover / parent / order / locked / deleted |
+| `databases` | id / owner / title / fields(JSON) / views(JSON) |
+| `db_rows` | id / databaseId / owner / values(JSON) / order |
+| `assets` | id / owner / name / mime / size / blob |
+| `settings` | 全局设置（键值） |
+| `user_settings` | 用户级设置（键值） |
+| `shares` | token / pageId / password / expiresAt / includeChildren |
+| `page_grants` | pageId / userId / role(viewer/editor) |
+| `webhooks` | url / secret / events(JSON) / lastEvent / lastStatus |
+| `notifications` | userId / type / title / body / link / createdAt / read |
+| `feedback` | userId / content / reply / createdAt |
+
+---
+
+## 九、常见陷阱
+
+1. **多维表格导出**：导出 .md 时 `exportDatabases.ts` 会把 ` ```ginkgo-db` fence 展开成真实 Markdown 表格快照，但正文里仍保留原 fence 以备再次导入。
+2. **asset: 协议清理**：切账号或登出时必须调用 `assets.resetCache()` 释放 blob URL，否则会泄漏内存。
+3. **serial() 保护范围**：所有"先读后写"路径都必须加 `serial(key)`，否则防抖保存的两路请求可能交错。已有 `page:<id>` 和 `db:<id>` 两个 key。
+4. **只读场景**：公开分享页绝不能走 TipTap 编辑器，必须用 `renderMarkdown.ts` + 白名单清洗 + `asset:` 换 `?k=` 票据。
+5. **代码高亮**：未知语言（不在 lowlight 注册表的）会降级为纯文本，不要自己瞎写 fallback。
+6. **PIN 与 2FA 的错误码**：已登录态下密码/PIN 输错返回 **400**，不是 401。401 仅用于"未登录"，这样前端不会误触发登出流程。
+7. **Webhook 防抖**：`page.updated` 在自动保存路径上有 5 秒防抖合并，不要为每次字符修改都触发 Webhook。
+
+---
+
+## 十、维护说明
+
+本文档的权威更新方式：**运行维护 skill**。维护 skill 会：
+1. 读取最新的 `git log --oneline --all`
+2. 扫描 `server/` 新路由
+3. 扫描 `src/` 新目录/新组件
+4. 自动更新本文档的**第五节（Git 提交历史）**和**第三节（功能清单）**
+5. 如发现新的模块分层异常，在文末追加提醒
+
+手动修改后，请把修改合并到 skill 的输出流程中，保证下次 skill 运行不会覆盖你的手写补充。
