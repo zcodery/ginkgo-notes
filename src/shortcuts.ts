@@ -2,8 +2,9 @@ import { reactive, watch } from 'vue'
 import { getUserSetting, putUserSetting } from '@/api/features'
 
 /**
- * 可自定义的全局快捷键。组合写法：Mod+Shift+K（Mod 在 macOS 为 ⌘，其它系统为 Ctrl）。
- * 本机 localStorage 立即生效，同时同步到账号，换设备登录也能用。
+ * 可自定义的全局 / 笔记页快捷键。
+ * 组合写法：Mod+Shift+K（Mod 在 macOS 为 ⌘，其它系统为 Ctrl）。
+ * 本机 localStorage 立即生效，同时同步到账号。
  */
 
 export type ShortcutAction =
@@ -14,6 +15,17 @@ export type ShortcutAction =
   | 'openSettings'
   | 'goHome'
   | 'lock'
+  | 'find'
+  | 'copyLink'
+  | 'duplicate'
+  | 'share'
+  | 'favorite'
+  | 'toggleToc'
+  | 'lockPage'
+  | 'aiSummary'
+  | 'askAi'
+
+export type ShortcutGroup = 'app' | 'note'
 
 export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   search: '全局搜索',
@@ -23,7 +35,43 @@ export const SHORTCUT_LABELS: Record<ShortcutAction, string> = {
   openSettings: '打开设置',
   goHome: '回到首页',
   lock: '立即锁屏（需设置 PIN）',
+  find: '查找或替换',
+  copyLink: '复制页面链接',
+  duplicate: '创建页面副本',
+  share: '分享与协作',
+  favorite: '收藏 / 取消收藏',
+  toggleToc: '显示 / 隐藏页面目录',
+  lockPage: '锁定 / 解除锁定页面',
+  aiSummary: 'AI 总结全文',
+  askAi: '问问 AI',
 }
+
+export const SHORTCUT_GROUPS: { id: ShortcutGroup; label: string; actions: ShortcutAction[] }[] = [
+  {
+    id: 'app',
+    label: '应用',
+    actions: ['search', 'newPage', 'toggleSidebar', 'toggleTheme', 'openSettings', 'goHome', 'lock'],
+  },
+  {
+    id: 'note',
+    label: '笔记页',
+    actions: [
+      'find',
+      'copyLink',
+      'duplicate',
+      'share',
+      'favorite',
+      'toggleToc',
+      'lockPage',
+      'aiSummary',
+      'askAi',
+    ],
+  },
+]
+
+export const NOTE_SHORTCUTS = new Set<ShortcutAction>(
+  SHORTCUT_GROUPS.find((g) => g.id === 'note')!.actions,
+)
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   search: 'Mod+K',
@@ -33,6 +81,15 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutAction, string> = {
   openSettings: 'Mod+,',
   goHome: 'Mod+Shift+H',
   lock: 'Mod+Alt+L',
+  find: 'Mod+F',
+  copyLink: 'Mod+Shift+C',
+  duplicate: 'Mod+Shift+D',
+  share: 'Mod+Shift+S',
+  favorite: 'Mod+Shift+B',
+  toggleToc: 'Mod+Shift+\\',
+  lockPage: 'Mod+Shift+K',
+  aiSummary: 'Mod+Shift+A',
+  askAi: 'Mod+J',
 }
 
 const KEY = 'ginkgo-shortcuts'
@@ -79,7 +136,14 @@ export function resetShortcuts() {
   Object.assign(shortcuts, DEFAULT_SHORTCUTS)
 }
 
-const KEY_ALIASES: Record<string, string> = { ' ': 'Space', Escape: 'Esc', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→' }
+const KEY_ALIASES: Record<string, string> = {
+  ' ': 'Space',
+  Escape: 'Esc',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+}
 
 /** 从键盘事件生成组合字符串；只按了修饰键时返回 null */
 export function comboFromEvent(e: KeyboardEvent): string | null {
@@ -89,7 +153,11 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
   if (isMac && e.ctrlKey) parts.push('Ctrl')
   if (e.altKey) parts.push('Alt')
   if (e.shiftKey) parts.push('Shift')
-  let key = e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5) : e.key
+  let key = e.code.startsWith('Key')
+    ? e.code.slice(3)
+    : e.code.startsWith('Digit')
+      ? e.code.slice(5)
+      : e.key
   if (e.code === 'Backslash') key = '\\'
   if (e.code === 'Comma') key = ','
   if (e.code === 'Period') key = '.'
@@ -110,9 +178,23 @@ export function matchShortcut(e: KeyboardEvent): ShortcutAction | null {
 
 /** 展示用：Mod 换成 ⌘ / Ctrl */
 export function formatCombo(combo: string): string {
-  if (!combo) return '未设置'
+  if (!combo) return ''
   return combo
     .split('+')
-    .map((p) => (p === 'Mod' ? (isMac ? '⌘' : 'Ctrl') : p === 'Alt' ? (isMac ? '⌥' : 'Alt') : p === 'Shift' ? (isMac ? '⇧' : 'Shift') : p))
-    .join(isMac ? '' : ' + ')
+    .map((p) =>
+      p === 'Mod'
+        ? isMac
+          ? '⌘'
+          : 'Ctrl'
+        : p === 'Alt'
+          ? isMac
+            ? '⌥'
+            : 'Alt'
+          : p === 'Shift'
+            ? isMac
+              ? '⇧'
+              : 'Shift'
+            : p,
+    )
+    .join(isMac ? '' : '+')
 }

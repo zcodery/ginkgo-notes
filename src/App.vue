@@ -30,7 +30,7 @@ import {
 import { createPage } from '@/db/repo'
 import { t } from '@/i18n'
 import { tr } from '@/i18n/phrases'
-import { matchShortcut, loadShortcuts } from '@/shortcuts'
+import { matchShortcut, loadShortcuts, NOTE_SHORTCUTS } from '@/shortcuts'
 import { lockNow, pinLock, setPinIdleWatch } from '@/pinLock'
 import { initUserState, resetUserState } from '@/userState'
 import { fetchServerVersion } from '@/api/features'
@@ -63,6 +63,8 @@ async function newPageShortcut() {
 function onKeydown(e: KeyboardEvent) {
   if (!store.user || isPublicShare.value || pinLock.locked) return
   const action = matchShortcut(e)
+  // 笔记页专属快捷键交给 NoteView 处理
+  if (action && NOTE_SHORTCUTS.has(action)) return
   if (action) {
     e.preventDefault()
     switch (action) {
