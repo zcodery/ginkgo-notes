@@ -29,9 +29,14 @@ import {
   Replace,
   Lock,
   Unlock,
+  Share2,
+  Sparkles,
+  Languages,
+  ListChecks,
 } from 'lucide-vue-next'
 import type { Editor } from '@tiptap/core'
 import BlockEditor from '@/editor/BlockEditor.vue'
+import ShareDialog from '@/components/ShareDialog.vue'
 import PageToc, { type TocItem } from '@/components/PageToc.vue'
 import FindReplaceBar from '@/components/FindReplaceBar.vue'
 import ImageExportModal from '@/components/ImageExportModal.vue'
@@ -591,6 +596,20 @@ async function duplicatePage() {
   goToPage(np.id)
 }
 
+const shareOpen = ref(false)
+
+function openShare() {
+  menuOpen.value = false
+  editorRef.value?.flush()
+  shareOpen.value = true
+}
+
+/** 对整篇笔记执行 AI 动作；不指定动作时打开输入框 */
+function pageAi(action?: string) {
+  menuOpen.value = false
+  editorRef.value?.openAi('page', action)
+}
+
 async function moveToTrash() {
   const p = page.value
   if (!p) return
@@ -656,6 +675,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="note-view" :class="{ 'is-exporting': exporting, locked: isLocked }">
+    <ShareDialog v-if="shareOpen && page" :page-id="page.id" :page-title="page.title" @close="shareOpen = false" />
     <ImageExportModal
       v-if="imageExportOpen && exportRoot"
       :source="exportRoot"
@@ -702,6 +722,10 @@ onBeforeUnmount(() => {
                 : '已保存'
           }}</span>
         </span>
+
+        <button class="nv-share-btn" v-tooltip="'公开分享 / 邀请成员'" @click="openShare">
+          <Share2 :size="13" :stroke-width="2" /><span>分享</span>
+        </button>
 
         <button
           class="gn-icon-btn nv-more-btn"
@@ -750,6 +774,22 @@ onBeforeUnmount(() => {
             <Replace :size="14" :stroke-width="1.8" />
             <span>查找或替换</span>
             <kbd>Ctrl+F</kbd>
+          </button>
+          <button @click="openShare">
+            <Share2 :size="14" :stroke-width="1.8" /><span>分享与协作</span>
+          </button>
+          <div class="nv-menu-sep"></div>
+          <button :disabled="!canEdit" @click="pageAi('summary')">
+            <Sparkles :size="14" :stroke-width="1.8" /><span>AI 总结全文</span>
+          </button>
+          <button :disabled="!canEdit" @click="pageAi('todo')">
+            <ListChecks :size="14" :stroke-width="1.8" /><span>AI 提取待办</span>
+          </button>
+          <button :disabled="!canEdit" @click="pageAi('en')">
+            <Languages :size="14" :stroke-width="1.8" /><span>AI 翻译成英文</span>
+          </button>
+          <button :disabled="!canEdit" @click="pageAi()">
+            <Sparkles :size="14" :stroke-width="1.8" /><span>问问 AI…</span>
           </button>
           <div class="nv-sub-row">
             <button
@@ -1215,6 +1255,29 @@ onBeforeUnmount(() => {
 }
 .nv-more-btn.starred {
   color: #e0a92e;
+}
+.nv-share-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  margin-right: 2px;
+  padding: 0 9px;
+  border: 1px solid var(--gn-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.nv-share-btn:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+@media (max-width: 768px) {
+  .nv-share-btn span {
+    display: none;
+  }
 }
 .nv-save {
   display: inline-flex;

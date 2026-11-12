@@ -12,6 +12,7 @@ import {
   Link2,
   RemoveFormatting,
   Baseline,
+  Sparkles,
 } from 'lucide-vue-next'
 import { buildExtensions } from './extensions'
 import { docToMarkdown, markdownToDoc } from './markdown'
@@ -31,6 +32,8 @@ import { pageUrl, store } from '@/store'
 import SlashMenu from './SlashMenu.vue'
 import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from './BlockMenu.vue'
 import TableControls from './TableControls.vue'
+import AiPanel from './AiPanel.vue'
+import type { AiMode } from './ai'
 
 const props = withDefaults(
   defineProps<{
@@ -212,6 +215,8 @@ defineExpose({
   historyRev: rev,
   /** TipTap 实例，供查找替换等外部能力使用 */
   editor,
+  /** 打开 AI 面板：page 模式对整篇笔记操作 */
+  openAi: (mode: AiMode, action?: string) => openAi(mode, action),
   focus: () => {
     const ed = editor.value
     if (!ed) return
@@ -816,7 +821,37 @@ function pickSlash(item: SlashItem) {
     insertImage: () => openFilePicker(),
     insertDiagram,
     insertDatabase: () => void insertDatabase(),
+    openAi: (action) => openAi('cursor', action),
   })
+}
+
+/* ---------------- AI 助手 ---------------- */
+
+const ai = ref<{ open: boolean; mode: AiMode; top: number; left: number; action?: string; key: number }>({
+  open: false,
+  mode: 'cursor',
+  top: 0,
+  left: 0,
+  key: 0,
+})
+
+function openAi(mode: AiMode, action?: string) {
+  const ed = editor.value
+  const root = rootRef.value
+  if (!ed || !root || !canEdit.value) return
+  const rect = root.getBoundingClientRect()
+  let top = 0
+  let left = 0
+  if (mode === 'page') {
+    top = 0
+    left = Math.max(0, rect.width / 2 - 220)
+  } else {
+    const coords = ed.view.coordsAtPos(mode === 'selection' ? ed.state.selection.to : ed.state.selection.from)
+    top = coords.bottom - rect.top + 8
+    left = Math.min(Math.max(0, coords.left - rect.left - 20), Math.max(0, rect.width - 440))
+  }
+  bubble.value.visible = false
+  ai.value = { open: true, mode, top, left, action, key: ai.value.key + 1 }
 }
 
 /* ---------------- 图表 / 多维表格 ---------------- */
@@ -1456,6 +1491,10 @@ onBeforeUnmount(() => {
       :style="{ top: bubble.top + 'px', left: bubble.left + 'px' }"
     >
       <template v-if="!linkMode">
+        <button class="bubble-ai" v-tooltip="'AI 改写 / 翻译 / 总结'" @mousedown.prevent="openAi('selection')">
+          <Sparkles :size="14" :stroke-width="2.1" /><span>AI</span>
+        </button>
+        <span class="bubble-sep"></span>
         <button
           :class="{ on: editor?.isActive('bold') }"
           v-tooltip="'粗体 ⌘B'"
@@ -1635,6 +1674,19 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
+    <AiPanel
+      v-if="ai.open && editor"
+      :key="ai.key"
+      :editor="editor"
+      :mode="ai.mode"
+      :top="ai.top"
+      :left="ai.left"
+      :auto-action="ai.action"
+      :page-markdown="ai.mode === 'page' ? currentMarkdown() : undefined"
+      @changed="scheduleEmit"
+      @close="ai.open = false"
+    />
+
     <SlashMenu
       :visible="slash.open"
       :x="slash.x"
@@ -1772,6 +1824,14 @@ onBeforeUnmount(() => {
   height: 16px;
   margin: 0 3px;
   background: var(--gn-border);
+}
+.bubble-bar .bubble-ai {
+  width: auto;
+  gap: 3px;
+  padding: 0 7px;
+  color: #9065b0;
+  font-size: 12px;
+  font-weight: 600;
 }
 .bubble-input {
   width: 190px;

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Eye, EyeOff, Loader2, Moon, Sun } from 'lucide-vue-next'
-import { goToPage, login, register, store, toggleTheme } from '@/store'
+import { goToPage, login, loginTwoFactor, register, store, toggleTheme } from '@/store'
+import { authProviders } from '@/api/features'
 import { LOCALES, locale, setLocale, t, type LocaleCode } from '@/i18n'
 import GnSelect from '@/components/GnSelect.vue'
 
@@ -48,15 +49,49 @@ function validate(): string {
   return ''
 }
 
+/** 两步验证：密码通过后拿到的票据；非空时表单切成输入动态码 */
+const ticket = ref('')
+const code = ref('')
+const codeRef = ref<HTMLInputElement | null>(null)
+const githubEnabled = ref(false)
+
+async function submitCode() {
+  if (!/^\d{6}$/.test(code.value.trim())) {
+    error.value = t('auth.errCode')
+    return
+  }
+  busy.value = true
+  try {
+    await loginTwoFactor(ticket.value, code.value.trim())
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : t('auth.errFailed')
+    if (/超时|过期/.test(error.value)) ticket.value = ''
+  } finally {
+    busy.value = false
+  }
+}
+
+function backToPassword() {
+  ticket.value = ''
+  code.value = ''
+  error.value = ''
+}
+
 async function submit() {
   if (busy.value) return
+  if (ticket.value) return submitCode()
   error.value = validate()
   if (error.value) return
   busy.value = true
   try {
     const name = username.value.trim()
     if (mode.value === 'login') {
-      await login(name, password.value)
+      const need = await login(name, password.value)
+      if (need) {
+        ticket.value = need.ticket
+        code.value = ''
+        void nextTick(() => codeRef.value?.focus())
+      }
     } else {
       await register(name, password.value)
       // 新用户直接落到系统发给他的第一篇示例笔记
@@ -72,11 +107,25 @@ async function submit() {
   }
 }
 
-watch([username, password, confirm], () => {
+watch([username, password, confirm, code], () => {
   error.value = ''
 })
 
-onMounted(() => usernameRef.value?.focus())
+onMounted(() => {
+  usernameRef.value?.focus()
+  const q = new URLSearchParams(window.location.search)
+  const oauthErr = q.get('oauth_error')
+  const oauth2fa = q.get('oauth_2fa')
+  if (oauthErr) error.value = oauthErr
+  if (oauth2fa) {
+    ticket.value = oauth2fa
+    void nextTick(() => codeRef.value?.focus())
+  }
+  if (oauthErr || oauth2fa) history.replaceState(null, '', window.location.pathname)
+  authProviders()
+    .then((p) => (githubEnabled.value = p.github))
+    .catch(() => undefined)
+})
 </script>
 
 <template>
@@ -98,6 +147,34 @@ onMounted(() => usernameRef.value?.focus())
         <span class="auth-name">{{ t('app.name') }}</span>
       </div>
 
+      <template v-if="ticket">
+        <h1 class="auth-title">{{ t('auth.twoFactorTitle') }}</h1>
+        <p class="auth-sub">{{ t('auth.twoFactorSub') }}</p>
+        <form class="auth-form" @submit.prevent="submit">
+          <label class="auth-field">
+            <span>{{ t('auth.code') }}</span>
+            <input
+              ref="codeRef"
+              v-model="code"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              class="auth-code"
+              placeholder="000000"
+            />
+          </label>
+          <p v-if="error" class="auth-error">{{ error }}</p>
+          <button type="submit" class="auth-submit" :disabled="busy">
+            <Loader2 v-if="busy" :size="15" class="auth-spin" />
+            <span>{{ t('auth.verify') }}</span>
+          </button>
+        </form>
+        <p class="auth-switch">
+          <button @click="backToPassword">{{ t('auth.backToPassword') }}</button>
+        </p>
+      </template>
+
+      <template v-else>
       <h1 class="auth-title">{{ title }}</h1>
       <p class="auth-sub">
         {{ mode === 'login' ? t('auth.loginSub') : t('auth.registerSub') }}
@@ -174,6 +251,16 @@ onMounted(() => usernameRef.value?.focus())
         </button>
       </form>
 
+      <a v-if="githubEnabled && mode === 'login'" class="auth-github" href="/api/auth/github/login">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path
+            fill="currentColor"
+            d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+          />
+        </svg>
+        <span>{{ t('auth.githubLogin') }}</span>
+      </a>
+
       <p class="auth-switch">
         <template v-if="mode === 'login'">
           {{ t('auth.noAccount') }}<button @click="switchMode('register')">{{ t('auth.registerNow') }}</button>
@@ -182,6 +269,7 @@ onMounted(() => usernameRef.value?.focus())
           {{ t('auth.haveAccount') }}<button @click="switchMode('login')">{{ t('auth.goLogin') }}</button>
         </template>
       </p>
+      </template>
     </div>
   </div>
 </template>
@@ -394,5 +482,28 @@ html.dark .auth-submit {
 }
 .auth-switch button:hover {
   text-decoration: underline;
+}
+.auth-code {
+  letter-spacing: 0.4em;
+  font-size: 18px !important;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.auth-github {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  margin-top: 10px;
+  border: 1px solid var(--gn-border-strong);
+  border-radius: 8px;
+  color: var(--gn-text);
+  font-size: 13.5px;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+.auth-github:hover {
+  background: var(--gn-bg-hover);
 }
 </style>

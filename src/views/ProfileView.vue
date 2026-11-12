@@ -4,7 +4,6 @@ import {
   Bell,
   Bot,
   Box,
-  CircleDashed,
   Download,
   Globe,
   Info,
@@ -44,6 +43,16 @@ import {
 } from '@/store'
 import { clearAssetCache } from '@/editor/assets'
 import { LOCALES, locale, setLocale, t, type LocaleCode, type MessageKey } from '@/i18n'
+import AccountSecurity from './settings/AccountSecurity.vue'
+import ShortcutsDialog from './settings/ShortcutsDialog.vue'
+import SpaceExtras from './settings/SpaceExtras.vue'
+import AboutSection from './settings/AboutSection.vue'
+import NotifySection from './settings/NotifySection.vue'
+import MembersSection from './settings/MembersSection.vue'
+import ShareSection from './settings/ShareSection.vue'
+import DataSection from './settings/DataSection.vue'
+import IntegrationsSection from './settings/IntegrationsSection.vue'
+import AiSection from './settings/AiSection.vue'
 
 type Section =
   | 'account'
@@ -70,98 +79,37 @@ const NAV: { groupKey: MessageKey; items: NavItem[] }[] = [
     items: [
       { id: 'account', labelKey: 'settings.account', icon: UserRound },
       { id: 'general', labelKey: 'settings.general', icon: SlidersHorizontal },
-      { id: 'notify', labelKey: 'settings.notify', icon: Bell, soon: true },
+      { id: 'notify', labelKey: 'settings.notify', icon: Bell },
     ],
   },
   {
     groupKey: 'settings.groupSpace',
     items: [
       { id: 'space', labelKey: 'settings.space', icon: Box },
-      { id: 'members', labelKey: 'settings.members', icon: Users, soon: true },
-      { id: 'share', labelKey: 'settings.share', icon: Globe, soon: true },
-      { id: 'data', labelKey: 'settings.data', icon: Download, soon: true },
+      { id: 'members', labelKey: 'settings.members', icon: Users },
+      { id: 'share', labelKey: 'settings.share', icon: Globe },
+      { id: 'data', labelKey: 'settings.data', icon: Download },
     ],
   },
   {
     groupKey: 'settings.groupExt',
     items: [
-      { id: 'integrations', labelKey: 'settings.integrations', icon: Plug, soon: true },
-      { id: 'ai', labelKey: 'settings.ai', icon: Bot, soon: true },
+      { id: 'integrations', labelKey: 'settings.integrations', icon: Plug },
+      { id: 'ai', labelKey: 'settings.ai', icon: Bot },
       { id: 'about', labelKey: 'settings.about', icon: Info },
     ],
   },
 ]
 
-const section = ref<Section>('account')
+const ALL_SECTIONS = NAV.flatMap((g) => g.items.map((i) => i.id))
+const section = ref<Section>(
+  ALL_SECTIONS.includes(store.settingsSection as Section) ? (store.settingsSection as Section) : 'account',
+)
 const current = computed(() => {
   const item = NAV.flatMap((g) => g.items).find((i) => i.id === section.value)!
   return { ...item, label: t(item.labelKey) }
 })
-
-interface RoadmapKeys {
-  desc: MessageKey
-  features: { title: MessageKey; desc: MessageKey }[]
-}
-
-const ROADMAPS: Partial<Record<Section, RoadmapKeys>> = {
-  notify: {
-    desc: 'settings.roadmapNotifyDesc',
-    features: [
-      { title: 'settings.roadmapNotify1Title', desc: 'settings.roadmapNotify1Desc' },
-      { title: 'settings.roadmapNotify2Title', desc: 'settings.roadmapNotify2Desc' },
-      { title: 'settings.roadmapNotify3Title', desc: 'settings.roadmapNotify3Desc' },
-    ],
-  },
-  members: {
-    desc: 'settings.roadmapMembersDesc',
-    features: [
-      { title: 'settings.roadmapMembers1Title', desc: 'settings.roadmapMembers1Desc' },
-      { title: 'settings.roadmapMembers2Title', desc: 'settings.roadmapMembers2Desc' },
-      { title: 'settings.roadmapMembers3Title', desc: 'settings.roadmapMembers3Desc' },
-    ],
-  },
-  share: {
-    desc: 'settings.roadmapShareDesc',
-    features: [
-      { title: 'settings.roadmapShare1Title', desc: 'settings.roadmapShare1Desc' },
-      { title: 'settings.roadmapShare2Title', desc: 'settings.roadmapShare2Desc' },
-      { title: 'settings.roadmapShare3Title', desc: 'settings.roadmapShare3Desc' },
-    ],
-  },
-  data: {
-    desc: 'settings.roadmapDataDesc',
-    features: [
-      { title: 'settings.roadmapData1Title', desc: 'settings.roadmapData1Desc' },
-      { title: 'settings.roadmapData2Title', desc: 'settings.roadmapData2Desc' },
-      { title: 'settings.roadmapData3Title', desc: 'settings.roadmapData3Desc' },
-    ],
-  },
-  integrations: {
-    desc: 'settings.roadmapIntegrationsDesc',
-    features: [
-      { title: 'settings.roadmapIntegrations1Title', desc: 'settings.roadmapIntegrations1Desc' },
-      { title: 'settings.roadmapIntegrations2Title', desc: 'settings.roadmapIntegrations2Desc' },
-      { title: 'settings.roadmapIntegrations3Title', desc: 'settings.roadmapIntegrations3Desc' },
-    ],
-  },
-  ai: {
-    desc: 'settings.roadmapAiDesc',
-    features: [
-      { title: 'settings.roadmapAi1Title', desc: 'settings.roadmapAi1Desc' },
-      { title: 'settings.roadmapAi2Title', desc: 'settings.roadmapAi2Desc' },
-      { title: 'settings.roadmapAi3Title', desc: 'settings.roadmapAi3Desc' },
-    ],
-  },
-}
-
-const roadmap = computed(() => {
-  const keys = ROADMAPS[section.value]
-  if (!keys) return null
-  return {
-    desc: t(keys.desc),
-    features: keys.features.map((f) => ({ title: t(f.title), desc: t(f.desc) })),
-  }
-})
+const shortcutsOpen = ref(false)
 
 /* ---------------- 账号设置 ---------------- */
 
@@ -295,16 +243,6 @@ async function submitPwd() {
   }
 }
 
-/** 规划中的账号能力，统一展示为「即将上线」 */
-const SOON_ACCOUNT: { label: MessageKey; desc: MessageKey; action: MessageKey }[] = [
-  { label: 'settings.email', desc: 'settings.emailDesc', action: 'settings.bindEmail' },
-  { label: 'settings.phone', desc: 'settings.phoneDesc', action: 'settings.bindPhone' },
-  { label: 'settings.devices', desc: 'settings.devicesDesc', action: 'settings.manage' },
-  { label: 'settings.pin', desc: 'settings.pinDesc', action: 'settings.addPin' },
-  { label: 'settings.twoFactor', desc: 'settings.twoFactorDesc', action: 'settings.enable' },
-  { label: 'settings.thirdParty', desc: 'settings.thirdPartyDesc', action: 'settings.bind' },
-]
-
 const LAYOUT_LABEL: Record<NoteLayout, MessageKey> = {
   loose: 'settings.layoutLoose',
   default: 'settings.layoutDefault',
@@ -382,10 +320,11 @@ function clearCacheAndReload() {
   window.location.reload()
 }
 
-const APP_VERSION = '0.2.0'
+const APP_VERSION = __APP_VERSION__
 
 function close() {
   store.settingsOpen = false
+  store.settingsSection = null
 }
 
 function onLogout() {
@@ -424,7 +363,6 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         >
           <component :is="item.icon" :size="15" :stroke-width="1.8" />
           <span>{{ t(item.labelKey) }}</span>
-          <i v-if="item.soon" class="pf-dot" v-tooltip="t('settings.soon')"></i>
         </button>
       </div>
 
@@ -512,23 +450,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
             </button>
           </div>
 
-          <div v-for="s in SOON_ACCOUNT" :key="s.label" class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">{{ t(s.label) }}<span class="pf-soon">{{ t('settings.soon') }}</span></div>
-              <div class="pf-row-desc">{{ t(s.desc) }}</div>
-            </div>
-            <button type="button" class="pf-btn" disabled>{{ t(s.action) }}</button>
-          </div>
-
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title danger">
-                {{ t('settings.deleteAccount') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-              <div class="pf-row-desc">{{ t('settings.deleteAccountDesc') }}</div>
-            </div>
-            <button type="button" class="pf-btn danger" disabled>{{ t('settings.deleteAction') }}</button>
-          </div>
+          <AccountSecurity @toast="notify" />
         </template>
 
         <!-- 通用设置 -->
@@ -613,13 +535,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
           <div class="pf-row">
             <div class="pf-row-text">
-              <div class="pf-row-title">
-                {{ t('settings.shortcuts') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
+              <div class="pf-row-title">{{ t('settings.shortcuts') }}</div>
               <div class="pf-row-desc">{{ t('settings.shortcutsDesc') }}</div>
             </div>
-            <button type="button" class="pf-btn" disabled>{{ t('settings.set') }}</button>
+            <button type="button" class="pf-btn" @click="shortcutsOpen = true">{{ t('settings.set') }}</button>
           </div>
+          <ShortcutsDialog v-if="shortcutsOpen" @close="shortcutsOpen = false" />
         </template>
 
         <!-- 空间信息 -->
@@ -650,25 +571,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
             <span class="pf-value">{{ stats.last }}</span>
           </div>
 
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">
-                {{ t('settings.spaceNameIcon') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-              <div class="pf-row-desc">{{ t('settings.spaceNameIconDesc') }}</div>
-            </div>
-            <button type="button" class="pf-btn" disabled>{{ t('settings.edit') }}</button>
-          </div>
-
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">
-                {{ t('settings.storage') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-              <div class="pf-row-desc">{{ t('settings.storageDesc') }}</div>
-            </div>
-            <button type="button" class="pf-btn" disabled>{{ t('settings.view') }}</button>
-          </div>
+          <SpaceExtras @toast="notify" />
         </template>
 
         <!-- 关于 -->
@@ -680,52 +583,16 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
               <div class="pf-row-desc">{{ t('settings.aboutVersion', { version: APP_VERSION }) }}</div>
             </div>
           </div>
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">
-                {{ t('settings.checkUpdate') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-            </div>
-            <button type="button" class="pf-btn" disabled>{{ t('settings.check') }}</button>
-          </div>
-          <div class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">
-                {{ t('settings.feedback') }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-              <div class="pf-row-desc">{{ t('settings.feedbackDesc') }}</div>
-            </div>
-            <button type="button" class="pf-btn" disabled>{{ t('settings.feedbackAction') }}</button>
-          </div>
+          <AboutSection :version="APP_VERSION" @toast="notify" />
         </template>
 
-        <!-- 规划中的模块 -->
-        <template v-else-if="roadmap">
-          <div class="pf-hero">
-            <span class="pf-hero-icon">
-              <component :is="current.icon" :size="18" :stroke-width="1.8" />
-            </span>
-            <div class="pf-hero-text">
-              <div class="pf-hero-title">
-                {{ current.label }}<span class="pf-soon">{{ t('settings.soon') }}</span>
-              </div>
-              <p>{{ roadmap.desc }}</p>
-            </div>
-          </div>
+        <NotifySection v-else-if="section === 'notify'" @toast="notify" />
+        <MembersSection v-else-if="section === 'members'" @toast="notify" />
+        <ShareSection v-else-if="section === 'share'" @toast="notify" />
+        <DataSection v-else-if="section === 'data'" @toast="notify" />
+        <IntegrationsSection v-else-if="section === 'integrations'" @toast="notify" />
+        <AiSection v-else-if="section === 'ai'" @toast="notify" />
 
-          <div class="pf-sub">{{ t('settings.plannedCaps') }}</div>
-          <div v-for="f in roadmap.features" :key="f.title" class="pf-row">
-            <div class="pf-row-text">
-              <div class="pf-row-title">
-                <CircleDashed :size="13" :stroke-width="2" class="pf-plan-icon" />{{ f.title }}
-              </div>
-              <div class="pf-row-desc indent">{{ f.desc }}</div>
-            </div>
-            <span class="pf-plan-tag">{{ t('settings.planned') }}</span>
-          </div>
-
-          <p class="pf-note">{{ t('settings.plannedNote') }}</p>
-        </template>
       </div>
 
       <!-- 底部保存条：仅账号设置且有改动时 -->
@@ -773,7 +640,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   </div>
 </template>
 
-<style scoped>
+<style>
+/* 不加 scoped：设置分区组件（settings/*.vue）复用这些 pf- 前缀的样式 */
 .pf-overlay {
   position: fixed;
   inset: 0;
@@ -1264,6 +1132,174 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   margin: 0;
   font-size: 12px;
   color: var(--gn-danger);
+}
+
+/* ---------- 分区组件公用 ---------- */
+.pf-grow {
+  flex: 1 1 auto;
+}
+.pf-btn.danger.solid {
+  background: var(--gn-danger);
+  border-color: var(--gn-danger);
+  color: #fff;
+}
+.pf-btn.danger.solid:disabled {
+  opacity: 0.45;
+}
+.pf-btn svg {
+  margin-right: 4px;
+  vertical-align: -1px;
+}
+.pf-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.pf-row-title .pf-tag {
+  margin-left: 6px;
+}
+.pf-dialog-tip {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--gn-text-muted);
+}
+.pf-dialog-tip.danger {
+  color: var(--gn-danger);
+}
+.pf-dialog textarea,
+.pf-dialog select {
+  padding: 7px 10px;
+  border: 1px solid var(--gn-border);
+  border-radius: 6px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  resize: vertical;
+}
+.pf-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--gn-border);
+  border-radius: 8px;
+}
+.pf-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gn-border);
+}
+.pf-list-item:last-child {
+  border-bottom: none;
+}
+.pf-list-icon {
+  flex: 0 0 auto;
+  color: var(--gn-text-muted);
+}
+.pf-list-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pf-list-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gn-text);
+  word-break: break-all;
+}
+.pf-qr {
+  align-self: center;
+  width: 168px;
+  height: 168px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+}
+.pf-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.pf-secret,
+.pf-mono {
+  font-family: var(--gn-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+.pf-secret {
+  align-self: center;
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--gn-bg-hover);
+  user-select: all;
+}
+.pf-code-input {
+  height: 36px !important;
+  font-size: 18px !important;
+  letter-spacing: 0.4em;
+  text-align: center;
+}
+.pf-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 6px;
+}
+.pf-section-head:first-child {
+  margin-top: 0;
+}
+.pf-section-head .pf-sub {
+  margin: 0;
+}
+.pf-empty {
+  padding: 22px 0;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--gn-text-muted);
+}
+.pf-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+.pf-checks label {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 5px !important;
+  color: var(--gn-text-soft) !important;
+}
+.pf-checks input {
+  height: auto !important;
+}
+.pf-copy {
+  display: flex;
+  gap: 6px;
+}
+.pf-copy input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pf-bar {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--gn-bg-hover);
+  overflow: hidden;
+}
+.pf-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--gn-accent);
 }
 
 /* 窄屏：全屏弹窗，左侧导航改为顶部横向滚动的标签条 */

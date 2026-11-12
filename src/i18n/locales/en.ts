@@ -37,6 +37,13 @@ const en: Messages = {
     registerNow: 'Sign up',
     haveAccount: 'Already have an account?',
     goLogin: 'Sign in',
+    twoFactorTitle: 'Two-step verification',
+    twoFactorSub: 'Open your authenticator app and enter the 6-digit code for Ginkgo Notes.',
+    code: 'Code',
+    verify: 'Verify and sign in',
+    backToPassword: 'Back to password',
+    errCode: 'Enter the 6-digit code',
+    githubLogin: 'Sign in with GitHub',
   },
   sidebar: {
     collapse: 'Collapse sidebar',

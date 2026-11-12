@@ -37,6 +37,13 @@ const zhTW: Messages = {
     registerNow: '立即註冊',
     haveAccount: '已有帳號？',
     goLogin: '去登入',
+    twoFactorTitle: '兩步驟驗證',
+    twoFactorSub: '打開手機上的驗證器 App，輸入銀杏筆記的 6 位動態碼。',
+    code: '動態碼',
+    verify: '驗證並登入',
+    backToPassword: '返回重新輸入密碼',
+    errCode: '請輸入 6 位數字動態碼',
+    githubLogin: '使用 GitHub 登入',
   },
   sidebar: {
     collapse: '收合側邊欄',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Search,
   Plus,
@@ -14,10 +14,13 @@ import {
   Import,
   ShieldCheck,
   UserRound,
+  Users,
 } from 'lucide-vue-next'
 import PageTree from './PageTree.vue'
 import PageIcon from './PageIcon.vue'
 import UserAvatar from './UserAvatar.vue'
+import NotificationBell from './NotificationBell.vue'
+import { userState } from '@/userState'
 import {
   store,
   displayName,
@@ -26,6 +29,7 @@ import {
   goTrash,
   goHome,
   goProfile,
+  goShared,
   toggleTheme,
   isAdmin,
   logout,
@@ -36,6 +40,25 @@ import { countLegacyPages, importLegacyToPublic, legacyAlreadyImported } from '@
 import { t } from '@/i18n'
 
 const treeRef = ref<InstanceType<typeof PageTree> | null>(null)
+
+/** 与我共享：按授权根页面展开成带层级的扁平列表 */
+const sharedItems = computed(() => {
+  const pages = userState.sharedPages
+  const out: { id: string; title: string; icon: string; depth: number; owner: string; role: string }[] = []
+  const walk = (parentId: string, depth: number, owner: string) => {
+    for (const p of pages.filter((x) => x.parentId === parentId).sort((a, b) => a.order - b.order)) {
+      out.push({ id: p.id, title: p.title, icon: p.icon, depth, owner, role: p.role })
+      if (depth < 3) walk(p.id, depth + 1, owner)
+    }
+  }
+  for (const r of userState.sharedRoots) {
+    const root = pages.find((p) => p.id === r.pageId)
+    if (!root || out.some((o) => o.id === root.id)) continue
+    out.push({ id: root.id, title: root.title, icon: root.icon, depth: 0, owner: r.ownerName, role: r.role })
+    walk(root.id, 1, r.ownerName)
+  }
+  return out
+})
 const userMenuOpen = ref(false)
 const legacyCount = ref(0)
 const importing = ref(false)
@@ -102,9 +125,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
   <aside class="sidebar">
     <div class="sb-head">
       <button class="sb-workspace" @click="goHome">
-        <span class="sb-logo">🍃</span>
-        <span class="sb-name">{{ t('app.name') }}</span>
+        <span class="sb-logo"><PageIcon :icon="userState.space.icon || '🍃'" :size="16" /></span>
+        <span class="sb-name">{{ userState.space.name || t('app.name') }}</span>
       </button>
+      <NotificationBell />
       <button class="gn-icon-btn" v-tooltip="t('sidebar.collapse')" @click="store.sidebarOpen = false">
         <PanelLeftClose :size="15" :stroke-width="1.8" />
       </button>
@@ -161,6 +185,25 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
       </div>
 
       <PageTree ref="treeRef" />
+
+      <template v-if="sharedItems.length && store.space === 'me'">
+        <div class="sb-section-title">
+          <Users :size="12" :stroke-width="2" />
+          <span>与我共享</span>
+        </div>
+        <button
+          v-for="p in sharedItems"
+          :key="p.id"
+          class="sb-fav"
+          :class="{ active: store.route.view === 'shared' && store.route.pageId === p.id }"
+          :style="{ paddingLeft: 7 + p.depth * 14 + 'px' }"
+          v-tooltip="p.depth === 0 ? { title: p.title || t('app.untitled'), desc: `来自 ${p.owner} · ${p.role === 'editor' ? '可编辑' : '只读'}`, placement: 'right' } : undefined"
+          @click="goShared(p.id)"
+        >
+          <PageIcon :icon="p.icon" :size="14" />
+          <span class="sb-fav-title">{{ p.title || t('app.untitled') }}</span>
+        </button>
+      </template>
     </div>
 
     <div class="sb-foot">

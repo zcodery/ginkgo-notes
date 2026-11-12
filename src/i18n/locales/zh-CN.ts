@@ -35,6 +35,13 @@ export default {
     registerNow: '立即注册',
     haveAccount: '已有账号？',
     goLogin: '去登录',
+    twoFactorTitle: '两步验证',
+    twoFactorSub: '打开手机上的验证器 App，输入银杏笔记的 6 位动态码。',
+    code: '动态码',
+    verify: '验证并登录',
+    backToPassword: '返回重新输入密码',
+    errCode: '请输入 6 位数字动态码',
+    githubLogin: '使用 GitHub 登录',
   },
   sidebar: {
     collapse: '收起侧边栏',

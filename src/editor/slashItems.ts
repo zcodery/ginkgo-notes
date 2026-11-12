@@ -16,6 +16,7 @@ import {
   Image as ImageIcon,
   StickyNote,
   Shapes,
+  Sparkles,
 } from 'lucide-vue-next'
 import { diagramTemplates } from '@/blocks/diagramTemplates'
 
@@ -25,6 +26,8 @@ export interface SlashCtx {
   insertDatabase: () => void
   /** 插入空图表块（展开模板选择器） */
   insertDiagram: () => void
+  /** 在光标处打开 AI 面板，可指定立即执行的动作 */
+  openAi: (action?: string) => void
 }
 
 export interface SlashItem {
@@ -239,6 +242,26 @@ export const slashItems: SlashItem[] = [
     run: (_editor, ctx) => ctx.insertDiagram(),
   },
   ...diagramItems,
+  {
+    id: 'ai-write',
+    title: 'AI 写作',
+    desc: '告诉 AI 要写什么，结果插入到光标处',
+    icon: Sparkles,
+    shortcut: 'ai',
+    keywords: ['ai', 'gpt', 'xiezuo', '写作', '生成', '助手'],
+    group: 'AI',
+    run: (_editor, ctx) => ctx.openAi(),
+  },
+  {
+    id: 'ai-continue',
+    title: 'AI 续写',
+    desc: '根据上文自动往下写',
+    icon: Sparkles,
+    shortcut: 'xx',
+    keywords: ['ai', 'continue', 'xuxie', '续写'],
+    group: 'AI',
+    run: (_editor, ctx) => ctx.openAi('continue'),
+  },
 ]
 
 export function filterSlashItems(query: string): SlashItem[] {

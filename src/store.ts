@@ -12,9 +12,16 @@ export interface User {
   nickname?: string | null
   /** 压缩后的 data URL */
   avatar?: string | null
+  email?: string | null
+  phone?: string | null
+  hasPin?: boolean
+  twoFactor?: boolean
+  /** 已绑定的 GitHub 用户名 */
+  github?: string | null
 }
 
-export type ViewKind = 'note' | 'empty' | 'trash' | 'profile'
+/** publicShare：/s/:token 公开分享页（pageId 存 token）；shared：/shared/:id 别人共享给我的页面 */
+export type ViewKind = 'note' | 'empty' | 'trash' | 'profile' | 'publicShare' | 'shared'
 /** 笔记正文宽度：auto 铺满可用区域；fixed 按比例限制 max-width */
 export type NoteWidthMode = 'auto' | 'fixed'
 export type NoteWidthRatio = 50 | 60 | 70 | 80 | 90
@@ -95,6 +102,8 @@ interface State {
   searchOpen: boolean
   /** 设置弹窗是否打开 */
   settingsOpen: boolean
+  /** 打开设置时直接定位到的分区 */
+  settingsSection: string | null
   saveState: 'idle' | 'saving' | 'saved' | 'error'
   loaded: boolean
   /** 当前登录用户；null 表示未登录 */
@@ -126,6 +135,7 @@ export const store = reactive<State>({
   sidebarOpen: true,
   searchOpen: false,
   settingsOpen: false,
+  settingsSection: null,
   saveState: 'idle',
   loaded: false,
   user: null,
@@ -219,8 +229,31 @@ async function enter(res: AuthResponse) {
   store.loaded = true
 }
 
-export async function login(username: string, password: string) {
-  await enter(await api<AuthResponse>('POST', '/auth/login', { username, password }))
+/** 返回 ticket 表示账号开启了两步验证，需要再调用 loginTwoFactor */
+export async function login(username: string, password: string): Promise<{ ticket: string } | null> {
+  const res = await api<AuthResponse | { twoFactor: true; ticket: string }>('POST', '/auth/login', {
+    username,
+    password,
+  })
+  if ('twoFactor' in res) return { ticket: res.ticket }
+  await enter(res)
+  return null
+}
+
+export async function loginTwoFactor(ticket: string, code: string) {
+  await enter(await api<AuthResponse>('POST', '/auth/login/2fa', { ticket, code }))
+}
+
+/** 第三方登录回跳带回的令牌 */
+export async function loginWithToken(token: string) {
+  setToken(token)
+  const { user } = await api<{ user: User }>('GET', '/auth/me')
+  await enter({ token, user })
+}
+
+/** 账号安全设置变更后，用接口返回的最新用户信息刷新 */
+export function applyUser(user: unknown) {
+  if (user && typeof user === 'object') store.user = user as User
 }
 
 export async function register(username: string, password: string) {
@@ -510,7 +543,7 @@ export function toggleTocVisible() {
 
 /* ---------------- History 路由（/、/trash、/:pageId） ---------------- */
 
-const RESERVED_PATHS = new Set(['trash', 'profile'])
+const RESERVED_PATHS = new Set(['trash', 'profile', 's', 'shared'])
 
 /** 旧版 `#/p/:id`、`#/trash` 一次性迁到 pathname，避免书签失效 */
 export function migrateLegacyHash() {
@@ -538,6 +571,10 @@ export function parseRoute(): { view: ViewKind; pageId: string | null } {
   if (path === '/') return { view: 'empty', pageId: null }
   if (path === '/trash') return { view: 'trash', pageId: null }
   if (path === '/profile') return { view: 'profile', pageId: null }
+  const share = /^\/s\/([A-Za-z0-9_-]+)$/.exec(path)
+  if (share) return { view: 'publicShare', pageId: share[1]! }
+  const shared = /^\/shared\/([A-Za-z0-9_-]+)$/.exec(path)
+  if (shared) return { view: 'shared', pageId: shared[1]! }
   const id = path.slice(1)
   if (!id || id.includes('/') || RESERVED_PATHS.has(id)) {
     return { view: 'empty', pageId: null }
@@ -576,8 +613,22 @@ export function goTrash() {
   pushPath('/trash')
 }
 
-export function goProfile() {
+export function goShared(id: string) {
+  pushPath(`/shared/${id}`)
+}
+
+/** 站内链接（通知里的 /xxx）走前端路由，外部链接新窗口打开 */
+export function openLink(link: string) {
+  if (/^https?:\/\//.test(link)) {
+    window.open(link, '_blank', 'noopener')
+    return
+  }
+  pushPath(link)
+}
+
+export function goProfile(section?: string) {
   if (store.isMobile) store.sidebarOpen = false
+  store.settingsSection = section ?? null
   store.settingsOpen = true
 }
 
@@ -592,8 +643,13 @@ export async function changePassword(currentPassword: string, newPassword: strin
   await api('POST', '/auth/password', { currentPassword, newPassword })
 }
 
-/** 更新昵称 / 头像；传 null 表示清除 */
-export async function updateProfile(patch: { nickname?: string | null; avatar?: string | null }) {
+/** 更新昵称 / 头像 / 邮箱 / 手机号；传 null 表示清除 */
+export async function updateProfile(patch: {
+  nickname?: string | null
+  avatar?: string | null
+  email?: string | null
+  phone?: string | null
+}) {
   const { user } = await api<{ user: User }>('PATCH', '/auth/profile', patch)
   store.user = user
 }
