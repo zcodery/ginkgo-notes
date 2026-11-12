@@ -53,7 +53,8 @@ function onAddChild(e: MouseEvent) {
 function onDragStart(e: DragEvent) {
   ctx.dragId = props.node.id
   if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move"
+    e.dataTransfer.effectAllowed = "copyMove"
+    e.dataTransfer.setData("application/x-ginkgo-page", props.node.id)
     e.dataTransfer.setData("text/plain", props.node.id)
   }
 }
@@ -127,13 +128,23 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onOutsideDown, t
 
 <template>
   <div class="pt-wrap">
-    <div class="pt-item" :class="{ active }" :style="{ paddingLeft: depth * 14 + 6 + 'px' }" :data-drop="dropHint" draggable="true" @click="onSelect" @dblclick="onDoubleClick" @contextmenu="onMenu" @dragstart="onDragStart" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop" @dragend="ctx.endDrag()">
-      <!-- 箭头浮在左侧，不占文档流：顶层图标与「私人」标题左对齐，子级依次 +14px -->
-      <button v-if="hasChildren" class="pt-chevron" :class="{ open: expanded }" :style="{ left: depth * 14 - 16 + 'px' }" @click="onChevron">
-        <ChevronRight :size="13" :stroke-width="2.2" />
+    <div class="pt-item" :class="{ active, 'has-kids': hasChildren }" :style="{ paddingLeft: depth * 14 + 6 + 'px' }" :data-drop="dropHint" draggable="true" @click="onSelect" @dblclick="onDoubleClick" @contextmenu="onMenu" @dragstart="onDragStart" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop" @dragend="ctx.endDrag()">
+      <!-- 有子页时：悬停用展开箭头替换页面图标，避免箭头挤到行外看不见 -->
+      <button
+        v-if="hasChildren"
+        type="button"
+        class="pt-icon pt-toggle"
+        :class="{ open: expanded }"
+        @click="onChevron"
+      >
+        <span class="pt-icon-face">
+          <PageIcon :icon="node.icon" :size="15" />
+        </span>
+        <span class="pt-chevron-face">
+          <ChevronRight :size="13" :stroke-width="2.2" />
+        </span>
       </button>
-
-      <span class="pt-icon">
+      <span v-else class="pt-icon">
         <PageIcon :icon="node.icon" :size="15" />
       </span>
 
@@ -207,46 +218,53 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onOutsideDown, t
 .pt-item[data-drop="after"]::after {
   bottom: -1px;
 }
-.pt-chevron {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 1;
+.pt-icon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  padding: 0;
   border: none;
   background: transparent;
-  color: var(--gn-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  color: inherit;
   border-radius: 3px;
+}
+.pt-toggle {
   cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity 0.12s ease,
-    transform 0.12s ease,
-    background 0.12s ease;
+  color: var(--gn-text-muted);
 }
-.pt-item:hover > .pt-chevron,
-.pt-chevron.open {
-  opacity: 1;
-}
-.pt-chevron.open {
-  transform: translateY(-50%) rotate(90deg);
-}
-.pt-chevron:hover {
+.pt-toggle:hover {
   background: var(--gn-bg-active);
   color: var(--gn-text);
 }
-.pt-icon {
+.pt-icon-face,
+.pt-chevron-face {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 17px;
-  flex: 0 0 auto;
-  font-size: 13px;
-  line-height: 1;
+}
+.pt-chevron-face {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+.pt-toggle.open .pt-chevron-face {
+  transform: rotate(90deg);
+}
+/* 悬停行：图标位换成可点的展开箭头 */
+.pt-item.has-kids:hover .pt-icon-face {
+  opacity: 0;
+}
+.pt-item.has-kids:hover .pt-chevron-face {
+  opacity: 1;
 }
 .pt-title {
   flex: 1 1 auto;
@@ -302,8 +320,11 @@ onBeforeUnmount(() => document.removeEventListener("mousedown", onOutsideDown, t
   .pt-item {
     height: 34px;
   }
-  .pt-chevron {
-    opacity: 0.7;
+  .pt-item.has-kids .pt-icon-face {
+    opacity: 0;
+  }
+  .pt-item.has-kids .pt-chevron-face {
+    opacity: 0.85;
   }
   .pt-more {
     display: flex;

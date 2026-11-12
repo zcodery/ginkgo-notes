@@ -72,10 +72,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="page-toc gn-scroll">
-    <div class="toc-head">目录</div>
-    <div v-if="!hasItems" class="toc-empty">暂无标题</div>
-    <nav v-else class="toc-nav">
+  <aside class="page-toc">
+    <nav v-if="hasItems" class="toc-nav">
       <button
         v-for="item in items"
         :key="item.index"
@@ -87,34 +85,34 @@ onBeforeUnmount(() => {
         {{ item.text }}
       </button>
     </nav>
+    <div v-else class="toc-empty">暂无标题</div>
   </aside>
 </template>
 
 <style scoped>
+/* 跟在封面下方、正文右侧；内容高度 + 吸顶 */
 .page-toc {
-  flex: 0 0 196px;
-  width: 196px;
-  max-height: 100%;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 72px 14px 48px 8px;
-  border-left: 1px solid transparent;
   position: sticky;
-  top: 0;
-  align-self: flex-start;
+  top: 20px;
+  z-index: 20;
+  flex: 0 0 156px;
+  width: 156px;
+  max-height: calc(100dvh - 88px);
+  margin-top: 36px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 2px 4px 24px 0;
+  scrollbar-width: none;
 }
-.toc-head {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--gn-text-muted);
-  text-transform: uppercase;
-  padding: 0 8px 10px;
+.page-toc::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .toc-empty {
   font-size: 12px;
   color: var(--gn-text-muted);
-  padding: 0 8px;
+  padding: 4px 8px;
   opacity: 0.7;
 }
 .toc-nav {
@@ -132,13 +130,16 @@ onBeforeUnmount(() => {
   color: var(--gn-text-muted);
   font-size: 12.5px;
   line-height: 1.35;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border-radius: 5px;
   border-left: 2px solid transparent;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 .toc-item:hover {
   color: var(--gn-text);
