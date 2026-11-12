@@ -79,6 +79,14 @@ onBeforeUnmount(() => {
 <template>
   <div class="shv">
     <header class="shv-top">
+      <button
+        v-if="!store.sidebarOpen"
+        class="gn-icon-btn"
+        v-tooltip="'展开侧边栏'"
+        @click="store.sidebarOpen = true"
+      >
+        <PanelLeftOpen :size="16" :stroke-width="1.9" />
+      </button>
       <button class="gn-icon-btn" v-tooltip="'全部笔记'" @click="goHome"><Home :size="14" /></button>
       <span class="shv-crumb"><Users :size="13" :stroke-width="2" />与我共享</span>
       <span class="shv-crumb current">{{ page?.title || '未命名' }}</span>
@@ -90,9 +98,6 @@ onBeforeUnmount(() => {
       <span v-if="canEdit" class="shv-save" :class="saveState">
         {{ saveState === 'saving' ? '保存中' : saveState === 'error' ? '保存失败' : saveState === 'saved' ? '已保存' : '' }}
       </span>
-      <button v-if="!store.sidebarOpen" class="gn-icon-btn" v-tooltip="'展开侧边栏'" @click="store.sidebarOpen = true">
-        <PanelLeftOpen :size="16" :stroke-width="1.9" />
-      </button>
     </header>
 
     <div class="shv-scroll gn-scroll">

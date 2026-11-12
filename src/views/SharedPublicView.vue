@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ChevronRight, FileText, Lock, Moon, Sun } from 'lucide-vue-next'
 import PageIcon from '@/components/PageIcon.vue'
-import { COVER_PRESETS, GRADIENT_PREFIX } from '@/components/pageCover'
+import { resolveCoverBackgroundSync } from '@/components/pageCover'
 import { readPublicShare, type PublicSharePayload } from '@/api/features'
 import { renderMarkdown } from '@/utils/renderMarkdown'
 import { renderMermaid } from '@/blocks/mermaid'
@@ -32,12 +32,11 @@ const html = computed(() =>
 const coverStyle = computed(() => {
   const cover = data.value?.page.cover
   if (!cover) return null
-  if (cover.startsWith(GRADIENT_PREFIX)) {
-    const id = cover.slice(GRADIENT_PREFIX.length)
-    return { background: COVER_PRESETS.find((p) => p.id === id)?.css ?? COVER_PRESETS[0].css }
+  if (cover.startsWith('asset:')) {
+    return { background: `center / cover no-repeat url("${assetUrl(cover.slice(6))}")` }
   }
-  if (cover.startsWith('asset:')) return { background: `center / cover no-repeat url("${assetUrl(cover.slice(6))}")` }
-  return null
+  const bg = resolveCoverBackgroundSync(cover)
+  return bg ? { background: bg } : null
 })
 
 /** 图标为上传图片时也走分享的图片代理 */

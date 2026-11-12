@@ -16,7 +16,6 @@ import {
   ChevronDown,
   Image as ImageIcon,
   MessageSquare,
-  Upload,
   X,
   Undo2,
   Redo2,
@@ -66,18 +65,15 @@ import {
   type NoteLayout,
   type NoteWidthRatio,
 } from '@/store'
-import { createPage, putAsset, saveContent, savePage, trashPage, toPlainText, uid } from '@/db/repo'
+import { createPage, saveContent, savePage, trashPage, toPlainText, uid } from '@/db/repo'
 import { ASSET_PREFIX, hydrateAssets, inflateAssetsForExport } from '@/editor/assets'
 import { expandDatabases } from '@/blocks/exportDatabases'
 import { downloadBlob, exportNoteAsPdf, safeFileName } from '@/utils/exportPage'
-import {
-  COVER_PRESETS,
-  GRADIENT_PREFIX,
-  randomGradientCover,
-  resolveCoverBackground,
-} from '@/components/pageCover'
+import { randomGradientCover, resolveCoverBackground } from '@/components/pageCover'
+import CoverPicker from '@/components/CoverPicker.vue'
 import IconPicker from '@/components/IconPicker.vue'
 import PageIcon from '@/components/PageIcon.vue'
+import { formatCombo, matchShortcut, shortcuts } from '@/shortcuts'
 import type { PageComment } from '@/types'
 
 const props = defineProps<{ pageId: string }>()
@@ -274,13 +270,55 @@ function autosize() {
   el.style.height = el.scrollHeight + 'px'
 }
 
+function shortcutLabel(action: keyof typeof shortcuts): string {
+  return formatCombo(shortcuts[action])
+}
+
 function onNoteKeydown(e: KeyboardEvent) {
-  const mod = e.metaKey || e.ctrlKey
-  if (!mod || e.altKey) return
-  if (e.key.toLowerCase() !== 'f' && e.code !== 'KeyF') return
-  // 避免在系统/浏览器其它场景抢焦点；标题输入框里也允许呼出
-  e.preventDefault()
-  openFindReplace(e.shiftKey)
+  const action = matchShortcut(e)
+  if (!action) return
+  switch (action) {
+    case 'find':
+      e.preventDefault()
+      openFindReplace(e.shiftKey)
+      break
+    case 'copyLink':
+      e.preventDefault()
+      void copyLink()
+      break
+    case 'duplicate':
+      e.preventDefault()
+      void duplicatePage()
+      break
+    case 'share':
+      e.preventDefault()
+      openShare()
+      break
+    case 'favorite':
+      e.preventDefault()
+      void toggleFavorite()
+      break
+    case 'toggleToc':
+      e.preventDefault()
+      toggleTocVisible()
+      break
+    case 'lockPage':
+      e.preventDefault()
+      void toggleLock()
+      break
+    case 'aiSummary':
+      if (!canEdit.value) return
+      e.preventDefault()
+      pageAi('summary')
+      break
+    case 'askAi':
+      if (!canEdit.value) return
+      e.preventDefault()
+      pageAi()
+      break
+    default:
+      break
+  }
 }
 
 onMounted(async () => {
@@ -395,7 +433,6 @@ async function removeIcon() {
 
 const coverBg = ref<string | null>(null)
 const coverMenuOpen = ref(false)
-const coverInput = ref<HTMLInputElement | null>(null)
 
 watch(
   () => page.value?.cover,
@@ -413,28 +450,19 @@ async function setCover(cover: string | null) {
   await savePage(p.id, { cover })
 }
 
-function addCover() {
-  void setCover(randomGradientCover())
+async function addCover() {
+  await setCover(randomGradientCover())
+  coverMenuOpen.value = true
 }
 
-function pickGradient(id: string) {
+function onCoverPick(cover: string) {
   coverMenuOpen.value = false
-  void setCover(`${GRADIENT_PREFIX}${id}`)
+  void setCover(cover)
 }
 
 function removeCover() {
   coverMenuOpen.value = false
   void setCover(null)
-}
-
-async function onCoverFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file || !file.type.startsWith('image/')) return
-  coverMenuOpen.value = false
-  const asset = await putAsset(file, file.name)
-  await setCover(`${ASSET_PREFIX}${asset.id}`)
 }
 
 /* ---------------- 评论 ---------------- */
@@ -648,6 +676,15 @@ function onGlobalDown(e: MouseEvent) {
   if (coverMenuOpen.value && !target.closest('.cover-pop') && !target.closest('.nv-cover-change')) {
     coverMenuOpen.value = false
   }
+  // 打开评论但未发送：点到评论区外则收起（有草稿内容时保留，避免误丢）
+  if (
+    commentOpen.value &&
+    !commentDraft.value.trim() &&
+    !comments.value.length &&
+    !target.closest('.nv-comments')
+  ) {
+    commentOpen.value = false
+  }
 }
 
 watch(menuOpen, (open) => {
@@ -693,6 +730,14 @@ onBeforeUnmount(() => {
     </Transition>
 
     <header class="nv-topbar">
+      <button
+        v-if="!store.sidebarOpen"
+        class="gn-icon-btn nv-sidebar-open"
+        v-tooltip="tr('展开侧边栏')"
+        @click="store.sidebarOpen = true"
+      >
+        <PanelLeftOpen :size="16" :stroke-width="1.9" />
+      </button>
       <div class="nv-crumbs">
         <button class="nv-crumb home" @click="goHome" v-tooltip="tr('全部笔记')">
           <Home :size="13" :stroke-width="1.9" />
@@ -721,8 +766,12 @@ onBeforeUnmount(() => {
           }}</span>
         </span>
 
-        <button class="nv-share-btn" v-tooltip="tr('公开分享 / 邀请成员')" @click="openShare">
-          <Share2 :size="13" :stroke-width="2" /><span>{{ tr('分享') }}</span>
+        <button
+          class="gn-icon-btn nv-more-btn"
+          v-tooltip="tr('公开分享 / 邀请成员')"
+          @click="openShare"
+        >
+          <Share2 :size="15" :stroke-width="1.9" />
         </button>
 
         <button
@@ -738,47 +787,40 @@ onBeforeUnmount(() => {
           <MoreHorizontal :size="16" :stroke-width="1.9" />
         </button>
 
-        <Transition name="gn-fade-t">
-          <button
-            v-if="!store.sidebarOpen"
-            class="gn-icon-btn"
-            v-tooltip="tr('展开侧边栏')"
-            @click="store.sidebarOpen = true"
-          >
-            <PanelLeftOpen :size="16" :stroke-width="1.9" />
-          </button>
-        </Transition>
-
         <div v-if="menuOpen" class="nv-menu gn-pop">
           <button :disabled="!canEdit || !canUndo" @click="runUndo">
             <Undo2 :size="14" :stroke-width="1.8" />
             <span>{{ tr('撤回') }}</span>
-            <kbd>Ctrl+Z</kbd>
+            <kbd>{{ formatCombo('Mod+Z') }}</kbd>
           </button>
           <button :disabled="!canEdit || !canRedo" @click="runRedo">
             <Redo2 :size="14" :stroke-width="1.8" />
             <span>{{ tr('重做') }}</span>
-            <kbd>Ctrl+Y</kbd>
+            <kbd>{{ formatCombo('Mod+Y') }}</kbd>
           </button>
           <div class="nv-menu-sep"></div>
           <button @click="copyLink">
             <Link2 :size="14" :stroke-width="1.8" />
             <span>{{ copied ? tr('已复制链接') : tr('复制页面链接') }}</span>
+            <kbd v-if="shortcutLabel('copyLink')">{{ shortcutLabel('copyLink') }}</kbd>
           </button>
           <button @click="duplicatePage">
             <Copy :size="14" :stroke-width="1.8" /><span>{{ tr('创建副本') }}</span>
+            <kbd v-if="shortcutLabel('duplicate')">{{ shortcutLabel('duplicate') }}</kbd>
           </button>
           <button @click="openFindReplace(false)">
             <Replace :size="14" :stroke-width="1.8" />
             <span>{{ tr('查找或替换') }}</span>
-            <kbd>Ctrl+F</kbd>
+            <kbd v-if="shortcutLabel('find')">{{ shortcutLabel('find') }}</kbd>
           </button>
           <button @click="openShare">
             <Share2 :size="14" :stroke-width="1.8" /><span>{{ tr('分享与协作') }}</span>
+            <kbd v-if="shortcutLabel('share')">{{ shortcutLabel('share') }}</kbd>
           </button>
           <div class="nv-menu-sep"></div>
           <button :disabled="!canEdit" @click="pageAi('summary')">
             <Sparkles :size="14" :stroke-width="1.8" /><span>{{ tr('AI 总结全文') }}</span>
+            <kbd v-if="shortcutLabel('aiSummary')">{{ shortcutLabel('aiSummary') }}</kbd>
           </button>
           <button :disabled="!canEdit" @click="pageAi('todo')">
             <ListChecks :size="14" :stroke-width="1.8" /><span>{{ tr('AI 提取待办') }}</span>
@@ -788,6 +830,7 @@ onBeforeUnmount(() => {
           </button>
           <button :disabled="!canEdit" @click="pageAi()">
             <Sparkles :size="14" :stroke-width="1.8" /><span>{{ tr('问问 AI…') }}</span>
+            <kbd v-if="shortcutLabel('askAi')">{{ shortcutLabel('askAi') }}</kbd>
           </button>
           <div class="nv-sub-row">
             <button
@@ -948,11 +991,13 @@ onBeforeUnmount(() => {
           <button @click="toggleTocVisible()">
             <ListTree :size="14" :stroke-width="1.8" />
             <span>{{ tr('页面目录') }}</span>
+            <kbd v-if="shortcutLabel('toggleToc')">{{ shortcutLabel('toggleToc') }}</kbd>
             <Check v-if="store.tocVisible" class="nv-menu-check" :size="14" :stroke-width="2.2" />
           </button>
           <button @click="toggleLock">
             <component :is="isLocked ? Unlock : Lock" :size="14" :stroke-width="1.8" />
             <span>{{ isLocked ? tr('解除锁定') : tr('锁定页面') }}</span>
+            <kbd v-if="shortcutLabel('lockPage')">{{ shortcutLabel('lockPage') }}</kbd>
             <Check v-if="isLocked" class="nv-menu-check" :size="14" :stroke-width="2.2" />
           </button>
           <div class="nv-menu-sep"></div>
@@ -963,7 +1008,7 @@ onBeforeUnmount(() => {
       </div>
     </header>
 
-    <div class="nv-body">
+    <div class="nv-body" :class="{ 'has-toc': store.tocVisible }">
       <div ref="scrollRef" class="nv-scroll gn-scroll">
         <div ref="exportRoot" class="nv-export-root">
         <div v-if="page?.cover" class="nv-cover" :style="{ background: coverBg ?? 'var(--gn-bg-hover)' }">
@@ -973,36 +1018,16 @@ onBeforeUnmount(() => {
             </button>
             <button class="nv-cover-btn" @click="removeCover">{{ tr('移除') }}</button>
           </div>
-          <div v-if="coverMenuOpen" class="cover-pop gn-pop">
-            <div class="cover-pop-title">{{ tr('渐变') }}</div>
-            <div class="cover-grid">
-              <button
-                v-for="c in COVER_PRESETS"
-                :key="c.id"
-                class="cover-swatch"
-                :class="{ on: page?.cover === GRADIENT_PREFIX + c.id }"
-                v-tooltip="c.label"
-                :style="{ background: c.css }"
-                @click="pickGradient(c.id)"
-              ></button>
-            </div>
-            <div class="cover-pop-sep"></div>
-            <button class="cover-pop-item" @click="coverInput?.click()">
-              <Upload :size="14" :stroke-width="1.8" /><span>{{ tr('上传图片') }}</span>
-            </button>
-            <button class="cover-pop-item danger" @click="removeCover">
-              <Trash2 :size="14" :stroke-width="1.8" /><span>{{ tr('移除封面') }}</span>
-            </button>
-          </div>
+          <CoverPicker
+            v-if="coverMenuOpen"
+            class="cover-pop-anchor"
+            :current="page?.cover"
+            @pick="onCoverPick"
+            @clear="removeCover"
+          />
         </div>
-        <input
-          ref="coverInput"
-          type="file"
-          accept="image/*"
-          class="hidden"
-          @change="onCoverFile"
-        />
 
+        <div class="nv-main" :class="{ 'with-toc': store.tocVisible }">
         <div
           class="nv-inner"
           :class="{ auto: store.noteWidthMode === 'auto', 'has-cover': !!page?.cover }"
@@ -1125,12 +1150,12 @@ onBeforeUnmount(() => {
 
           <ChildPages :page-id="pageId" :editable="canEdit" />
         </div>
+        <Transition name="gn-toc">
+          <PageToc v-if="store.tocVisible" :items="tocItems" :scroll-root="scrollRef" />
+        </Transition>
+        </div>
         </div>
       </div>
-
-      <Transition name="gn-toc">
-        <PageToc v-if="store.tocVisible" :items="tocItems" :scroll-root="scrollRef" />
-      </Transition>
     </div>
   </div>
 </template>
@@ -1197,6 +1222,10 @@ onBeforeUnmount(() => {
   position: relative;
   z-index: 40;
 }
+.nv-sidebar-open {
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
 .nv-crumbs {
   display: flex;
   align-items: center;
@@ -1253,29 +1282,6 @@ onBeforeUnmount(() => {
 .nv-more-btn.starred {
   color: #e0a92e;
 }
-.nv-share-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 26px;
-  margin-right: 2px;
-  padding: 0 9px;
-  border: 1px solid var(--gn-border);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--gn-text-soft);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.nv-share-btn:hover {
-  background: var(--gn-bg-hover);
-  color: var(--gn-text);
-}
-@media (max-width: 768px) {
-  .nv-share-btn span {
-    display: none;
-  }
-}
 .nv-save {
   display: inline-flex;
   align-items: center;
@@ -1316,7 +1322,7 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 34px;
   right: 0;
-  width: 248px;
+  width: 268px;
   padding: 5px;
   background: var(--gn-bg);
   border: 1px solid var(--gn-border);
@@ -1499,6 +1505,7 @@ onBeforeUnmount(() => {
   color: var(--gn-accent);
 }
 .nv-body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -1510,8 +1517,21 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   overflow-x: hidden;
 }
+.nv-main {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding-right: 8px;
+}
+.nv-main.with-toc {
+  padding-right: 4px;
+}
 .nv-inner {
+  flex: 1 1 auto;
   max-width: 70%;
+  min-width: 0;
   margin: 0 auto;
   padding: 34px 56px 0 56px;
 }
@@ -1519,6 +1539,9 @@ onBeforeUnmount(() => {
   max-width: 100%;
   padding-left: 48px;
   padding-right: 48px;
+}
+.nv-main.with-toc .nv-inner.auto {
+  padding-right: 24px;
 }
 .nv-inner.has-cover {
   padding-top: 0;
@@ -1559,67 +1582,11 @@ onBeforeUnmount(() => {
   background: var(--gn-bg);
   color: var(--gn-text);
 }
-.cover-pop {
+.cover-pop-anchor {
   position: absolute;
   right: 24px;
   top: calc(100% - 8px);
   z-index: 70;
-  width: 300px;
-  padding: 8px;
-  background: var(--gn-bg);
-  border: 1px solid var(--gn-border);
-  border-radius: 10px;
-  box-shadow: var(--gn-shadow-lg);
-}
-.cover-pop-title {
-  font-size: 12px;
-  color: var(--gn-text-muted);
-  padding: 2px 2px 8px;
-}
-.cover-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-}
-.cover-swatch {
-  height: 38px;
-  border: 2px solid transparent;
-  border-radius: 6px;
-  cursor: pointer;
-}
-.cover-swatch:hover {
-  transform: scale(1.04);
-}
-.cover-swatch.on {
-  border-color: var(--gn-accent);
-}
-.cover-pop-sep {
-  height: 1px;
-  margin: 8px 0 4px;
-  background: var(--gn-border);
-}
-.cover-pop-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--gn-text-soft);
-  font-size: 13px;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.cover-pop-item:hover {
-  background: var(--gn-bg-hover);
-  color: var(--gn-text);
-}
-.cover-pop-item.danger {
-  color: var(--gn-danger);
 }
 
 /* ---------- 标题上方：图标 / 添加图标·封面·评论 ---------- */
@@ -1896,12 +1863,13 @@ onBeforeUnmount(() => {
     right: 12px;
     bottom: 8px;
   }
-  .cover-pop {
+  .cover-pop-anchor.cover-pop {
     position: fixed;
     left: 12px;
     right: 12px;
     top: 120px;
     width: auto;
+    max-width: none;
   }
   .nv-emoji {
     width: 56px;

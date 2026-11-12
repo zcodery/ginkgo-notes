@@ -353,7 +353,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
       <X :size="15" :stroke-width="1.9" />
     </button>
     <!-- 左侧设置导航 -->
-    <nav class="pf-nav gn-scroll">
+    <nav class="pf-nav">
       <div v-for="g in NAV" :key="g.groupKey" class="pf-group">
         <div class="pf-group-title">{{ t(g.groupKey) }}</div>
         <button
@@ -381,7 +381,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
     <!-- 右侧内容 -->
     <section class="pf-main">
-      <div class="pf-scroll gn-scroll">
+      <div class="pf-scroll">
         <h1 class="pf-title">{{ current.label }}</h1>
 
         <!-- 账号设置 -->
@@ -657,8 +657,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 }
 .pf {
   position: relative;
-  width: min(880px, 100%);
-  height: min(760px, calc(100vh - 40px));
+  width: min(1080px, 100%);
+  height: min(900px, calc(100vh - 48px));
   display: flex;
   overflow: hidden;
   background: var(--gn-bg);
@@ -684,6 +684,13 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   background: var(--gn-bg-sidebar);
   border-right: 1px solid var(--gn-border);
   overflow-y: auto;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+.pf-nav::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
 }
 .pf-group + .pf-group {
   margin-top: 10px;
@@ -761,10 +768,18 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 22px 36px 24px;
+  padding: 22px 40px 28px;
+  /* 隐藏滚动条，滚轮 / 触控板仍可滚动 */
+  scrollbar-width: none !important;
+  -ms-overflow-style: none;
+}
+.pf-scroll::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
 }
 .pf-scroll > * {
-  max-width: 680px;
+  max-width: 780px;
 }
 .pf-title {
   margin: 0 0 14px;

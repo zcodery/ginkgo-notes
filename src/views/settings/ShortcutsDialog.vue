@@ -4,6 +4,7 @@ import { RotateCcw, X } from 'lucide-vue-next'
 import SettingsModal from './SettingsModal.vue'
 import {
   DEFAULT_SHORTCUTS,
+  SHORTCUT_GROUPS,
   SHORTCUT_LABELS,
   comboFromEvent,
   formatCombo,
@@ -70,31 +71,50 @@ onBeforeUnmount(stop)
 </script>
 
 <template>
-  <SettingsModal title="快捷键" :width="460" :close-on-esc="!recording" @close="emit('close')">
+  <SettingsModal title="快捷键" :width="480" :close-on-esc="!recording" @close="emit('close')">
     <div class="pf-list">
-      <div v-for="a in actions" :key="a" class="pf-list-item">
-        <div class="pf-list-main">
-          <div class="pf-list-title">{{ SHORTCUT_LABELS[a] }}</div>
-          <div v-if="conflicts.has(a)" class="pf-err">与其它快捷键冲突</div>
+      <template v-for="group in SHORTCUT_GROUPS" :key="group.id">
+        <div class="sc-group">{{ group.label }}</div>
+        <div v-for="a in group.actions" :key="a" class="pf-list-item">
+          <div class="pf-list-main">
+            <div class="pf-list-title">{{ SHORTCUT_LABELS[a] }}</div>
+            <div v-if="conflicts.has(a)" class="pf-err">与其它快捷键冲突</div>
+          </div>
+          <button
+            type="button"
+            class="sc-key"
+            :class="{ rec: recording === a, empty: !shortcuts[a] }"
+            @click="start(a)"
+          >
+            {{ recording === a ? '请按键…' : formatCombo(shortcuts[a]) || '未设置' }}
+          </button>
+          <button
+            type="button"
+            class="gn-icon-btn"
+            v-tooltip="'恢复默认'"
+            :disabled="shortcuts[a] === DEFAULT_SHORTCUTS[a]"
+            @click="shortcuts[a] = DEFAULT_SHORTCUTS[a]"
+          >
+            <RotateCcw :size="13" />
+          </button>
+          <button
+            type="button"
+            class="gn-icon-btn"
+            v-tooltip="'清除'"
+            :disabled="!shortcuts[a]"
+            @click="shortcuts[a] = ''"
+          >
+            <X :size="13" />
+          </button>
         </div>
-        <button type="button" class="sc-key" :class="{ rec: recording === a, empty: !shortcuts[a] }" @click="start(a)">
-          {{ recording === a ? '请按键…' : formatCombo(shortcuts[a]) }}
-        </button>
-        <button
-          type="button"
-          class="gn-icon-btn"
-          v-tooltip="'恢复默认'"
-          :disabled="shortcuts[a] === DEFAULT_SHORTCUTS[a]"
-          @click="shortcuts[a] = DEFAULT_SHORTCUTS[a]"
-        >
-          <RotateCcw :size="13" />
-        </button>
-        <button type="button" class="gn-icon-btn" v-tooltip="'清除'" :disabled="!shortcuts[a]" @click="shortcuts[a] = ''">
-          <X :size="13" />
-        </button>
-      </div>
+      </template>
     </div>
-    <p class="pf-dialog-tip">{{ hint || '点击右侧按键区域后，直接按下想要的组合键。编辑器内的 Ctrl+F 查找、Ctrl+Z 撤销等保持不变。' }}</p>
+    <p class="pf-dialog-tip">
+      {{
+        hint ||
+        '点击右侧按键区域后，直接按下想要的组合键。撤销 / 重做仍使用系统默认 Ctrl+Z / Ctrl+Y。'
+      }}
+    </p>
     <footer>
       <button type="button" class="pf-btn" @click="resetShortcuts">全部恢复默认</button>
       <span class="pf-grow"></span>
@@ -104,6 +124,16 @@ onBeforeUnmount(stop)
 </template>
 
 <style scoped>
+.sc-group {
+  padding: 10px 2px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--gn-text-muted);
+  letter-spacing: 0.02em;
+}
+.sc-group:first-child {
+  padding-top: 0;
+}
 .sc-key {
   min-width: 110px;
   height: 26px;
