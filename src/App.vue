@@ -26,6 +26,7 @@ import {
   restoreSession,
   toggleTheme,
   reloadPages,
+  reloadGutterTuningPref,
 } from '@/store'
 import { createPage } from '@/db/repo'
 import { t } from '@/i18n'
@@ -138,8 +139,10 @@ watch(
     if (id) {
       initUserState()
       void loadShortcuts()
+      void reloadGutterTuningPref()
     } else {
       resetUserState()
+      store.gutterTuning = false
     }
   },
 )
@@ -156,6 +159,7 @@ onMounted(async () => {
   store.route = parseRoute()
   if (!isPublicShare.value) {
     await restoreSession()
+    await reloadGutterTuningPref()
     await handleOAuthReturn()
   } else {
     store.authReady = true

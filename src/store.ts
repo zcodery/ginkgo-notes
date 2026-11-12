@@ -124,6 +124,8 @@ interface State {
   noteLayout: NoteLayout
   /** 是否显示页面目录 */
   tocVisible: boolean
+  /** 管理员：装订区调试色带（偏好，存 profile meta） */
+  gutterTuning: boolean
   /** 窄屏（手机 / 竖屏平板）：侧栏改为抽屉，导航后自动收起 */
   isMobile: boolean
 }
@@ -147,6 +149,7 @@ export const store = reactive<State>({
   noteFontStyle: 'default',
   noteLayout: 'default',
   tocVisible: false,
+  gutterTuning: false,
   isMobile: false,
 })
 
@@ -539,6 +542,29 @@ export function setTocVisible(visible: boolean) {
 
 export function toggleTocVisible() {
   setTocVisible(!store.tocVisible)
+}
+
+/** 登录后读取装订区调试开关（initEditorPrefs 早于 restoreSession） */
+export async function reloadGutterTuningPref() {
+  if (!isAdmin.value) {
+    store.gutterTuning = false
+    return
+  }
+  try {
+    const on = await getMeta<boolean>('gutterTuning', false)
+    store.gutterTuning = !!on
+  } catch {
+    store.gutterTuning = false
+  }
+}
+
+export function setGutterTuning(on: boolean) {
+  if (!isAdmin.value) {
+    store.gutterTuning = false
+    return
+  }
+  store.gutterTuning = on
+  void setMeta('gutterTuning', on)
 }
 
 /* ---------------- History 路由（/、/trash、/:pageId） ---------------- */

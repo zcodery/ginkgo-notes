@@ -244,4 +244,13 @@ export const vTooltip: Directive<HTMLElement, TooltipValue> = {
   },
 }
 
+/** 非 Vue 节点（如 ProseMirror 装饰 widget）挂载与 v-tooltip 相同的气泡 */
+export function attachTooltip(el: HTMLElement, value: TooltipValue) {
+  setValue(el, value)
+}
+
+export function detachTooltip(el: HTMLElement) {
+  unbind(el)
+}
+
 export default vTooltip

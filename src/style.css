@@ -1,4 +1,4 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /* 把现有设计变量接到 Tailwind，组件里可直接用 bg-gn-hover / text-gn-muted 等 */
 @theme inline {
@@ -43,12 +43,10 @@
   --gn-shadow-lg: 0 12px 40px rgba(15, 15, 15, 0.14), 0 4px 10px rgba(15, 15, 15, 0.06);
   --gn-radius: 8px;
   /* 正文排版常量：待办复选框的对齐依赖这两个值，改动时需同步 */
-  --gn-line-h: 27.2px;  /* 16px 字号 × line-height 1.7 */
-  --gn-text-pad: 3px;   /* 段落上下内边距 */
-  --gn-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
-    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
-  --gn-mono: 'SFMono-Regular', ui-monospace, 'Cascadia Code', 'JetBrains Mono', Consolas, Menlo,
-    monospace;
+  --gn-line-h: 27.2px; /* 16px 字号 × line-height 1.7 */
+  --gn-text-pad: 3px; /* 段落上下内边距 */
+  --gn-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --gn-mono: "SFMono-Regular", ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, Menlo, monospace;
   color-scheme: light;
 }
 
@@ -180,7 +178,9 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   height: 28px;
   border-radius: 6px;
   color: var(--gn-text-muted);
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -203,7 +203,9 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
   white-space: nowrap;
 }
 .gn-btn:hover {
@@ -226,6 +228,61 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   color: var(--gn-danger);
 }
 
+/* ============ 左侧装订变量：页面标题 + 正文共用 ============ */
+.nv-inner,
+.shv-inner,
+.note-editor,
+.note-editor .ProseMirror {
+  interpolate-size: allow-keywords;
+  --gn-gutter-grip: 20px;
+  --gn-gutter-fold: 22px;
+  --gn-gutter-gap: 4px;
+  /* 用正文字号算符号列宽，避免页面大标题把 em 放大 */
+  --gn-gutter-marker: calc(0.72 * var(--gn-editor-font-size, 16px));
+  --gn-gutter-compact: calc(var(--gn-gutter-grip) + var(--gn-gutter-gap));
+  --gn-gutter-lead: calc(var(--gn-gutter-compact) + var(--gn-gutter-fold) + var(--gn-gutter-gap));
+  /* 列表符号列宽（正文左缘不再吃 compact 内边距） */
+  --gn-gutter-text: calc(var(--gn-gutter-marker) + var(--gn-gutter-gap));
+  --gn-gutter-band: calc(var(--gn-gutter-compact) + var(--gn-gutter-text));
+  --gn-gutter-body: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
+  /* 浮动手柄列：相对 .note-editor 左缘，不挤正文 */
+  --gn-handle-left: calc(-1 * var(--gn-gutter-compact));
+  /* 列表子级 / 折叠块 展开收起 */
+  --gn-collapse-duration: 0.3s;
+  --gn-collapse-fade: 0.3s;
+  --gn-collapse-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 首行行盒内锚点比例（0=顶 1=底）：⠿ 略上、Hn 略下，减轻图标/大写字形错位 */
+  --gn-handle-body-y-ratio: 0.46;
+  --gn-handle-heading-y-ratio: 0.55;
+  --gn-handle-list-y-ratio: 0.5;
+  /* 列表每嵌套一级，符号+正文整块右移一格；装订区仍对齐顶层纵列 */
+  --gn-list-step: calc(var(--gn-gutter-marker) + var(--gn-gutter-gap));
+}
+
+/* 页面标题 / 元信息与正文同一正文列（装订区由浮层手柄占用，不用 padding-left） */
+.nv-inner > .nv-title,
+.nv-inner > .nv-meta,
+.shv-inner > .shv-title {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+.nv-inner .cp {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
+/* 编辑器：左侧导轨给绝对定位的 .block-handle，正文不内缩 */
+.nv-inner > .note-editor,
+.shv-inner > .note-editor {
+  position: relative;
+  overflow: visible;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+}
+
 /* ============ 编辑器内容排版 ============ */
 .note-editor .ProseMirror {
   outline: none;
@@ -243,10 +300,54 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   margin-top: var(--gn-block-gap, 3px);
 }
 
+/* inline page-link：纯 HTML span，光标能放到两侧 */
+.note-editor .ProseMirror span.pl-chip {
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px;
+  vertical-align: baseline;
+  line-height: 1.6;
+  height: 1.6em;
+  padding: 0 2px;
+  margin: 0;
+  border: none;
+  border-bottom: 1px dashed currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-accent);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 240px;
+  transition:
+    background 0.12s ease,
+    border-bottom-color 0.12s ease,
+    color 0.12s ease;
+}
+.note-editor .ProseMirror span.pl-chip:hover {
+  background: color-mix(in srgb, var(--gn-accent) 10%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--gn-accent) 60%, transparent);
+  color: color-mix(in srgb, var(--gn-accent) 80%, var(--gn-text));
+}
+.note-editor .ProseMirror span.pl-chip::before {
+  /* 真实页面 icon（emoji），由 renderHTML 写入 data-icon 属性 */
+  content: attr(data-icon);
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .note-editor .ProseMirror p {
   margin: 0;
-  padding: var(--gn-text-pad) 0;
   min-height: var(--gn-line-h);
+  padding-top: var(--gn-text-pad);
+  padding-bottom: var(--gn-text-pad);
 }
 
 .note-editor .ProseMirror h1,
@@ -259,79 +360,146 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   font-size: 1.85em;
   font-weight: 650;
   line-height: 1.3;
-  margin: calc(1.4em * var(--gn-heading-space, 1)) 0 calc(0.3em * var(--gn-heading-space, 1));
+  margin-inline: 0;
+  margin-top: calc(1.4em * var(--gn-heading-space, 1));
+  margin-bottom: calc(0.3em * var(--gn-heading-space, 1));
   letter-spacing: -0.015em;
 }
 .note-editor .ProseMirror h2 {
   font-size: 1.45em;
   font-weight: 650;
   line-height: 1.35;
-  margin: calc(1.2em * var(--gn-heading-space, 1)) 0 calc(0.25em * var(--gn-heading-space, 1));
+  margin-inline: 0;
+  margin-top: calc(1.2em * var(--gn-heading-space, 1));
+  margin-bottom: calc(0.25em * var(--gn-heading-space, 1));
   letter-spacing: -0.01em;
 }
 .note-editor .ProseMirror h3 {
   font-size: 1.2em;
   font-weight: 650;
   line-height: 1.4;
-  margin: calc(1em * var(--gn-heading-space, 1)) 0 calc(0.2em * var(--gn-heading-space, 1));
+  margin-inline: 0;
+  margin-top: calc(1em * var(--gn-heading-space, 1));
+  margin-bottom: calc(0.2em * var(--gn-heading-space, 1));
 }
 
-/* 标题左侧隐性等级标记（悬停手柄出现前也能瞥见） */
-.note-editor .ProseMirror h1::before,
-.note-editor .ProseMirror h2::before,
-.note-editor .ProseMirror h3::before,
-.note-editor .ProseMirror h4::before {
-  position: absolute;
-  right: calc(100% + 12px);
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--gn-text-muted);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.14s ease;
-  font-family: var(--gn-mono);
-  line-height: 1;
-}
-.note-editor .ProseMirror h1::before {
-  content: 'H1';
-}
-.note-editor .ProseMirror h2::before {
-  content: 'H2';
-}
-.note-editor .ProseMirror h3::before {
-  content: 'H3';
-}
-.note-editor .ProseMirror h4::before {
-  content: 'H4';
-}
-.note-editor .ProseMirror h1:hover::before,
-.note-editor .ProseMirror h2:hover::before,
-.note-editor .ProseMirror h3:hover::before,
-.note-editor .ProseMirror h4:hover::before {
-  opacity: 0.55;
-}
-/* 手柄浮层盖住时，CSS 伪元素让位，避免叠字 */
-.note-editor:has(.block-handle.heading.visible) .ProseMirror h1:hover::before,
-.note-editor:has(.block-handle.heading.visible) .ProseMirror h2:hover::before,
-.note-editor:has(.block-handle.heading.visible) .ProseMirror h3:hover::before,
-.note-editor:has(.block-handle.heading.visible) .ProseMirror h4:hover::before {
-  opacity: 0;
-}
+/* 标题等级改由浮动手柄 .bh-level 显示，与 ⠿ 共用左侧导轨 */
 .note-editor .ProseMirror h4,
 .note-editor .ProseMirror h5,
 .note-editor .ProseMirror h6 {
   font-size: 1.05em;
   font-weight: 650;
-  margin: calc(0.9em * var(--gn-heading-space, 1)) 0 calc(0.2em * var(--gn-heading-space, 1));
+  margin-inline: 0;
+  margin-top: calc(0.9em * var(--gn-heading-space, 1));
+  margin-bottom: calc(0.2em * var(--gn-heading-space, 1));
 }
 
 .note-editor .ProseMirror > h1:first-child,
 .note-editor .ProseMirror > h2:first-child,
 .note-editor .ProseMirror > h3:first-child {
   margin-top: 0.2em;
+}
+
+/* ===== 顶层块装订区（须在 p/h margin 规则之后；不用 :where 以免输给 .ProseMirror p） ===== */
+.note-editor .ProseMirror > p,
+.note-editor .ProseMirror > h1,
+.note-editor .ProseMirror > h2,
+.note-editor .ProseMirror > h3,
+.note-editor .ProseMirror > h4,
+.note-editor .ProseMirror > h5,
+.note-editor .ProseMirror > h6 {
+  position: relative;
+  margin-left: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* 全宽块：外框左缘与标题/段落正文列对齐，装订区在左侧另占 compact */
+.note-editor .ProseMirror > .gn-codeblock,
+.note-editor .ProseMirror > .gn-diagram,
+.note-editor .ProseMirror > .gn-db {
+  position: relative;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: visible;
+}
+.note-editor .ProseMirror .gn-db {
+  overflow: visible;
+}
+.note-editor .ProseMirror > .gn-diagram::after,
+.note-editor .ProseMirror > .gn-db::after,
+.note-editor .ProseMirror > .gn-codeblock::after,
+.note-editor .ProseMirror .gn-db::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  bottom: 0;
+  width: var(--gn-gutter-compact);
+  /* 装订带须能收到指针，否则全宽块左侧没有可悬停 DOM */
+  pointer-events: auto;
+}
+
+.note-editor .ProseMirror > blockquote {
+  position: relative;
+  margin-top: 6px;
+  margin-bottom: 6px;
+  margin-left: 0;
+  padding: 1px 0 1px 11px;
+  border-left: none;
+}
+.note-editor .ProseMirror > blockquote::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 1px;
+  background: var(--gn-text);
+}
+.note-editor .ProseMirror > blockquote::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  width: var(--gn-gutter-compact);
+  height: calc(2px + var(--gn-line-h));
+  pointer-events: none;
+}
+
+.note-editor .ProseMirror > hr {
+  margin-left: 0;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+}
+
+.note-editor .ProseMirror > details.gn-details {
+  position: relative;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.note-editor .ProseMirror details.gn-details::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  bottom: 0;
+  width: var(--gn-gutter-compact);
+  pointer-events: auto;
+}
+.note-editor .ProseMirror .gn-db::after,
+.note-editor .ProseMirror details.gn-details::after {
+  z-index: 2;
 }
 
 .note-editor .ProseMirror strong {
@@ -380,24 +548,60 @@ html.dark {
   --gn-fc-red: #ef7a7a;
 }
 
-.note-editor .ProseMirror .gn-fc-gray { color: var(--gn-fc-gray); }
-.note-editor .ProseMirror .gn-fc-slate { color: var(--gn-fc-slate); }
-.note-editor .ProseMirror .gn-fc-brown { color: var(--gn-fc-brown); }
-.note-editor .ProseMirror .gn-fc-orange { color: var(--gn-fc-orange); }
-.note-editor .ProseMirror .gn-fc-amber { color: var(--gn-fc-amber); }
-.note-editor .ProseMirror .gn-fc-yellow { color: var(--gn-fc-yellow); }
-.note-editor .ProseMirror .gn-fc-lime { color: var(--gn-fc-lime); }
-.note-editor .ProseMirror .gn-fc-green { color: var(--gn-fc-green); }
-.note-editor .ProseMirror .gn-fc-emerald { color: var(--gn-fc-emerald); }
-.note-editor .ProseMirror .gn-fc-teal { color: var(--gn-fc-teal); }
-.note-editor .ProseMirror .gn-fc-cyan { color: var(--gn-fc-cyan); }
-.note-editor .ProseMirror .gn-fc-blue { color: var(--gn-fc-blue); }
-.note-editor .ProseMirror .gn-fc-indigo { color: var(--gn-fc-indigo); }
-.note-editor .ProseMirror .gn-fc-purple { color: var(--gn-fc-purple); }
-.note-editor .ProseMirror .gn-fc-violet { color: var(--gn-fc-violet); }
-.note-editor .ProseMirror .gn-fc-pink { color: var(--gn-fc-pink); }
-.note-editor .ProseMirror .gn-fc-rose { color: var(--gn-fc-rose); }
-.note-editor .ProseMirror .gn-fc-red { color: var(--gn-fc-red); }
+.note-editor .ProseMirror .gn-fc-gray {
+  color: var(--gn-fc-gray);
+}
+.note-editor .ProseMirror .gn-fc-slate {
+  color: var(--gn-fc-slate);
+}
+.note-editor .ProseMirror .gn-fc-brown {
+  color: var(--gn-fc-brown);
+}
+.note-editor .ProseMirror .gn-fc-orange {
+  color: var(--gn-fc-orange);
+}
+.note-editor .ProseMirror .gn-fc-amber {
+  color: var(--gn-fc-amber);
+}
+.note-editor .ProseMirror .gn-fc-yellow {
+  color: var(--gn-fc-yellow);
+}
+.note-editor .ProseMirror .gn-fc-lime {
+  color: var(--gn-fc-lime);
+}
+.note-editor .ProseMirror .gn-fc-green {
+  color: var(--gn-fc-green);
+}
+.note-editor .ProseMirror .gn-fc-emerald {
+  color: var(--gn-fc-emerald);
+}
+.note-editor .ProseMirror .gn-fc-teal {
+  color: var(--gn-fc-teal);
+}
+.note-editor .ProseMirror .gn-fc-cyan {
+  color: var(--gn-fc-cyan);
+}
+.note-editor .ProseMirror .gn-fc-blue {
+  color: var(--gn-fc-blue);
+}
+.note-editor .ProseMirror .gn-fc-indigo {
+  color: var(--gn-fc-indigo);
+}
+.note-editor .ProseMirror .gn-fc-purple {
+  color: var(--gn-fc-purple);
+}
+.note-editor .ProseMirror .gn-fc-violet {
+  color: var(--gn-fc-violet);
+}
+.note-editor .ProseMirror .gn-fc-pink {
+  color: var(--gn-fc-pink);
+}
+.note-editor .ProseMirror .gn-fc-rose {
+  color: var(--gn-fc-rose);
+}
+.note-editor .ProseMirror .gn-fc-red {
+  color: var(--gn-fc-red);
+}
 
 .note-editor .ProseMirror mark[data-bg] {
   border-radius: 3px;
@@ -406,24 +610,70 @@ html.dark {
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-.note-editor .ProseMirror .gn-bgc-gray { background: color-mix(in srgb, var(--gn-fc-gray) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-slate { background: color-mix(in srgb, var(--gn-fc-slate) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-brown { background: color-mix(in srgb, var(--gn-fc-brown) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-orange { background: color-mix(in srgb, var(--gn-fc-orange) 20%, transparent); }
-.note-editor .ProseMirror .gn-bgc-amber { background: color-mix(in srgb, var(--gn-fc-amber) 22%, transparent); }
-.note-editor .ProseMirror .gn-bgc-yellow { background: color-mix(in srgb, var(--gn-fc-yellow) 24%, transparent); }
-.note-editor .ProseMirror .gn-bgc-lime { background: color-mix(in srgb, var(--gn-fc-lime) 20%, transparent); }
-.note-editor .ProseMirror .gn-bgc-green { background: color-mix(in srgb, var(--gn-fc-green) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-emerald { background: color-mix(in srgb, var(--gn-fc-emerald) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-teal { background: color-mix(in srgb, var(--gn-fc-teal) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-cyan { background: color-mix(in srgb, var(--gn-fc-cyan) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-blue { background: color-mix(in srgb, var(--gn-fc-blue) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-indigo { background: color-mix(in srgb, var(--gn-fc-indigo) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-purple { background: color-mix(in srgb, var(--gn-fc-purple) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-violet { background: color-mix(in srgb, var(--gn-fc-violet) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-pink { background: color-mix(in srgb, var(--gn-fc-pink) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-rose { background: color-mix(in srgb, var(--gn-fc-rose) 18%, transparent); }
-.note-editor .ProseMirror .gn-bgc-red { background: color-mix(in srgb, var(--gn-fc-red) 18%, transparent); }
+/* Highlight 着重文字（extension-highlight 输出的 <mark>，不带 data-bg） */
+.note-editor .ProseMirror mark:not([data-bg]) {
+  /* TipTap highlight 默认黄色 */
+  background: color-mix(in srgb, var(--gn-highlight-bg, #fef08a) 70%, transparent);
+  border-radius: 3px;
+  padding: 0.08em 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  color: inherit;
+}
+.note-editor .ProseMirror .gn-bgc-gray {
+  background: color-mix(in srgb, var(--gn-fc-gray) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-slate {
+  background: color-mix(in srgb, var(--gn-fc-slate) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-brown {
+  background: color-mix(in srgb, var(--gn-fc-brown) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-orange {
+  background: color-mix(in srgb, var(--gn-fc-orange) 20%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-amber {
+  background: color-mix(in srgb, var(--gn-fc-amber) 22%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-yellow {
+  background: color-mix(in srgb, var(--gn-fc-yellow) 24%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-lime {
+  background: color-mix(in srgb, var(--gn-fc-lime) 20%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-green {
+  background: color-mix(in srgb, var(--gn-fc-green) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-emerald {
+  background: color-mix(in srgb, var(--gn-fc-emerald) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-teal {
+  background: color-mix(in srgb, var(--gn-fc-teal) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-cyan {
+  background: color-mix(in srgb, var(--gn-fc-cyan) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-blue {
+  background: color-mix(in srgb, var(--gn-fc-blue) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-indigo {
+  background: color-mix(in srgb, var(--gn-fc-indigo) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-purple {
+  background: color-mix(in srgb, var(--gn-fc-purple) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-violet {
+  background: color-mix(in srgb, var(--gn-fc-violet) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-pink {
+  background: color-mix(in srgb, var(--gn-fc-pink) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-rose {
+  background: color-mix(in srgb, var(--gn-fc-rose) 18%, transparent);
+}
+.note-editor .ProseMirror .gn-bgc-red {
+  background: color-mix(in srgb, var(--gn-fc-red) 18%, transparent);
+}
 
 .note-editor .ProseMirror a {
   color: var(--gn-accent);
@@ -437,44 +687,206 @@ html.dark {
   text-decoration-color: var(--gn-accent);
 }
 
-.note-editor .ProseMirror ul,
+/* ===== 列表：两列 [符号 | 正文]；折叠箭头浮在左侧装订区，不占栏宽 ===== */
+.note-editor .ProseMirror ul:not([data-type="taskList"]),
 .note-editor .ProseMirror ol {
-  padding-left: 1.55em;
+  padding-left: 0;
   margin: 2px 0;
+  list-style: none;
 }
-.note-editor .ProseMirror li {
+/* 两列 [符号 | 正文]；⠿ / ▾ 在正文左缘外侧导轨，不占 padding */
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li,
+.note-editor .ProseMirror ol li {
+  list-style: none;
+  display: grid;
+  grid-template-columns: var(--gn-gutter-marker) minmax(0, 1fr);
+  column-gap: var(--gn-gutter-gap);
+  align-items: start;
   padding: 2px 0;
   position: relative;
+  margin-left: 0;
+  padding-left: 0;
+  z-index: 1;
 }
-.note-editor .ProseMirror li > p {
-  padding: 0;
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li::after,
+.note-editor .ProseMirror ol li::after,
+.note-editor .ProseMirror ul[data-type="taskList"] li::after {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  width: var(--gn-gutter-band);
+  height: calc(2px + var(--gn-line-h));
+  pointer-events: none;
+  z-index: 0;
+}
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li:has(> .gn-list-fold)::after,
+.note-editor .ProseMirror ol li:has(> .gn-list-fold)::after {
+  left: calc(-1 * var(--gn-gutter-lead));
+  width: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
+}
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li > p,
+.note-editor .ProseMirror ol li > p {
+  grid-column: 2;
+  grid-row: 1;
   margin: 0;
+  padding: 0;
+  min-height: var(--gn-line-h);
+  line-height: var(--gn-editor-line-height, 1.7);
 }
-.note-editor .ProseMirror ul {
-  list-style: disc;
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li > ul,
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li > ol,
+.note-editor .ProseMirror ol li > ul,
+.note-editor .ProseMirror ol li > ol {
+  grid-column: 2;
+  grid-row: 2;
+  padding-left: 0;
+  margin: 2px 0 0;
+  position: relative;
+  z-index: 1;
+  min-height: 0;
+  overflow: hidden;
 }
-.note-editor .ProseMirror ul ul {
-  list-style: circle;
+.note-editor .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li)[data-collapsed="true"]:has(> :is(ul, ol)):not(.gn-fold-host-anim) {
+  grid-template-rows: auto 0px;
 }
-.note-editor .ProseMirror ul ul ul {
-  list-style: square;
+.note-editor .ProseMirror .gn-fold-panel-anim {
+  min-height: 0;
+  overflow: hidden;
 }
-.note-editor .ProseMirror ol {
-  list-style: decimal;
+.note-editor .ProseMirror .gn-fold-host-anim > :is(ul, ol, .gn-details-content) {
+  min-height: 0;
+  overflow: hidden;
 }
-.note-editor .ProseMirror li::marker {
+.note-editor .ProseMirror ol li::before {
+  content: counter(list-item) ".";
+  grid-column: 1;
+  grid-row: 1;
   color: var(--gn-text-muted);
+  font-variant-numeric: tabular-nums;
+  height: var(--gn-line-h);
+  line-height: var(--gn-line-h);
+  text-align: left;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+.note-editor .ProseMirror ul:not([data-type="taskList"]) li::before {
+  content: "•";
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--gn-text-muted);
+  height: var(--gn-line-h);
+  line-height: var(--gn-line-h);
+  text-align: center;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.note-editor .ProseMirror ul:not([data-type="taskList"]) ul li::before {
+  content: "◦";
+}
+.note-editor .ProseMirror ul:not([data-type="taskList"]) ul ul li::before {
+  content: "▪";
+  font-size: 0.88em;
 }
 
-/* 待办列表 */
-.note-editor .ProseMirror ul[data-type='taskList'] {
-  list-style: none;
-  padding-left: 0.1em;
-}
-.note-editor .ProseMirror ul[data-type='taskList'] li {
+/* 折叠 ▾：符号列左侧；与 ⠿ 同属 lead 区（⠿ 占前 compact，▾ 占后 fold） */
+.note-editor .ProseMirror .gn-list-fold {
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-fold) - var(--gn-gutter-gap));
+  top: calc(2px + var(--gn-line-h) / 2);
+  transform: translateY(-50%);
+  width: var(--gn-gutter-fold);
+  height: var(--gn-gutter-fold);
   display: flex;
-  align-items: flex-start;
-  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--gn-text-muted);
+  opacity: 0;
+  pointer-events: none;
+  border-radius: 5px;
+  user-select: none;
+  transition:
+    opacity 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease,
+    transform var(--gn-collapse-fade) var(--gn-collapse-ease);
+  z-index: 5;
+}
+/* ▾：当前行（.is-active / 最内层 hover）或已收起；不依赖 li 上的 class（PM 会清） */
+.note-editor .ProseMirror .gn-list-fold.is-active,
+.note-editor .ProseMirror li:has(> .gn-list-fold):hover:not(:has(li:hover)) > .gn-list-fold,
+.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold {
+  opacity: 0.72;
+  pointer-events: auto;
+  transition-delay: 0s;
+}
+.note-editor .ProseMirror .gn-list-fold::before {
+  content: "▾";
+  font-size: 15px;
+  line-height: 1;
+  transform: translateY(1px);
+  transition: transform var(--gn-collapse-fade) var(--gn-collapse-ease);
+}
+.note-editor .ProseMirror .gn-list-fold:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
+}
+/* 光标在子列表里时，不显示父项折叠箭头（收起态 / 当前激活行除外） */
+.note-editor .ProseMirror li:has(> .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within)):not([data-collapsed="true"])
+  > .gn-list-fold:not(.is-active) {
+  opacity: 0;
+  pointer-events: none;
+}
+.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold::before {
+  transform: translateY(1px) rotate(-90deg);
+}
+/* 嵌套列表层级引导线（相对子列表左缘） */
+.note-editor .ProseMirror ul:not([data-type="taskList"]) > li > ul::before,
+.note-editor .ProseMirror ul:not([data-type="taskList"]) > li > ol::before,
+.note-editor .ProseMirror ol > li > ul::before,
+.note-editor .ProseMirror ol > li > ol::before {
+  content: "";
+  position: absolute;
+  left: -0.75em;
+  top: 0;
+  bottom: 0.25em;
+  width: 1px;
+  background: var(--gn-border);
+  pointer-events: none;
+}
+
+/* 待办：与无序列表同一网格槽（复选框占符号列） */
+.note-editor .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.note-editor .ProseMirror ul[data-type="taskList"] li {
+  display: grid;
+  grid-template-columns: var(--gn-gutter-marker) minmax(0, 1fr);
+  /* 比普通列表多留一点空隙；复选框仍靠 label flex 与首行垂直居中 */
+  column-gap: calc(var(--gn-gutter-gap) + 6px);
+  align-items: start;
+  margin-left: 0;
+  padding-left: 0;
+  position: relative;
+}
+.note-editor .ProseMirror ul[data-type="taskList"] li::before {
+  content: none;
+  display: none;
+}
+.note-editor .ProseMirror ul[data-type="taskList"] li > label {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: center;
+}
+.note-editor .ProseMirror ul[data-type="taskList"] li > div {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
 }
 /*
  * 复选框要和首行文字视觉居中对齐。
@@ -485,19 +897,14 @@ html.dark {
  * 再用 flex 居中把 15px 的复选框摆到盒子正中，
  * 这样复选框中心 = 段落顶 + 3 + 13.6 = 16.6px，与文字行盒中心严格重合。
  */
-.note-editor .ProseMirror ul[data-type='taskList'] li > label {
-  flex: 0 0 auto;
+.note-editor .ProseMirror ul[data-type="taskList"] li > label {
   display: flex;
   align-items: center;
   height: var(--gn-line-h);
   margin-top: var(--gn-text-pad);
   user-select: none;
 }
-.note-editor .ProseMirror ul[data-type='taskList'] li > div {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox'] {
+.note-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
   appearance: none;
   width: 15px;
   height: 15px;
@@ -509,15 +916,15 @@ html.dark {
   position: relative;
   transition: all 0.12s ease;
 }
-.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:hover {
+.note-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:hover {
   border-color: var(--gn-accent);
 }
-.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked {
+.note-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
   background: var(--gn-accent);
   border-color: var(--gn-accent);
 }
-.note-editor .ProseMirror ul[data-type='taskList'] input[type='checkbox']:checked::after {
-  content: '';
+.note-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+  content: "";
   position: absolute;
   left: 4.5px;
   top: 2px;
@@ -527,21 +934,24 @@ html.dark {
   border-width: 0 2px 2px 0;
   transform: rotate(42deg);
 }
-.note-editor .ProseMirror ul[data-type='taskList'] li[data-checked='true'] > div {
+.note-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
   color: var(--gn-text-muted);
   text-decoration: line-through;
   text-decoration-color: var(--gn-border-strong);
 }
 
-/* 引用 */
+/* 引用（嵌套在块内时仅保留外观，装订由顶层 > blockquote 负责） */
 .note-editor .ProseMirror blockquote {
-  margin: 6px 0;
-  padding: 1px 0 1px 14px;
-  border-left: 3px solid var(--gn-text);
   color: var(--gn-text-soft);
+}
+.note-editor .ProseMirror blockquote blockquote {
+  margin: 4px 0;
+  padding: 1px 0 1px 11px;
+  border-left: 3px solid var(--gn-text);
 }
 .note-editor .ProseMirror blockquote p {
   padding: 2px 0;
+  margin: 0;
 }
 
 /* 分割线 */
@@ -552,6 +962,78 @@ html.dark {
 }
 .note-editor .ProseMirror hr.ProseMirror-selectednode {
   border-top-color: var(--gn-accent);
+}
+
+/* ===== 折叠块 details（原生 <details>/<summary>） ===== */
+.note-editor .ProseMirror details.gn-details {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  border: 1px solid var(--gn-border);
+  border-radius: var(--gn-radius);
+  margin: 8px 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+  transition: border-color 0.12s;
+}
+.note-editor .ProseMirror details.gn-details[data-open="true"] {
+  border-color: color-mix(in srgb, var(--gn-accent) 30%, var(--gn-border));
+}
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary {
+  position: relative;
+  list-style: none;
+  cursor: pointer;
+  padding: 8px 12px 8px 40px;
+  background: color-mix(in srgb, var(--gn-bg-hover) 40%, transparent);
+  font-weight: 500;
+  font-size: 0.95em;
+}
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary::-webkit-details-marker {
+  display: none;
+}
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary::before {
+  content: "▸";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  color: var(--gn-accent);
+  font-size: 15px;
+  line-height: 1;
+  border-radius: 5px;
+  transition:
+    transform var(--gn-collapse-fade) var(--gn-collapse-ease),
+    background 0.12s;
+}
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary:hover::before {
+  background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
+}
+.note-editor .ProseMirror details.gn-details[data-open="true"] > summary.gn-details-summary::before {
+  transform: translateY(-50%) rotate(90deg);
+}
+.note-editor .ProseMirror details.gn-details[data-open="false"]:not(.gn-fold-host-anim) {
+  grid-template-rows: auto 0px;
+}
+.note-editor .ProseMirror details.gn-details > div.gn-details-content {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--gn-border);
+  background: transparent;
+  overflow: hidden;
+  min-height: 0;
+  border-radius: 0 0 var(--gn-radius) var(--gn-radius);
+}
+.note-editor .ProseMirror details.gn-details > div.gn-details-content > * + * {
+  margin-top: 4px;
+}
+.note-editor .ProseMirror details.gn-details.ProseMirror-selectednode {
+  border-color: var(--gn-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-accent) 20%, transparent);
 }
 
 /* 行内代码 */
@@ -645,7 +1127,7 @@ html.dark {
   border-top: none;
 }
 .note-editor .ProseMirror table .selectedCell::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
@@ -674,6 +1156,7 @@ html.dark {
 /* 块级悬浮手柄 */
 .block-handle {
   position: absolute;
+  /* left 由 BlockEditor 按当前行 getBoundingClientRect 写入，随列表嵌套缩进 */
   display: flex;
   align-items: center;
   gap: 1px;
@@ -687,7 +1170,7 @@ html.dark {
   opacity: 1;
 }
 .block-handle button {
-  width: 20px;
+  width: var(--gn-gutter-grip, 20px);
   height: 22px;
   display: flex;
   align-items: center;
@@ -705,18 +1188,98 @@ html.dark {
 .block-handle button:active {
   cursor: grabbing;
 }
+.block-handle .bh-grip svg {
+  display: block;
+  transform: translateY(-1px);
+}
+/* .heading 无单独 transform：top 锚定首行文字行盒中心，与 ⠿ 共用 translateY(-50%) */
+.block-handle.heading {
+  height: 22px;
+  align-items: center;
+}
 .block-handle .bh-level {
   width: auto;
   min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  box-sizing: border-box;
   padding: 0 4px;
+  display: grid;
+  place-items: center;
   font-size: 11px;
+  line-height: 1;
   font-weight: 650;
   font-family: var(--gn-mono);
   letter-spacing: 0.02em;
   opacity: 0.72;
+  transform: translateY(0.5px);
 }
 .block-handle .bh-level:hover {
   opacity: 1;
+}
+
+/* 管理员：左槽调校 — 笔记页「更多 → 调试 → 装订区调校」开启 */
+.note-editor.is-gutter-tuning .ProseMirror .gn-list-fold {
+  opacity: 0.78 !important;
+  pointer-events: auto !important;
+  transition-delay: 0s !important;
+}
+/* 负边距块：仅首行高度示踪，不牵连换行或下方子块 */
+.note-editor.is-gutter-tuning .ProseMirror > :is(p, h1, h2, h3, h4, blockquote) {
+  background-image: none;
+}
+.note-editor.is-gutter-tuning .ProseMirror > blockquote::after {
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  height: calc(2px + var(--gn-line-h));
+  width: var(--gn-gutter-compact);
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact));
+}
+.note-editor.is-gutter-tuning .ProseMirror > :is(p, h1, h2, h3, h4)::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  height: calc(2px + var(--gn-line-h));
+  width: var(--gn-gutter-compact);
+  pointer-events: none;
+  z-index: 0;
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact));
+}
+/* 正文列全宽块：grip 在块左缘外侧 compact 宽（与 computeHandleLeft 一致） */
+.note-editor.is-gutter-tuning .ProseMirror :is(.gn-codeblock, .gn-diagram, .gn-db, details.gn-details) {
+  position: relative;
+  overflow: visible !important;
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-border) 18%, transparent) 0, color-mix(in srgb, var(--gn-border) 18%, transparent) 1px, transparent 1px);
+}
+.note-editor.is-gutter-tuning .ProseMirror :is(.gn-codeblock, .gn-diagram, .gn-db, details.gn-details)::before {
+  content: "";
+  position: absolute;
+  left: calc(-1 * var(--gn-gutter-compact));
+  top: 0;
+  bottom: 0;
+  width: var(--gn-gutter-compact);
+  pointer-events: none;
+  z-index: 1;
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact));
+}
+/* 列表：用 ::after 画首行色带（不用整行 background，避免牵连子列表） */
+.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li, ul[data-type="taskList"] li):not(:has(> .gn-list-fold))::after {
+  top: 2px;
+  height: var(--gn-line-h);
+  width: var(--gn-gutter-band);
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact), color-mix(in srgb, var(--gn-border) 22%, transparent) var(--gn-gutter-band), transparent var(--gn-gutter-band));
+}
+.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li):has(> .gn-list-fold)::after {
+  left: calc(-1 * var(--gn-gutter-lead));
+  top: 2px;
+  height: var(--gn-line-h);
+  width: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-accent) 6%, transparent) calc(var(--gn-gutter-grip) + var(--gn-gutter-gap)), color-mix(in srgb, var(--gn-accent) 6%, transparent) calc(var(--gn-gutter-grip) + var(--gn-gutter-gap) + var(--gn-gutter-fold)), transparent calc(var(--gn-gutter-grip) + var(--gn-gutter-gap) + var(--gn-gutter-fold)), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-lead), transparent var(--gn-gutter-lead), color-mix(in srgb, var(--gn-border) 22%, transparent) calc(var(--gn-gutter-lead) + var(--gn-gutter-text)), transparent calc(var(--gn-gutter-lead) + var(--gn-gutter-text)));
+}
+.note-editor.is-gutter-tuning .block-handle.visible {
+  opacity: 1 !important;
+  outline: 1px dashed color-mix(in srgb, var(--gn-accent) 35%, transparent);
 }
 
 /* 拖拽中的块高亮 */
@@ -990,31 +1553,31 @@ html.dark .gn-tag {
   color: color-mix(in srgb, var(--tag-c) 62%, var(--gn-text));
   background: color-mix(in srgb, var(--tag-c) 22%, transparent);
 }
-.gn-tag[data-color='gray'] {
+.gn-tag[data-color="gray"] {
   --tag-c: #8a8a84;
 }
-.gn-tag[data-color='brown'] {
+.gn-tag[data-color="brown"] {
   --tag-c: #9a7355;
 }
-.gn-tag[data-color='orange'] {
+.gn-tag[data-color="orange"] {
   --tag-c: #c97b34;
 }
-.gn-tag[data-color='yellow'] {
+.gn-tag[data-color="yellow"] {
   --tag-c: #b8952a;
 }
-.gn-tag[data-color='green'] {
+.gn-tag[data-color="green"] {
   --tag-c: #3f8462;
 }
-.gn-tag[data-color='blue'] {
+.gn-tag[data-color="blue"] {
   --tag-c: #3e78b0;
 }
-.gn-tag[data-color='purple'] {
+.gn-tag[data-color="purple"] {
   --tag-c: #7a5bb5;
 }
-.gn-tag[data-color='pink'] {
+.gn-tag[data-color="pink"] {
   --tag-c: #c05a8c;
 }
-.gn-tag[data-color='red'] {
+.gn-tag[data-color="red"] {
   --tag-c: #c44a4a;
 }
 
