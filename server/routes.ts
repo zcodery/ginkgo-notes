@@ -178,7 +178,7 @@ api.post('/auth/password', requireSession, (req, res) => {
   const auth = authOf(res)
   const row = findUserById(auth.user.id)
   if (!row || !verifyPassword(currentPassword, row.password_hash)) {
-    throw new HttpError(401, '当前密码不正确')
+    throw new HttpError(400, '当前密码不正确')
   }
   updateUserPassword(row.id, newPassword)
   // 改密码后其它设备一律下线

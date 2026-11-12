@@ -33,9 +33,10 @@ function currentRow(res: Response): UserRow {
   return row
 }
 
+/** 已登录状态下的密码 / PIN 错误用 400：401 会被前端当作登录失效而直接登出 */
 function assertPassword(row: UserRow, password: unknown): void {
   if (typeof password !== 'string' || !verifyPassword(password, row.password_hash)) {
-    throw new HttpError(401, '登录密码不正确')
+    throw new HttpError(400, '登录密码不正确')
   }
 }
 
@@ -121,7 +122,7 @@ accountRouter.post('/auth/pin/verify', requireSession, (req, res) => {
   const pin = req.body?.pin
   if (!row.pin_hash || typeof pin !== 'string' || !verifyPassword(pin, row.pin_hash)) {
     recordFailure(key)
-    throw new HttpError(401, 'PIN 码不正确')
+    throw new HttpError(400, 'PIN 码不正确')
   }
   clearFailures(key)
   res.json({ ok: true })
