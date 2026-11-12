@@ -119,6 +119,7 @@ const zhTW: Messages = {
     title: '子頁面',
     new: '新建子頁面',
     creating: '建立中…',
+    dragHint: '拖到正文插入卡片，或在此排序',
   },
   table: {
     headerRow: '首行設為表頭',
@@ -169,7 +170,7 @@ const zhTW: Messages = {
     language: '語言',
     languageDesc: '介面顯示語言',
     shortcuts: '快捷鍵自訂',
-    shortcutsDesc: '修改搜尋、新建頁面等常用快捷鍵',
+    shortcutsDesc: '修改搜尋、新建、分享、尋找等應用與筆記頁快捷鍵',
     soon: '即將上線',
     set: '設定',
     save: '儲存',

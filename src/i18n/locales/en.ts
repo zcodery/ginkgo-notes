@@ -120,6 +120,7 @@ const en: Messages = {
     title: 'Sub-pages',
     new: 'New sub-page',
     creating: 'Creating…',
+    dragHint: 'Drag into the doc or reorder here',
   },
   table: {
     headerRow: 'Header row',
@@ -170,7 +171,7 @@ const en: Messages = {
     language: 'Language',
     languageDesc: 'Interface language',
     shortcuts: 'Keyboard shortcuts',
-    shortcutsDesc: 'Customize search, new page, and other shortcuts',
+    shortcutsDesc: 'Customize app and note shortcuts like search, share, and find',
     soon: 'Coming soon',
     set: 'Configure',
     save: 'Save',

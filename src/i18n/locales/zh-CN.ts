@@ -117,6 +117,7 @@ export default {
     title: '子页面',
     new: '新建子页面',
     creating: '创建中…',
+    dragHint: '拖到正文插入卡片，或在此排序',
   },
   table: {
     headerRow: '首行设为表头',
@@ -167,7 +168,7 @@ export default {
     language: '语言',
     languageDesc: '界面显示语言',
     shortcuts: '快捷键自定义',
-    shortcutsDesc: '修改搜索、新建页面等常用快捷键',
+    shortcutsDesc: '修改搜索、新建、分享、查找等应用与笔记页快捷键',
     soon: '即将上线',
     set: '设置',
     save: '保存',
