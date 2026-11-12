@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { BellOff } from 'lucide-vue-next'
-import { errorText, putUserSetting } from '@/api/features'
+import { errorText, fetchServerInfo, putUserSetting } from '@/api/features'
 import { inQuietHours, userState } from '@/userState'
+import { store } from '@/store'
+
+const mailAvailable = ref<boolean | null>(null)
+onMounted(() => {
+  fetchServerInfo()
+    .then((i) => (mailAvailable.value = i.mail))
+    .catch(() => (mailAvailable.value = false))
+})
 
 const emit = defineEmits<{ (e: 'toast', type: 'ok' | 'err', text: string): void }>()
 
@@ -83,9 +91,21 @@ function toggleQuiet() {
   <div class="pf-row">
     <div class="pf-row-text">
       <div class="pf-row-title">同步发送到邮箱</div>
-      <div class="pf-row-desc">需要服务端配置邮件发送服务（SMTP）后才能启用，当前仅站内通知</div>
+      <div class="pf-row-desc">
+        <template v-if="mailAvailable === false">服务端尚未配置邮件服务（SMTP_URL），当前仅站内通知</template>
+        <template v-else-if="!store.user?.email">请先在「账号设置」中绑定邮箱</template>
+        <template v-else>开启的通知类型会同时发送到 {{ store.user.email }}</template>
+      </div>
     </div>
-    <button type="button" class="pf-switch" disabled><i></i></button>
+    <button
+      type="button"
+      class="pf-switch"
+      :class="{ on: prefs.email }"
+      :disabled="!mailAvailable || (!store.user?.email && !prefs.email)"
+      @click="prefs.email = !prefs.email; save()"
+    >
+      <i></i>
+    </button>
   </div>
 </template>
 

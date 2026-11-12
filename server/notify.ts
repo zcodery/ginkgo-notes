@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { PUBLIC_OWNER, db, getUserSetting } from './db.ts'
+import { mailEnabled, sendMail } from './mailer.ts'
 
 export type NotificationType =
   | 'security'
@@ -29,10 +30,16 @@ export function notify(
   link: string | null = null,
 ): void {
   if (!userId || userId === PUBLIC_OWNER) return
+  const prefs = getUserSetting<{ types?: Record<string, boolean>; email?: boolean } | null>(userId, 'notify', null)
   // 安全类通知不可关闭，其它类型按用户偏好过滤
-  if (type !== 'security') {
-    const prefs = getUserSetting<{ types?: Record<string, boolean> } | null>(userId, 'notify', null)
-    if (prefs?.types?.[type] === false) return
+  if (type !== 'security' && prefs?.types?.[type] === false) return
+  if (prefs?.email && mailEnabled()) {
+    const to = (db.prepare('SELECT email FROM users WHERE id = ?').get(userId) as { email: string | null } | undefined)?.email
+    if (to) {
+      void sendMail(to, title, `${title}\n\n${body ?? ''}${link ? `\n\n${link}` : ''}`).catch((err) =>
+        console.warn('[ginkgo] 通知邮件发送失败：', err instanceof Error ? err.message : err),
+      )
+    }
   }
   db.prepare(
     'INSERT INTO notifications (id, user_id, type, title, body, link, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',

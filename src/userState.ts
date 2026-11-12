@@ -22,11 +22,14 @@ export interface NotifyPrefs {
   /** 免打扰时段：只是不弹提示、不显示红点动画，通知仍然记录 */
   quiet: { enabled: boolean; start: string; end: string }
   types: Record<string, boolean>
+  /** 同步发送到绑定邮箱（需服务端配置 SMTP） */
+  email: boolean
 }
 
 export const DEFAULT_NOTIFY_PREFS: NotifyPrefs = {
   quiet: { enabled: false, start: '22:00', end: '08:00' },
   types: { share: true, member: true, feedback: true, webhook: true, system: true },
+  email: false,
 }
 
 export const userState = reactive({
@@ -77,6 +80,7 @@ export async function loadNotifyPrefs() {
     userState.notifyPrefs = {
       quiet: { ...DEFAULT_NOTIFY_PREFS.quiet, ...(p?.quiet ?? {}) },
       types: { ...DEFAULT_NOTIFY_PREFS.types, ...(p?.types ?? {}) },
+      email: !!p?.email,
     }
   } catch {
     /* ignore */

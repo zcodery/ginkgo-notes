@@ -293,10 +293,14 @@ export const sendFeedback = (content: string, contact: string) => api<FeedbackIn
 export const listAllFeedback = () => api<FeedbackInfo[]>('GET', '/admin/feedback')
 export const replyFeedback = (id: string, reply: string) => api<FeedbackInfo>('POST', `/admin/feedback/${id}/reply`, { reply })
 
-export async function fetchServerVersion(): Promise<string> {
+export async function fetchServerInfo(): Promise<{ version: string; mail: boolean }> {
   const res = await fetch('/api/version', { cache: 'no-store' })
   const data = await res.json()
-  return String(data.version ?? '')
+  return { version: String(data.version ?? ''), mail: !!data.mail }
+}
+
+export async function fetchServerVersion(): Promise<string> {
+  return (await fetchServerInfo()).version
 }
 
 /* ---------------- 工具 ---------------- */

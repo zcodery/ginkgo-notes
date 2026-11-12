@@ -7,6 +7,7 @@ import { authOf, findUserById, requireAdmin, requireSession } from './auth.ts'
 import { db, getUserSetting, setUserSetting } from './db.ts'
 import { HttpError, param, str } from './http.ts'
 import { notify, type NotificationRow } from './notify.ts'
+import { mailEnabled } from './mailer.ts'
 import { aiRouter } from './ai.ts'
 import { mcpRouter } from './mcp.ts'
 import { membersRouter } from './members.ts'
@@ -36,7 +37,7 @@ export const publicRouter = Router()
 
 publicRouter.get('/version', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store')
-  res.json({ version: APP_VERSION })
+  res.json({ version: APP_VERSION, mail: mailEnabled() })
 })
 
 publicRouter.use(sharePublicRouter)
