@@ -18,6 +18,8 @@ import {
   Shapes,
   Sparkles,
   FileText,
+  ChevronDown,
+  Highlighter,
 } from 'lucide-vue-next'
 import { diagramTemplates } from '@/blocks/diagramTemplates'
 
@@ -193,6 +195,26 @@ export const slashItems: SlashItem[] = [
         editor.commands.focus()
       }
     },
+  },
+  {
+    id: 'details',
+    title: '折叠块',
+    desc: '可展开/收起的内容块',
+    icon: ChevronDown,
+    shortcut: 'zdk',
+    keywords: ['details', 'fold', 'collapse', 'suck', '折叠', '展开'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().setDetails().run(),
+  },
+  {
+    id: 'highlight',
+    title: '着重文字',
+    desc: '给选中文字加黄色高亮',
+    icon: Highlighter,
+    shortcut: 'zz',
+    keywords: ['highlight', 'mark', 'emphasis', 'zhuozhong', '着重', '高亮'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().toggleHighlight().run(),
   },
   {
     id: 'code',

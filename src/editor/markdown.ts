@@ -21,7 +21,17 @@ const md = new MarkdownIt({
  *  序列化：ProseMirror JSON → Markdown
  * ============================================================ */
 
-const MARK_ORDER = ['code', 'bold', 'italic', 'strike', 'underline', 'fontColor', 'bgColor', 'link']
+const MARK_ORDER = [
+  'code',
+  'bold',
+  'italic',
+  'strike',
+  'underline',
+  'fontColor',
+  'bgColor',
+  'highlight',
+  'link',
+]
 
 function escapeText(text: string): string {
   return text.replace(/([\\`*_[\]~$])/g, '\\$1').replace(/<(?=[a-zA-Z/!?])/g, '\\<')
@@ -57,6 +67,8 @@ function applyMark(text: string, mark: { type: string; attrs?: any }): string {
       if (!color) return text
       return `<mark data-bg="${color}">${text}</mark>`
     }
+    case 'highlight':
+      return `==${text}==`
     case 'link': {
       const href = mark.attrs?.href ?? ''
       return `[${text}](${href})`
@@ -66,12 +78,23 @@ function applyMark(text: string, mark: { type: string; attrs?: any }): string {
   }
 }
 
+/** 行内页面链接：ginkgo-page:<id>（整段是一个 text token，避免 HTML / [[]] 被 markdown-it 拆开） */
+function serializePageLinkInline(node: JSONContent): string {
+  const pageId = String(node.attrs?.pageId ?? '').trim()
+  if (!pageId) return ''
+  return `ginkgo-page:${pageId}`
+}
+
+const PAGE_LINK_OPEN_HTML_RE =
+  /^<span\b[^>]*\bdata-ginkgo-page\b[^>]*\bdata-page-id=["']([^"']+)["'][^>]*>$/i
+
 function serializeInlineNode(node: JSONContent): string {
   if (node.type === 'hardBreak') return '\\\n'
   if (node.type === 'image') {
     const alt = (node.attrs?.alt ?? '').replace(/[\[\]]/g, '')
     return `![${alt}](${node.attrs?.src ?? ''})`
   }
+  if (node.type === 'pageLink') return serializePageLinkInline(node)
   if (node.type !== 'text') return ''
 
   const raw = node.text ?? ''
@@ -122,9 +145,12 @@ function serializeList(node: JSONContent, pad: string): string {
   return lines.join('\n')
 }
 
+const LI_COLLAPSED_RE = /^<!--\s*gn-li\s+collapsed\s*-->$/i
+
 function serializeListItem(item: JSONContent, marker: string, pad: string): string {
   const kids = item.content ?? []
   const out: string[] = []
+  if (item.attrs?.collapsed) out.push(`${pad}<!-- gn-li collapsed -->`)
   // 子级缩进要与父级标记等宽，否则有序列表（"1. "）的嵌套会失效
   const childPad = pad + ' '.repeat(marker.length)
   let i = 0
@@ -310,6 +336,33 @@ function serializeNode(node: JSONContent): string {
     case 'pageLink': {
       return `\`\`\`ginkgo-page\n${node.attrs?.pageId ?? ''}\n\`\`\``
     }
+    case 'details': {
+      const open = !!node.attrs?.open
+      // 找 summary 子节点
+      let summary = ''
+      let contentStart = 0
+      const children = node.content ?? []
+      for (let i = 0; i < children.length; i++) {
+        if (children[i]?.type === 'detailsSummary') {
+          summary = inlineOf(children[i]!)
+          contentStart = i + 1
+          break
+        }
+      }
+      const contentNodes = children.slice(contentStart).filter(
+        (n) => n?.type === 'detailsContent' && n.content,
+      )
+      const inner = contentNodes
+        .flatMap((c) => (c.content ?? []).map(serializeNode))
+        .filter((s) => s !== '')
+        .join('\n\n')
+      const openAttr = open ? ' open' : ''
+      const sumTag = `<summary>${summary}</summary>`
+      return `<details${openAttr}>\n${sumTag}\n\n${inner}\n</details>`
+    }
+    case 'detailsSummary':
+    case 'detailsContent':
+      return '' // 由父节点 details 处理
     case 'horizontalRule':
       return '---'
     case 'image':
@@ -374,9 +427,20 @@ function inlineFromTokens(tokens: Token[]): JSONContent[] {
 
   for (const t of tokens) {
     switch (t.type) {
-      case 'text':
-        if (t.content) out.push(withMarks(t.content, stack))
+      case 'text': {
+        const text = t.content ?? ''
+        for (const seg of splitInlineText(text)) {
+          if (seg.pageId) {
+            out.push({ type: 'pageLink', attrs: { pageId: seg.pageId } })
+          } else if (seg.highlight) {
+            const hlMarks = [...stack.map((m) => ({ ...m })), { type: 'highlight' }]
+            out.push(withMarks(seg.text, hlMarks))
+          } else if (seg.text) {
+            out.push(withMarks(seg.text, stack))
+          }
+        }
         break
+      }
       case 'strong_open':
         stack.push({ type: 'bold' })
         break
@@ -428,6 +492,12 @@ function inlineFromTokens(tokens: Token[]): JSONContent[] {
         break
       case 'html_inline': {
         const raw = t.content.trim()
+        const pageOpen = PAGE_LINK_OPEN_HTML_RE.exec(raw)
+        if (pageOpen) {
+          out.push({ type: 'pageLink', attrs: { pageId: pageOpen[1]!.trim() } })
+          break
+        }
+        if (/^<\/span>$/i.test(raw)) break
         const lower = raw.toLowerCase()
         if (lower === '<br>' || lower === '<br/>' || lower === '<br />') {
           out.push({ type: 'hardBreak' })
@@ -490,6 +560,128 @@ function mergeText(nodes: JSONContent[]): JSONContent[] {
 
 const TASK_RE = /^\[([ xX])\]\s+/
 
+type InlineTextSeg = { text: string; highlight?: boolean; pageId?: string }
+
+/** 解析行内 ginkgo-page:<id> 与 ==高亮==（按出现顺序） */
+function splitInlineText(text: string): InlineTextSeg[] {
+  const out: InlineTextSeg[] = []
+  const re = /(ginkgo-page:([^\s]+)|==([^=]+)==)/g
+  let lastIdx = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    if (m.index > lastIdx) out.push({ text: text.slice(lastIdx, m.index) })
+    if (m[2] !== undefined) out.push({ text: '', pageId: m[2].trim() })
+    else if (m[3] !== undefined) out.push({ text: m[3], highlight: true })
+    lastIdx = m.index + m[0].length
+  }
+  if (lastIdx < text.length) out.push({ text: text.slice(lastIdx) })
+  if (out.length === 0) out.push({ text })
+  return out
+}
+
+/** 解析 HTML <details> 块，提取 summary 文本和内部 Markdown 内容 */
+function parseDetailsHtml(raw: string): { summary: string; contentMd: string; open: boolean } | null {
+  const text = raw.trim()
+  const lower = text.toLowerCase()
+  const open = /^<details\b[^>]*\sopen\b/.test(lower)
+  const closeIdx = lower.lastIndexOf('</details>')
+  if (closeIdx === -1) return null
+
+  // <summary 之后可能带属性，先找到它的 '>' 再取文本
+  const sumOpen = lower.indexOf('<summary')
+  const sumClose = lower.indexOf('</summary>')
+  let summary = ''
+  let bodyStart = text.indexOf('>') + 1
+  if (sumOpen !== -1 && sumClose !== -1) {
+    const sumTagEnd = lower.indexOf('>', sumOpen)
+    summary = text
+      .slice(sumTagEnd + 1, sumClose)
+      .replace(/<[^>]+>/g, '')
+      .trim()
+    bodyStart = sumClose + '</summary>'.length
+  }
+  const contentMd = text.slice(bodyStart, closeIdx).trim()
+  return { summary, contentMd, open }
+}
+
+interface DetailsBlock {
+  summary: string
+  contentMd: string
+  open: boolean
+}
+
+/** 由抽出来的 <details> 信息构造 TipTap 节点（内部 Markdown 递归解析） */
+function buildDetailsNode(info: DetailsBlock, detailsBlocks: DetailsBlock[]): JSONContent {
+  const innerTokens = md.parse(info.contentMd, {})
+  const innerBlocks = convertBlocks(innerTokens, 0, innerTokens.length, detailsBlocks)
+  return {
+    type: 'details',
+    attrs: { open: info.open },
+    content: [
+      {
+        type: 'detailsSummary',
+        ...(info.summary ? { content: [{ type: 'text', text: info.summary }] } : {}),
+      },
+      {
+        // detailsContent 要求 block+，空内容补一个空段落，避免文档非法
+        type: 'detailsContent',
+        content: innerBlocks.length ? innerBlocks : [{ type: 'paragraph' }],
+      },
+    ],
+  }
+}
+
+const DETAILS_PLACEHOLDER_RE = /^<!--\s*gn-details:(\d+)\s*-->$/
+
+/**
+ * 先把源码里的 <details>…</details> 整块抠出来换成占位注释。
+ * 原因：markdown-it 的 HTML 块规则遇到空行就截断，
+ * `<details>` 里含多个 Markdown 块时会解析错位，必须提前处理。
+ */
+function extractDetailsBlocks(src: string, out: DetailsBlock[]): string {
+  let result = ''
+  let i = 0
+  while (i < src.length) {
+    const start = src.toLowerCase().indexOf('<details', i)
+    if (start === -1) {
+      result += src.slice(i)
+      break
+    }
+    // 配对扫描，支持嵌套 <details>
+    let depth = 0
+    let end = -1
+    const re = /<details\b|<\/details>/gi
+    re.lastIndex = start
+    let m: RegExpExecArray | null
+    while ((m = re.exec(src))) {
+      if (m[0][1] === '/') {
+        depth--
+        if (depth === 0) {
+          end = m.index + m[0].length
+          break
+        }
+      } else {
+        depth++
+      }
+    }
+    if (end === -1) {
+      result += src.slice(i)
+      break
+    }
+    const info = parseDetailsHtml(src.slice(start, end))
+    if (!info) {
+      result += src.slice(i, end)
+      i = end
+      continue
+    }
+    result += src.slice(i, start)
+    const idx = out.push(info) - 1
+    result += `<!--gn-details:${idx}-->`
+    i = end
+  }
+  return result
+}
+
 /** 只判断是否为待办项，不修改内容 */
 function taskStateOf(paragraph: JSONContent): boolean | null {
   const first = paragraph.content?.[0]
@@ -510,6 +702,7 @@ function convertBlocks(
   tokens: Token[],
   from: number,
   to: number,
+  detailsBlocks: DetailsBlock[] = [],
 ): JSONContent[] {
   const nodes: JSONContent[] = []
   let i = from
@@ -519,6 +712,16 @@ function convertBlocks(
     const t = tokens[i]
 
     if (t.type === 'html_block') {
+      // <details> 已被 extractDetailsBlocks 换成占位注释
+      const ph = DETAILS_PLACEHOLDER_RE.exec(t.content.trim())
+      if (ph) {
+        const info = detailsBlocks[Number(ph[1])]
+        if (info) {
+          nodes.push(buildDetailsNode(info, detailsBlocks))
+          i++
+          continue
+        }
+      }
       const meta = parseTableMeta(t.content)
       if (meta) {
         pendingTableMeta = meta
@@ -552,15 +755,22 @@ function convertBlocks(
       const closeIdx = matchClose(tokens, i)
       const ordered = t.type === 'ordered_list_open'
       const start = Number(t.attrGet('start') ?? 1)
-      const items: { content: JSONContent[]; checked: boolean | null }[] = []
+      const items: { content: JSONContent[]; checked: boolean | null; collapsed: boolean }[] = []
 
       let j = i + 1
+      let pendingCollapsed = false
       while (j < closeIdx) {
+        if (tokens[j].type === 'html_block' && LI_COLLAPSED_RE.test(tokens[j].content.trim())) {
+          pendingCollapsed = true
+          j++
+          continue
+        }
         if (tokens[j].type === 'list_item_open') {
           const itemClose = matchClose(tokens, j)
-          const inner = convertBlocks(tokens, j + 1, itemClose)
+          const inner = convertBlocks(tokens, j + 1, itemClose, detailsBlocks)
           const checked = inner[0]?.type === 'paragraph' ? taskStateOf(inner[0]) : null
-          items.push({ content: inner, checked })
+          items.push({ content: inner, checked, collapsed: pendingCollapsed })
+          pendingCollapsed = false
           j = itemClose + 1
         } else {
           j++
@@ -584,6 +794,7 @@ function convertBlocks(
           ...(ordered && start !== 1 ? { attrs: { start } } : {}),
           content: items.map((it) => ({
             type: 'listItem',
+            ...(it.collapsed ? { attrs: { collapsed: true } } : {}),
             content: it.content.length ? it.content : [{ type: 'paragraph' }],
           })),
         })
@@ -594,7 +805,7 @@ function convertBlocks(
 
     if (t.type === 'blockquote_open') {
       const closeIdx = matchClose(tokens, i)
-      const inner = convertBlocks(tokens, i + 1, closeIdx)
+      const inner = convertBlocks(tokens, i + 1, closeIdx, detailsBlocks)
       nodes.push({
         type: 'blockquote',
         content: inner.length ? inner : [{ type: 'paragraph' }],
@@ -686,8 +897,14 @@ function convertBlocks(
       continue
     }
 
-    // html_block 里的 <u> 之类先当普通段落处理
     if (t.type === 'html_block') {
+      // 兜底：源码里直接写了 <details> 块（没经过 extractDetailsBlocks）
+      const detailsInfo = parseDetailsHtml(t.content)
+      if (detailsInfo) {
+        nodes.push(buildDetailsNode(detailsInfo, detailsBlocks))
+        i++
+        continue
+      }
       const text = t.content.trim()
       if (text) {
         nodes.push({ type: 'paragraph', content: [{ type: 'text', text }] })
@@ -706,8 +923,11 @@ export function markdownToDoc(content: string): JSONContent {
   if (!content || !content.trim()) {
     return { type: 'doc', content: [{ type: 'paragraph' }] }
   }
-  const tokens = md.parse(content, {})
-  let nodes = convertBlocks(tokens, 0, tokens.length)
+  // 先抠出 <details> 整块（markdown-it 的 HTML 块遇空行会截断），换成占位注释
+  const detailsBlocks: DetailsBlock[] = []
+  const source = extractDetailsBlocks(content, detailsBlocks)
+  const tokens = md.parse(source, {})
+  let nodes = convertBlocks(tokens, 0, tokens.length, detailsBlocks)
   if (!nodes.length) nodes = [{ type: 'paragraph' }]
   // 末尾永远留一个空段落：保存时会被滤掉，打开后再补回来，方便继续输入
   const last = nodes[nodes.length - 1]
@@ -721,6 +941,7 @@ export function markdownToDoc(content: string): JSONContent {
 export function markdownToPlain(content: string): string {
   return content
     .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/?(?:details|summary)\b[^>]*>/gi, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')

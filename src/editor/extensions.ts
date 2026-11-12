@@ -3,6 +3,14 @@ import Placeholder from '@tiptap/extension-placeholder'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
 import Image from '@tiptap/extension-image'
+import Highlight from '@tiptap/extension-highlight'
+import {
+  GnDetails,
+  GnDetailsSummary,
+  GnDetailsContent,
+  GnDetailsClick,
+} from './nodes/details'
+import { ListFold } from './nodes/listFold'
 import { TableKit } from '@tiptap/extension-table'
 import { GnTableCell, GnTableHeader } from './nodes/tableCell'
 import { DiagramNode } from './nodes/diagram'
@@ -47,6 +55,15 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
     }),
     GnTableCell,
     GnTableHeader,
+    // 着重文字：==text== Markdown → <mark>
+    Highlight.configure({ multicolor: false }),
+    // 折叠块：原生 <details>/<summary>，浏览器负责折叠，点击箭头同步 open 属性
+    GnDetails,
+    GnDetailsSummary,
+    GnDetailsContent,
+    GnDetailsClick,
+    // 列表项折叠箭头（有子列表的 li 左侧）
+    ListFold,
     FontColor,
     BgColor,
     DiagramNode,
