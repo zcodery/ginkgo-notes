@@ -31,6 +31,15 @@ yarn-error.log*
 *.swp
 *.swo
 
+# AI 编码工具本地配置（每台电脑各自配，不进远端）
+.trae/
+.trae-cn/
+.cursor/
+.windsurf/
+.continue/
+.roo/
+.aider/
+
 # 操作系统
 .DS_Store
 Thumbs.db

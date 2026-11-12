@@ -25,7 +25,9 @@ function runOK(cmd) { try { run(cmd); return true; } catch { return false; } }
 const IGNORED_PREFIXES = [
   'node_modules/', '.pnpm-store/', '.git/', 'dist/', 'dist-ssr/',
   'server/data/', '.vite/', '.cache/', '.turbo/', '.next/',
-  'coverage/', '.workbuddy/', '.dev/', '.trae-cn/',
+  'coverage/', '.workbuddy/', '.dev/',
+  // AI 编码工具本地配置
+  '.trae/', '.trae-cn/', '.cursor/', '.windsurf/', '.continue/', '.roo/', '.aider/',
 ];
 function isIgnored(f) {
   const n = f.replace(/\\/g, '/');
@@ -303,7 +305,7 @@ const MODULES = [
   { name: 'utils',               label: '导入导出与只读渲染',                  type: 'feat(utils)',  globList: ['src/utils/'] },
   { name: 'api-db',              label: '前端 API 层与数据仓储',               type: 'feat(data)',   globList: ['src/api/', 'src/db/'] },
   { name: 'app-shell',           label: '应用外壳与全局状态',                  type: 'feat(core)',   globList: ['src/App.vue', 'src/main.ts', 'src/store.ts', 'src/types.ts', 'src/style.css', 'src/env.d.ts', 'src/shortcuts.ts', 'src/userState.ts', 'src/pinLock.ts', 'src/directives/'] },
-  { name: 'docs',                label: '开发文档',                            type: 'docs',         globList: ['PROGRESS.md'] },
+  { name: 'docs',                label: '开发文档',                            type: 'docs',         globList: ['PROGRESS.md', 'AGENTS.md'] },
   { name: 'skill',               label: '开发文档维护 skill',                   type: 'chore',        globList: ['.trae/'] },
 ];
 function matchPattern(f, pat) { return f === pat || f.startsWith(pat); }
