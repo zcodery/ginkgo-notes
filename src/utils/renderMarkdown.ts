@@ -77,9 +77,20 @@ export interface RenderOptions {
   databases?: Record<string, { db: Database; rows: DbRow[] }>
 }
 
+/** 把 ==着重== 换成 <mark>，跳过代码围栏内的内容 */
+function applyHighlightSyntax(source: string): string {
+  const parts = source.split(/(```[\s\S]*?```|````[\s\S]*?````)/g)
+  const re = /==([^=\n][^=\n]*?)==/g
+  return parts
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(re, '<mark class="sv-highlight">$1</mark>')))
+    .join('')
+}
+
 /** 渲染为 HTML；mermaid 代码块保留为占位，由调用方异步渲染 */
 export function renderMarkdown(source: string, opts: RenderOptions): string {
-  const content = source.replace(/<!--\s*gn-table[^>]*-->\n?/g, '')
+  let content = applyHighlightSyntax(source)
+  content = content.replace(/<!--\s*gn-table[^>]*-->\n?/g, '')
+  content = content.replace(/<!--\s*gn-li\s+collapsed\s*-->\n?/gi, '')
   const defaultFence = md.renderer.rules.fence!
   md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     const token = tokens[idx]!
