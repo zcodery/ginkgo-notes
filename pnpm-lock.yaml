@@ -17,6 +17,12 @@ importers:
       '@tiptap/extension-code-block-lowlight':
         specifier: ^3.33.0
         version: 3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/extension-code-block@3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/pm@3.33.0))(@tiptap/pm@3.33.0)(highlight.js@11.11.2)(lowlight@3.3.0)
+      '@tiptap/extension-details':
+        specifier: ^3.33.1
+        version: 3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/extension-text-style@3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0)))(@tiptap/pm@3.33.0)
+      '@tiptap/extension-highlight':
+        specifier: ^3.33.1
+        version: 3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))
       '@tiptap/extension-image':
         specifier: ^3.33.0
         version: 3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))
@@ -436,6 +442,13 @@ packages:
     peerDependencies:
       '@tiptap/core': 3.33.0
 
+  '@tiptap/extension-details@3.33.1':
+    resolution: {integrity: sha512-QG7ZJZmi/1QqYMNUPL2FCVsxLpJmg6i8Ruv1v91JY1+8N/LGwD+qAA7RDtCku1qNC1qv43AMvASi+PjK+SYrQg==}
+    peerDependencies:
+      '@tiptap/core': 3.33.1
+      '@tiptap/extension-text-style': 3.33.1
+      '@tiptap/pm': 3.33.1
+
   '@tiptap/extension-document@3.33.0':
     resolution: {integrity: sha512-XVe6qsjISJbstbzT8QYAL6s4GN9AA1trAcKAIH/xhxXlaTGwl7RADqHxoTG0KQUbME7NfCQpKhxIDJWSXdnlgw==}
     peerDependencies:
@@ -467,6 +480,11 @@ packages:
     resolution: {integrity: sha512-CH+Mbb7iVE41rUtgHBUTrmTbA1/xqe5sQa2wJ6Q0Z6AzU3gJ71rH/O3k4EZi8On93TsanBAz8Xsf+gq1ZjwBpQ==}
     peerDependencies:
       '@tiptap/core': 3.33.0
+
+  '@tiptap/extension-highlight@3.33.1':
+    resolution: {integrity: sha512-T6i4vgPVOhArCScNC8KmlQHckD2g71vjY/hYsMWcg7eX5pzQ7uwJtdp27Dc4v2ApDuZAiTmRW0XIove6AxkjGg==}
+    peerDependencies:
+      '@tiptap/core': 3.33.1
 
   '@tiptap/extension-horizontal-rule@3.33.0':
     resolution: {integrity: sha512-cTzOdaRmApl6gjFmSnv0BgUtwOhW0LJT/gO40ez8dPQvgqaVyX6tCogD9tDbF9b4KR9f+UhwuoeM2OPB55gjqQ==}
@@ -541,6 +559,11 @@ packages:
     resolution: {integrity: sha512-U4yfwwAR1mwFwPKGZkdy0ayuBnRhkyjR9l/BE5m6eo8LR51DImU4tcoczunsO39E9i38KpBnCMgjnmWFaANvVg==}
     peerDependencies:
       '@tiptap/extension-list': 3.33.0
+
+  '@tiptap/extension-text-style@3.33.1':
+    resolution: {integrity: sha512-TthofkRnohnsCGNJjmyg9SnmEqRX3SX1iQ9SWg+2rDyD7uA0AQ18fgwW0TpQblVDC7drIHmXWuErSjZoGkfqFA==}
+    peerDependencies:
+      '@tiptap/core': 3.33.1
 
   '@tiptap/extension-text@3.33.0':
     resolution: {integrity: sha512-R9qVza+udPT+LezNkTkfLctN/9EFD/zFLUA6Lly9ehXZbfH9SLh149qdLdLBl9KMSgYhkFXcySSIoAULCKPRdg==}
@@ -2031,6 +2054,12 @@ snapshots:
     dependencies:
       '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
 
+  '@tiptap/extension-details@3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/extension-text-style@3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0)))(@tiptap/pm@3.33.0)':
+    dependencies:
+      '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
+      '@tiptap/extension-text-style': 3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))
+      '@tiptap/pm': 3.33.0
+
   '@tiptap/extension-document@3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))':
     dependencies:
       '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
@@ -2055,6 +2084,10 @@ snapshots:
       '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
 
   '@tiptap/extension-heading@3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))':
+    dependencies:
+      '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
+
+  '@tiptap/extension-highlight@3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))':
     dependencies:
       '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
 
@@ -2118,6 +2151,10 @@ snapshots:
   '@tiptap/extension-task-list@3.33.0(@tiptap/extension-list@3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/pm@3.33.0))':
     dependencies:
       '@tiptap/extension-list': 3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))(@tiptap/pm@3.33.0)
+
+  '@tiptap/extension-text-style@3.33.1(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))':
+    dependencies:
+      '@tiptap/core': 3.33.0(@tiptap/pm@3.33.0)
 
   '@tiptap/extension-text@3.33.0(@tiptap/core@3.33.0(@tiptap/pm@3.33.0))':
     dependencies:
