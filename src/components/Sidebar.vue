@@ -21,6 +21,7 @@ import PageIcon from './PageIcon.vue'
 import UserAvatar from './UserAvatar.vue'
 import NotificationBell from './NotificationBell.vue'
 import { userState } from '@/userState'
+import { tr } from '@/i18n/phrases'
 import {
   store,
   displayName,
@@ -189,7 +190,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
       <template v-if="sharedItems.length && store.space === 'me'">
         <div class="sb-section-title">
           <Users :size="12" :stroke-width="2" />
-          <span>与我共享</span>
+          <span>{{ tr('与我共享') }}</span>
         </div>
         <button
           v-for="p in sharedItems"
@@ -197,7 +198,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
           class="sb-fav"
           :class="{ active: store.route.view === 'shared' && store.route.pageId === p.id }"
           :style="{ paddingLeft: 7 + p.depth * 14 + 'px' }"
-          v-tooltip="p.depth === 0 ? { title: p.title || t('app.untitled'), desc: `来自 ${p.owner} · ${p.role === 'editor' ? '可编辑' : '只读'}`, placement: 'right' } : undefined"
+          v-tooltip="p.depth === 0 ? { title: p.title || t('app.untitled'), desc: tr('来自 {owner} · {role}', { owner: p.owner, role: p.role === 'editor' ? tr('可编辑') : tr('只读') }), placement: 'right' } : undefined"
           @click="goShared(p.id)"
         >
           <PageIcon :icon="p.icon" :size="14" />

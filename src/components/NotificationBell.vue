@@ -4,6 +4,7 @@ import { Bell, BellOff, CheckCheck, Globe, MessageSquare, ShieldAlert, Trash2, U
 import { clearNotifications, deleteNotification, markNotificationsRead, type NotificationItem } from '@/api/features'
 import { inQuietHours, loadNotifications, userState } from '@/userState'
 import { goProfile, openLink } from '@/store'
+import { tr } from '@/i18n/phrases'
 
 const open = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
@@ -19,12 +20,12 @@ const ICONS: Record<string, unknown> = {
 
 function timeAgo(ts: number) {
   const m = Math.floor((Date.now() - ts) / 60000)
-  if (m < 1) return '刚刚'
-  if (m < 60) return `${m} 分钟前`
+  if (m < 1) return tr('刚刚')
+  if (m < 60) return tr('{n} 分钟前', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
+  if (h < 24) return tr('{n} 小时前', { n: h })
   const d = Math.floor(h / 24)
-  if (d < 30) return `${d} 天前`
+  if (d < 30) return tr('{n} 天前', { n: d })
   return new Date(ts).toLocaleDateString()
 }
 
@@ -58,7 +59,7 @@ async function remove(n: NotificationItem) {
 }
 
 async function clearAll() {
-  if (!window.confirm('清空全部通知？')) return
+  if (!window.confirm(tr('清空全部通知？'))) return
   await clearNotifications()
   userState.notifications = []
   userState.unread = 0
@@ -78,7 +79,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
       type="button"
       class="gn-icon-btn nb-btn"
       :class="{ active: open }"
-      v-tooltip="quiet ? '消息通知（免打扰中）' : '消息通知'"
+      v-tooltip="quiet ? tr('消息通知（免打扰中）') : tr('消息通知')"
       @click="toggle"
     >
       <component :is="quiet ? BellOff : Bell" :size="15" :stroke-width="1.8" />
@@ -87,15 +88,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
 
     <div v-if="open" class="nb-panel gn-pop">
       <header class="nb-head">
-        <span>消息通知</span>
+        <span>{{ tr('消息通知') }}</span>
         <span class="nb-grow"></span>
-        <button type="button" class="gn-icon-btn" v-tooltip="'全部已读'" :disabled="!userState.unread" @click="readAll">
+        <button type="button" class="gn-icon-btn" v-tooltip="tr('全部已读')" :disabled="!userState.unread" @click="readAll">
           <CheckCheck :size="14" />
         </button>
-        <button type="button" class="gn-icon-btn" v-tooltip="'清空'" :disabled="!userState.notifications.length" @click="clearAll">
+        <button type="button" class="gn-icon-btn" v-tooltip="tr('清空')" :disabled="!userState.notifications.length" @click="clearAll">
           <Trash2 :size="14" />
         </button>
-        <button type="button" class="nb-link" @click="open = false; goProfile('notify')">设置</button>
+        <button type="button" class="nb-link" @click="open = false; goProfile('notify')">{{ tr('设置') }}</button>
       </header>
       <div class="nb-list gn-scroll">
         <div
@@ -111,9 +112,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
             <div v-if="n.body" class="nb-body">{{ n.body }}</div>
             <div class="nb-time">{{ timeAgo(n.createdAt) }}</div>
           </div>
-          <button type="button" class="nb-del" v-tooltip="'删除'" @click.stop="remove(n)"><X :size="12" /></button>
+          <button type="button" class="nb-del" v-tooltip="tr('删除')" @click.stop="remove(n)"><X :size="12" /></button>
         </div>
-        <div v-if="!userState.notifications.length" class="nb-empty">暂时没有通知</div>
+        <div v-if="!userState.notifications.length" class="nb-empty">{{ tr('暂时没有通知') }}</div>
       </div>
     </div>
   </div>

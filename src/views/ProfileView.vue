@@ -43,6 +43,7 @@ import {
 } from '@/store'
 import { clearAssetCache } from '@/editor/assets'
 import { LOCALES, locale, setLocale, t, type LocaleCode, type MessageKey } from '@/i18n'
+import { tr } from '@/i18n/phrases'
 import AccountSecurity from './settings/AccountSecurity.vue'
 import ShortcutsDialog from './settings/ShortcutsDialog.vue'
 import SpaceExtras from './settings/SpaceExtras.vue'
@@ -279,11 +280,13 @@ const fontStyleValue = computed({
   set: (v: string) => setNoteFontStyle(v as NoteFontStyle),
 })
 
-const fontStyleOptions = NOTE_FONT_STYLES.map((f) => ({
-  value: f.id,
-  label: f.label,
-  style: { fontFamily: f.css },
-}))
+const fontStyleOptions = computed(() =>
+  NOTE_FONT_STYLES.map((f) => ({
+    value: f.id,
+    label: tr(f.label),
+    style: { fontFamily: f.css },
+  })),
+)
 
 const langOptions = LOCALES.map((l) => ({ value: l.code, label: l.label }))
 const langValue = computed({

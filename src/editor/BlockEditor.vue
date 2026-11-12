@@ -33,6 +33,7 @@ import SlashMenu from './SlashMenu.vue'
 import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from './BlockMenu.vue'
 import TableControls from './TableControls.vue'
 import AiPanel from './AiPanel.vue'
+import { tr } from '@/i18n/phrases'
 import type { AiMode } from './ai'
 
 const props = withDefaults(
@@ -1491,7 +1492,7 @@ onBeforeUnmount(() => {
       :style="{ top: bubble.top + 'px', left: bubble.left + 'px' }"
     >
       <template v-if="!linkMode">
-        <button class="bubble-ai" v-tooltip="'AI 改写 / 翻译 / 总结'" @mousedown.prevent="openAi('selection')">
+        <button class="bubble-ai" v-tooltip="tr('AI 改写 / 翻译 / 总结')" @mousedown.prevent="openAi('selection')">
           <Sparkles :size="14" :stroke-width="2.1" /><span>AI</span>
         </button>
         <span class="bubble-sep"></span>

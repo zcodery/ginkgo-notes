@@ -29,6 +29,7 @@ import {
 } from '@/store'
 import { createPage } from '@/db/repo'
 import { t } from '@/i18n'
+import { tr } from '@/i18n/phrases'
 import { matchShortcut, loadShortcuts } from '@/shortcuts'
 import { lockNow, pinLock, setPinIdleWatch } from '@/pinLock'
 import { initUserState, resetUserState } from '@/userState'
@@ -217,8 +218,8 @@ onBeforeUnmount(() => {
     <Transition name="gn-drop">
       <div v-if="newVersion" class="app-update gn-pop">
         <RefreshCw :size="13" :stroke-width="2" />
-        <span>发现新版本 {{ newVersion }}，刷新后即可使用</span>
-        <button type="button" class="app-update-btn" @click="reloadApp">刷新</button>
+        <span>{{ tr('发现新版本 {v}，刷新后即可使用', { v: newVersion }) }}</span>
+        <button type="button" class="app-update-btn" @click="reloadApp">{{ tr('刷新') }}</button>
         <button type="button" class="gn-icon-btn" @click="newVersion = ''"><X :size="13" /></button>
       </div>
     </Transition>

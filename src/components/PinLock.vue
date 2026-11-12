@@ -5,6 +5,7 @@ import { pinLock } from '@/pinLock'
 import { verifyPin } from '@/api/features'
 import { displayName, logout } from '@/store'
 import UserAvatar from './UserAvatar.vue'
+import { tr } from '@/i18n/phrases'
 
 const pin = ref('')
 const error = ref('')
@@ -50,7 +51,7 @@ onMounted(() => inputRef.value?.focus())
     <form class="pin-card gn-pop" @submit.prevent="unlock">
       <UserAvatar :size="56" :radius="28" />
       <div class="pin-name">{{ displayName }}</div>
-      <div class="pin-hint"><Lock :size="12" :stroke-width="2" />已锁定，输入 PIN 码解锁</div>
+      <div class="pin-hint"><Lock :size="12" :stroke-width="2" />{{ tr('已锁定，输入 PIN 码解锁') }}</div>
       <input
         ref="inputRef"
         v-model="pin"
@@ -63,9 +64,9 @@ onMounted(() => inputRef.value?.focus())
         @input="onInput"
       />
       <p class="pin-err">{{ error }}</p>
-      <button type="submit" class="pin-btn" :disabled="busy || pin.length < 4">解锁</button>
+      <button type="submit" class="pin-btn" :disabled="busy || pin.length < 4">{{ tr('解锁') }}</button>
       <button type="button" class="pin-link" @click="switchAccount">
-        <LogOut :size="12" :stroke-width="2" />忘记 PIN？退出登录
+        <LogOut :size="12" :stroke-width="2" />{{ tr('忘记 PIN？退出登录') }}
       </button>
     </form>
   </div>
