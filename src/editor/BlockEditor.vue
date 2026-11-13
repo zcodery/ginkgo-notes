@@ -15,6 +15,7 @@ import { createDatabase } from "@/db/databases"
 import { createPage, getPage, movePage, saveContent, toPlainText } from "@/db/repo"
 import { pageUrl, reloadPages, store } from "@/store"
 import { hasPageDrag, readPageDragId } from "./pageDrag"
+import { safeDeleteRange } from "./nodes/columns"
 import SlashMenu from "./SlashMenu.vue"
 import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from "./BlockMenu.vue"
 import TableControls from "./TableControls.vue"
@@ -763,6 +764,66 @@ function pickTopLevelBlockAt(ed: NonNullable<typeof editor.value>, clientX: numb
   return best
 }
 
+/**
+ * 命中分栏内部时，返回「列里的那个块」而不是整个 columns。
+ * 这样栏内每个块都有独立手柄：可以拖出来、拖到另一栏，源栏空了就自动消失。
+ */
+function tryResolveColumnChild(ed: NonNullable<typeof editor.value>, clientX: number, clientY: number): HoverBlock | null {
+  const hit = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+  if (!hit?.closest('.gn-column')) return null
+  const info = ed.view.posAtCoords({ left: clientX, top: clientY })
+  if (!info) return null
+  const $pos = ed.state.doc.resolve(info.pos)
+  for (let d = $pos.depth; d >= 2; d--) {
+    if ($pos.node(d - 1).type.name !== 'column') continue
+    const node = $pos.node(d)
+    const from = $pos.before(d)
+    const raw = ed.view.nodeDOM(from) as HTMLElement | null
+    if (!raw) return null
+    const hitDom = normalizeBlockHitDom(node, raw)
+    let alignDom: HTMLElement = hitDom
+    let alignIsText = node.isTextblock
+    for (let dd = $pos.depth; dd >= d; dd--) {
+      const n = $pos.node(dd)
+      if (n?.isTextblock) {
+        alignDom = (ed.view.nodeDOM($pos.before(dd)) as HTMLElement | null) ?? hitDom
+        alignIsText = true
+        break
+      }
+    }
+    return { from, to: from + node.nodeSize, node, hitDom, alignDom, alignIsText }
+  }
+  return null
+}
+
+/** 找到包裹 pos 的最外层 columns 节点位置（不在分栏内则返回 null） */
+function columnsAncestorPos(ed: NonNullable<typeof editor.value>, pos: number): number | null {
+  let $pos
+  try {
+    $pos = ed.state.doc.resolve(pos)
+  } catch {
+    return null
+  }
+  for (let d = 1; d <= $pos.depth; d++) {
+    if ($pos.node(d).type.name === 'columns') return $pos.before(d)
+  }
+  return null
+}
+
+/** 包裹 pos 的 column 节点起始位置（不在列内则返回 null） */
+function columnAncestorStart(ed: NonNullable<typeof editor.value>, pos: number): number | null {
+  let $pos
+  try {
+    $pos = ed.state.doc.resolve(pos)
+  } catch {
+    return null
+  }
+  for (let d = 1; d <= $pos.depth; d++) {
+    if ($pos.node(d).type.name === 'column') return $pos.before(d)
+  }
+  return null
+}
+
 function resolveBlock(clientX: number, clientY: number): HoverBlock | null {
   const ed = editor.value
   if (!ed) return null
@@ -775,6 +836,10 @@ function resolveBlock(clientX: number, clientY: number): HoverBlock | null {
 
   const listBlock = tryResolveListItem(ed, clientX, clientY, pmRect)
   if (listBlock) return listBlock
+
+  // 栏内的块优先于整栏：让栏里每个块都能单独拖动
+  const colChild = tryResolveColumnChild(ed, clientX, clientY)
+  if (colChild) return colChild
 
   const topBlock = pickTopLevelBlockAt(ed, clientX, clientY, pmRect)
   if (topBlock) return topBlock
@@ -984,7 +1049,10 @@ function updateBlockHandleFromPointer(clientX: number, clientY: number, target: 
   }
   lastPointer = { x: clientX, y: clientY, active: true }
   if (slash.value.open || blockMenu.value.open) return
-  if (target instanceof HTMLElement && target.closest?.(".block-handle")) return
+  // 注意用 Element 而不是 HTMLElement：手柄图标是 SVG，SVGElement 不是 HTMLElement。
+  // 若判断失败，指针移到手柄上时会被当成「悬停在正文」，手柄随即被隐藏，
+  // 紧接着的 mousedown 就落不到按钮上（拖拽完全无法开始）。
+  if (target instanceof Element && target.closest?.(".block-handle")) return
 
   const pmRect = (ed.view.dom as HTMLElement).getBoundingClientRect()
   const hoverLi = pickListItemByRowY(ed, clientY)
@@ -1027,6 +1095,8 @@ function onWindowMouseMoveForGutter(e: MouseEvent) {
 }
 
 function onMouseMove(e: MouseEvent) {
+  // 自绘拖拽进行中：不要重新计算/显示手柄，避免手柄跟着抖动
+  if (gripDown) return
   updateBlockHandleFromPointer(e.clientX, e.clientY, e.target)
 }
 
@@ -1970,18 +2040,17 @@ function computeColumnDrop(columnsPos: number, clientX: number, clientY: number)
   const slice = ed.state.doc.slice(dragFrom.value, dragTo.value ?? dragFrom.value)
   if (!ed.schema.nodes.column.validContent(slice.content)) return null
 
-  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
-  if (!el) return null
-  const rowEl = el.closest('.gn-columns-row') as HTMLElement | null
-  if (!rowEl) return null
-  // 命中的分栏必须是当前解析到的这一层（嵌套分栏时避免作用到外层）
-  const columnsEl = rowEl.closest('.gn-columns') as HTMLElement | null
+  // 行的 DOM 直接从「这一层 columns 节点」上取：
+  // 指针落在容器的边框/内边距上时 elementFromPoint 命中的是 .gn-columns 本身，
+  // 靠 closest('.gn-columns-row') 会拿不到行元素（导致落点判定直接失败）。
   const nodeDom = ed.view.nodeDOM(columnsPos) as HTMLElement | null
-  if (!columnsEl || !nodeDom || columnsEl !== nodeDom) return null
-  const root = rootRef.value
-  if (!root) return null
+  if (!nodeDom) return null
+  const rowEl = (nodeDom.querySelector('.gn-columns-row') ?? nodeDom) as HTMLElement
   const colEls = Array.from(rowEl.children).filter((c) => c.classList?.contains('gn-column')) as HTMLElement[]
   if (!colEls.length) return null
+  const root = rootRef.value
+  if (!root) return null
+  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
 
   const rootRect = root.getBoundingClientRect()
   const rowRect = rowEl.getBoundingClientRect()
@@ -2008,9 +2077,15 @@ function computeColumnDrop(columnsPos: number, clientX: number, clientY: number)
   }
 
   // 3) 落在某一列的内容区 → 入栏
-  const hit = el.closest('.gn-column') as HTMLElement | null
+  const hit = (el?.closest('.gn-column') ?? null) as HTMLElement | null
   if (hit && colEls.includes(hit)) {
-    return { mode: 'into', columnsPos, columnIndex: colEls.indexOf(hit), el: hit }
+    const hitIdx = colEls.indexOf(hit)
+    // 拖拽内容本来就在这一列里 → 无意义（避免同类内容自我复制/错序）
+    let colStart = columnsPos + 1
+    for (let i = 0; i < hitIdx; i++) colStart += columnsNode.child(i).nodeSize
+    const srcCol = columnAncestorStart(ed, dragFrom.value)
+    if (srcCol != null && srcCol === colStart) return null
+    return { mode: 'into', columnsPos, columnIndex: hitIdx, el: hit }
   }
   // 兜底：其余情况在末尾新建
   return mkNew(colEls.length, clientX)
@@ -2071,32 +2146,162 @@ function computeBlockColumnDrop(block: HoverBlock, clientX: number, clientY: num
   }
 }
 
-function onDragStart(e: DragEvent) {
-  if (!hoverBlock || !canEdit.value) {
-    e.preventDefault()
-    return
+/* ---- 自绘指针拖拽 ----
+ * 不用原生 HTML5 dragstart/dragover：原实现在 dragstart 里隐藏手柄（拖拽源），
+ * 浏览器会因此直接取消整个拖拽操作，导致「拖了没反应 / 松手弹回原位」。
+ * 改为 mousedown + document mousemove/mouseup 全程自绘，落点判定与指示都自己控制。
+ */
+let gripDown: { x: number; y: number; from: number; to: number } | null = null
+let gripDragging = false
+let suppressGripClick = false
+let lastGripPoint = { x: 0, y: 0 }
+
+/** 拖拽中跟随指针的提示胶囊 */
+const dragGhost = ref<{ x: number; y: number; label: string } | null>(null)
+
+function scrollableAncestor(el: HTMLElement | null): HTMLElement | null {
+  let walk = el?.parentElement ?? null
+  while (walk) {
+    const oy = getComputedStyle(walk).overflowY
+    if ((oy === 'auto' || oy === 'scroll') && walk.scrollHeight > walk.clientHeight + 4) return walk
+    walk = walk.parentElement
   }
-  dragFrom.value = hoverBlock.from
-  dragTo.value = hoverBlock.to
-  if (e.dataTransfer) {
-    e.dataTransfer.effectAllowed = "move"
-    e.dataTransfer.setData("text/plain", "block")
-  }
-  handle.value.visible = false
+  return null
 }
 
-function updateDropLine(e: DragEvent) {
+/** 拖到视口上下边缘时自动滚动容器，长文档也能拖到远处 */
+function autoScrollOnDrag(clientY: number) {
+  const sc = scrollableAncestor(rootRef.value)
+  if (!sc) return
+  const r = sc.getBoundingClientRect()
+  const edge = 64
+  if (clientY < r.top + edge) sc.scrollTop -= Math.ceil((r.top + edge - clientY) / 3)
+  else if (clientY > r.bottom - edge) sc.scrollTop += Math.ceil((clientY - (r.bottom - edge)) / 3)
+}
+
+function onGripDown(e: MouseEvent) {
+  if (!canEdit.value || e.button !== 0) return
+  const hb = hoverBlockFromHandle()
+  if (!hb) return
+  cancelHide()
+  gripDown = { x: e.clientX, y: e.clientY, from: hb.from, to: hb.to }
+  gripDragging = false
+  lastGripPoint = { x: e.clientX, y: e.clientY }
+  // 阻止拖拽过程中选中正文文字；不会影响随后的 click（菜单仍可打开）
+  e.preventDefault()
+  document.addEventListener('mousemove', onGripMove, true)
+  document.addEventListener('mouseup', onGripUp, true)
+}
+
+/** 手柄按下时确定要拖的块；hoverBlock 意外为空时按手柄位置反推 */
+function hoverBlockFromHandle(): { from: number; to: number } | null {
+  if (hoverBlock) return hoverBlock
+  const root = rootRef.value
+  if (!root || !handle.value.visible) return null
+  const r = root.getBoundingClientRect()
+  const b = resolveBlock(r.left + 2, r.top + handle.value.top + 8)
+  return b ? { from: b.from, to: b.to } : null
+}
+
+function onGripMove(e: MouseEvent) {
+  if (!gripDown) return
+  const ed = editor.value
+  if (!ed) return
+  lastGripPoint = { x: e.clientX, y: e.clientY }
+  if (!gripDragging) {
+    if (Math.abs(e.clientX - gripDown.x) + Math.abs(e.clientY - gripDown.y) < 5) return
+    gripDragging = true
+    dragFrom.value = gripDown.from
+    dragTo.value = gripDown.to
+    handle.value.visible = false
+    document.body.classList.add('gn-block-dragging')
+  }
+  e.preventDefault()
+  autoScrollOnDrag(e.clientY)
+  updateDragTarget(e.clientX, e.clientY)
+}
+
+function onGripUp(e: MouseEvent) {
+  document.removeEventListener('mousemove', onGripMove, true)
+  document.removeEventListener('mouseup', onGripUp, true)
+  const wasDragging = gripDragging
+  gripDragging = false
+  gripDown = null
+  document.body.classList.remove('gn-block-dragging')
+  dragGhost.value = null
+  if (!wasDragging) return // 没移动 → 交给 click 打开块菜单
+  e.preventDefault()
+  e.stopPropagation()
+  suppressGripClick = true
+  window.setTimeout(() => {
+    suppressGripClick = false
+  }, 0)
+  const ed = editor.value
+  if (ed) performBlockDrop(ed)
+  // 拖完把手柄恢复到指针所在行
+  updateBlockHandleFromPointer(lastGripPoint.x, lastGripPoint.y, e.target)
+}
+
+function onGripClick(e: MouseEvent) {
+  if (suppressGripClick) {
+    suppressGripClick = false
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+  openBlockMenu()
+}
+
+/** 计算并在界面上标出当前落点（新建栏 / 入栏 / 并排成栏 / 上下重排 / 追加末尾） */
+function updateDragTarget(clientX: number, clientY: number) {
+  const ed = editor.value
+  if (!ed) return
+
+  const block = resolveBlock(clientX, clientY)
+  if (block) {
+    // 指针在分栏内部（含栏内的块）→ 落点容器是最外层 columns
+    const colPos = block.node.type.name === 'columns' ? block.from : columnsAncestorPos(ed, block.from)
+    if (colPos != null) {
+      const target = computeColumnDrop(colPos, clientX, clientY)
+      if (target) {
+        dropCol.value = target
+        dropLineY.value = null
+        dropPos = null
+        setIntoHighlight(target)
+        dragGhost.value = { x: clientX, y: clientY, label: target.mode === 'into' ? '移入此栏' : '新建栏' }
+        return
+      }
+    } else {
+      // 落在普通行上 → 该行就地并排开一栏
+      const asCols = computeBlockColumnDrop(block, clientX, clientY)
+      if (asCols) {
+        dropCol.value = asCols
+        dropLineY.value = null
+        dropPos = null
+        clearIntoHighlight()
+        dragGhost.value = { x: clientX, y: clientY, label: '并排成栏' }
+        return
+      }
+    }
+  }
+  clearIntoHighlight()
+  dropCol.value = null
+  updateDropLine(clientX, clientY)
+  dragGhost.value = { x: clientX, y: clientY, label: dropPos == null ? '移到这里' : '上下移动' }
+}
+
+function updateDropLine(clientX: number, clientY: number) {
   const ed = editor.value
   const root = rootRef.value
   if (!ed || !root) return
   const rect = root.getBoundingClientRect()
-  const block = resolveBlock(e.clientX, e.clientY)
+  const block = resolveBlock(clientX, clientY)
   if (!block) {
     // 落在正文下方空白区（padding-bottom）时按「插到文档末尾」处理，
     // 否则 dropPos 会保持上一次的值或为 null，松手后看起来什么都没发生
     const pm = ed.view.dom as HTMLElement
     const bottom = contentBottom(pm)
-    if (e.clientY > bottom) {
+    if (clientY > bottom) {
       dropPos = ed.state.doc.content.size
       dropLineY.value = bottom - rect.top
     }
@@ -2105,47 +2310,22 @@ function updateDropLine(e: DragEvent) {
   const dom = ed.view.nodeDOM(block.from) as HTMLElement | null
   if (!dom) return
   const b = dom.getBoundingClientRect()
-  const upper = e.clientY < b.top + b.height / 2
+  const upper = clientY < b.top + b.height / 2
   dropPos = upper ? block.from : block.to
   dropLineY.value = (upper ? b.top : b.bottom) - rect.top
 }
 
 function onDragOver(e: DragEvent) {
   if (!canEdit.value) return
-  const pageDrop = hasPageDrag(e.dataTransfer) && dragFrom.value == null
-  if (dragFrom.value == null && !pageDrop) return
+  // 块拖拽已改为自绘指针拖拽；这里只处理「从侧栏拖入页面卡片」的原生拖拽
+  if (dragFrom.value != null) return
+  if (!hasPageDrag(e.dataTransfer)) return
   const ed = editor.value
-  const root = rootRef.value
-  if (!ed || !root) return
+  if (!ed) return
   e.preventDefault()
   e.stopPropagation()
-  if (e.dataTransfer) e.dataTransfer.dropEffect = pageDrop ? "copy" : "move"
-
-  // 落点在分栏上 → 显示「新建栏 / 入栏」指示，不再显示普通重排线
-  const block = resolveBlock(e.clientX, e.clientY)
-  if (block) {
-    if (block.node.type.name === 'columns') {
-      const target = computeColumnDrop(block.from, e.clientX, e.clientY)
-      if (target) {
-        dropCol.value = target
-        dropLineY.value = null
-        setIntoHighlight(target)
-        return
-      }
-    } else {
-      // 落在普通行上 → 该行就地并排开一栏
-      const asCols = computeBlockColumnDrop(block, e.clientX, e.clientY)
-      if (asCols) {
-        dropCol.value = asCols
-        dropLineY.value = null
-        clearIntoHighlight()
-        return
-      }
-    }
-  }
-  clearIntoHighlight()
-  dropCol.value = null
-  updateDropLine(e)
+  if (e.dataTransfer) e.dataTransfer.dropEffect = "copy"
+  updateDropLine(e.clientX, e.clientY)
 }
 
 async function insertPageLinkAt(pos: number, pageId: string) {
@@ -2170,31 +2350,30 @@ function onDrop(e: DragEvent) {
   if (!canEdit.value) return
   const ed = editor.value
   if (!ed) return
-
-  // 从侧栏 / 子页面列表拖入 → 插入页面卡片
-  if (dragFrom.value == null && hasPageDrag(e.dataTransfer)) {
-    e.preventDefault()
-    e.stopPropagation()
-    const pageId = readPageDragId(e.dataTransfer)
-    const target = dropPos
-    resetDrag()
-    if (!pageId || target == null) return
-    void insertPageLinkAt(target, pageId)
-    return
-  }
-
-  if (dragFrom.value == null) return
+  // 只处理「从侧栏 / 子页面列表拖入 → 插入页面卡片」；块拖拽走指针拖拽
+  if (dragFrom.value != null) return
+  if (!hasPageDrag(e.dataTransfer)) return
   e.preventDefault()
   e.stopPropagation()
+  const pageId = readPageDragId(e.dataTransfer)
+  const target = dropPos
+  resetDrag()
+  if (!pageId || target == null) return
+  void insertPageLinkAt(target, pageId)
+}
 
-  // 落在分栏/普通行上：把拖拽块移入（新建栏 / 入栏 / 与目标并排成栏）
-  if (dropCol.value) {
-    const t = dropCol.value
-    const from = dragFrom.value
-    const to = dragTo.value!
-    clearIntoHighlight()
-    dropCol.value = null
-    resetDrag()
+/** 松手落位：分栏相关命令优先，命令拒绝（返回 false）时兜底为普通移动 */
+function performBlockDrop(ed: NonNullable<typeof editor.value>) {
+  const from = dragFrom.value
+  if (from == null) return resetDrag()
+  const to = dragTo.value ?? from
+  const t = dropCol.value
+  const pos = dropPos
+  clearIntoHighlight()
+  resetDrag()
+  if (from === to && !t) return
+
+  if (t) {
     if (t.mode === 'cols-with' && t.targetPos != null && t.side) {
       const ok = ed
         .chain()
@@ -2202,7 +2381,6 @@ function onDrop(e: DragEvent) {
         .makeColumnsWithBlock({ targetPos: t.targetPos, from, to, side: t.side })
         .run()
       if (!ok) {
-        // 兜底：无法并排成栏时按普通移动处理，避免「松手后什么都没发生」
         const target = ed.state.doc.nodeAt(t.targetPos)
         if (target) {
           moveBlockRange(ed, from, to, t.side === 'left' ? t.targetPos : t.targetPos + target.nodeSize)
@@ -2210,41 +2388,40 @@ function onDrop(e: DragEvent) {
       }
       return
     }
-    const ok = ed
-      .chain()
-      .focus()
-      .moveBlocksToColumn({
-        from,
-        to,
-        targetColumnsPos: t.columnsPos!,
-        mode: t.mode === 'into' ? 'into' : 'new',
-        index: t.index,
-        columnIndex: t.columnIndex,
-      })
-      .run()
-    if (!ok) {
-      const target = ed.state.doc.nodeAt(t.columnsPos!)
-      if (target) moveBlockRange(ed, from, to, t.columnsPos! + target.nodeSize)
+    if (t.columnsPos != null) {
+      const ok = ed
+        .chain()
+        .focus()
+        .moveBlocksToColumn({
+          from,
+          to,
+          targetColumnsPos: t.columnsPos,
+          mode: t.mode === 'into' ? 'into' : 'new',
+          index: t.index,
+          columnIndex: t.columnIndex,
+        })
+        .run()
+      if (!ok) {
+        const target = ed.state.doc.nodeAt(t.columnsPos)
+        if (target) moveBlockRange(ed, from, to, t.columnsPos + target.nodeSize)
+      }
+      return
     }
-    return
   }
 
-  if (dropPos == null) return resetDrag()
-  const from = dragFrom.value
-  const to = dragTo.value!
-  const target = dropPos
-  resetDrag()
-  moveBlockRange(ed, from, to, target)
+  if (pos != null) moveBlockRange(ed, from, to, pos)
 }
 
 /** 普通重排：把 [from,to) 的顶层块移动到 target 处（target 为插入点） */
 function moveBlockRange(ed: NonNullable<typeof editor.value>, from: number, to: number, target: number) {
-  if (target >= from && target <= to) return
+  // 源块若是某列的唯一内容，删除范围会扩大到整列（否则会留下非法空列）
+  const [dFrom, dTo] = safeDeleteRange(ed.state.doc, from, to)
+  if (target >= dFrom && target <= dTo) return
   let insert = target
-  if (insert > to) insert -= to - from
+  if (insert > dTo) insert -= dTo - dFrom
   const slice = ed.state.doc.slice(from, to)
   const tr = ed.state.tr
-  tr.delete(from, to)
+  tr.delete(dFrom, dTo)
   tr.replaceWith(insert, insert, slice.content)
   ed.view.dispatch(tr)
 }
@@ -2419,13 +2596,18 @@ onBeforeUnmount(() => {
 
     <!-- 块手柄：普通块显示拖动手柄；标题显示隐性 H1/H2/H3 -->
     <div v-show="handle.visible" class="block-handle visible" :class="{ heading: handle.headingLevel > 0 }" :style="{ top: handle.top + 'px', left: handle.left + 'px' }" @mouseenter="cancelHide" @mouseleave="hideNow">
-      <button v-if="handle.headingLevel" class="bh-level" v-tooltip="`拖动排序 / 打开菜单 · H${handle.headingLevel}`" draggable="true" @dragstart="onDragStart" @dragend="resetDrag" @click="openBlockMenu">H{{ handle.headingLevel }}</button>
-      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 拖到某行中间可并排成栏 / 点击打开菜单'" draggable="true" @dragstart="onDragStart" @dragend="resetDrag" @click="openBlockMenu">
+      <button v-if="handle.headingLevel" class="bh-level" v-tooltip="`拖动排序 / 打开菜单 · H${handle.headingLevel}`" @mousedown="onGripDown" @click="onGripClick">H{{ handle.headingLevel }}</button>
+      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 拖到某行中间可并排成栏 / 点击打开菜单'" @mousedown="onGripDown" @click="onGripClick">
         <GripVertical :size="15" :stroke-width="2" />
       </button>
     </div>
 
     <div v-if="flashBox" :key="flashBox.key" class="block-flash" :style="{ top: flashBox.top + 'px', height: flashBox.height + 'px' }"></div>
+
+    <!-- 拖拽时跟随指针的提示胶囊 -->
+    <div v-if="dragGhost" class="block-drag-ghost" :style="{ left: dragGhost.x + 16 + 'px', top: dragGhost.y + 14 + 'px' }">
+      {{ dragGhost.label }}
+    </div>
 
     <!-- 拖拽指示线 -->
     <div v-if="dropLineY !== null" class="block-drop-line" :style="{ top: dropLineY + 'px' }"></div>
@@ -2617,6 +2799,24 @@ onBeforeUnmount(() => {
   font-size: 11px;
   line-height: 1.4;
   box-shadow: var(--gn-shadow-md);
+}
+/* 指针拖拽时跟随鼠标的提示胶囊（fixed：用视口坐标） */
+.block-drag-ghost {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: var(--gn-accent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: var(--gn-shadow-md), 0 0 0 3px color-mix(in srgb, var(--gn-accent) 18%, transparent);
+}
+:global(body.gn-block-dragging) {
+  cursor: grabbing;
+  user-select: none;
 }
 .bubble-bar {
   position: absolute;

@@ -56,6 +56,38 @@ function unwrapColumnsImpl(tr: Transaction, state: any, columnsPos: number, node
   tr.setSelection(TextSelection.near(tr.doc.resolve(columnsPos + 1)))
 }
 
+/**
+ * 安全删除范围。
+ *
+ * `column` 的 content 是 `block+`：如果删除的范围恰好是某列的全部内容，
+ * 直接删会留下「空列」→ 文档非法（ProseMirror 会直接抛错）。
+ * 因此把删除范围向上扩大：只剩这一列 → 删掉整个 columns；否则删掉整列。
+ */
+export function safeDeleteRange(doc: PMNode, from: number, to: number): [number, number] {
+  if (from >= to) return [from, to]
+  let $from
+  try {
+    $from = doc.resolve(from)
+  } catch {
+    return [from, to]
+  }
+  for (let d = $from.depth; d >= 1; d--) {
+    const node = $from.node(d)
+    if (node.type.name !== 'column') continue
+    const parent = $from.node(d - 1)
+    if (parent.type.name !== 'columns') return [from, to]
+    const colStart = $from.before(d)
+    const innerStart = colStart + 1
+    const innerEnd = colStart + node.nodeSize - 1
+    // 只在该范围覆盖整列内容时才扩大；部分删除列内内容不受影响
+    if (!(from <= innerStart && to >= innerEnd)) return [from, to]
+    const colsStart = $from.before(d - 1)
+    if (parent.childCount === 1) return [colsStart, colsStart + parent.nodeSize]
+    return [colStart, colStart + node.nodeSize]
+  }
+  return [from, to]
+}
+
 const MAX_COLUMNS = 4
 
 /**
@@ -248,7 +280,10 @@ export const Columns = Node.create({
           // 删除源块（移动而非复制）；insert 之后用 mapping 把 from/to 映射到新坐标
           const fromM = tr.mapping.map(from)
           const toM = tr.mapping.map(to)
-          if (dispatch) tr.delete(fromM, toM)
+          if (dispatch) {
+            const [dFrom, dTo] = safeDeleteRange(tr.doc, fromM, toM)
+            tr.delete(dFrom, dTo)
+          }
 
           if (dispatch) {
             const caret = effectiveMode === 'new' ? insertPos + 3 : colStarts[intoColIndex] + 3
@@ -289,9 +324,11 @@ export const Columns = Node.create({
           const columnsNode = columnsType.create(null, cols)
 
           if (dispatch) {
-            // 先删源块：源在目标之前时目标坐标要相应前移；源在目标之后则不受影响
-            tr.delete(from, to)
-            const at = from < targetPos ? targetPos - (to - from) : targetPos
+            // 先删源块：源在目标之前时目标坐标要相应前移；源在目标之后则不受影响。
+            // 源块若是某列的唯一内容，删除范围会扩大到整列（否则会留下非法空列）。
+            const [dFrom, dTo] = safeDeleteRange(state.doc, from, to)
+            tr.delete(dFrom, dTo)
+            const at = targetPos >= dTo ? targetPos - (dTo - dFrom) : targetPos
             tr.replaceWith(at, at + target.nodeSize, columnsNode)
             // 光标落到第一列首个块内（near 兼容非文本块）
             tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + 2, tr.doc.content.size))))
