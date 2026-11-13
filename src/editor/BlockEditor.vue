@@ -796,20 +796,6 @@ function tryResolveColumnChild(ed: NonNullable<typeof editor.value>, clientX: nu
   return null
 }
 
-/** 找到包裹 pos 的最外层 columns 节点位置（不在分栏内则返回 null） */
-function columnsAncestorPos(ed: NonNullable<typeof editor.value>, pos: number): number | null {
-  let $pos
-  try {
-    $pos = ed.state.doc.resolve(pos)
-  } catch {
-    return null
-  }
-  for (let d = 1; d <= $pos.depth; d++) {
-    if ($pos.node(d).type.name === 'columns') return $pos.before(d)
-  }
-  return null
-}
-
 /** 包裹 pos 的 column 节点起始位置（不在列内则返回 null） */
 function columnAncestorStart(ed: NonNullable<typeof editor.value>, pos: number): number | null {
   let $pos
@@ -2093,57 +2079,111 @@ function computeColumnDrop(columnsPos: number, clientX: number, clientY: number)
 
 /**
  * 拖到「还没有分栏」的普通行上：在该行就地开一栏。
- * - 行的上下窄边（band）→ 仍走普通重排（便于上下换位）；
- * - 其余中间区域     → 目标行与拖入块并排成两栏（x 决定放左还是放右）；
- * - 目标是空段落     → 不处理（保持普通移动，避免半空分栏）。
+ *
+ * 落点模型（此前两版都栽在这里，务必按这个思路改）：
+ * - **按 Y 锁定行**：遍历正文的顶层行 DOM、看谁的行带包住指针 y。不再要求
+ *   `posAtCoords` 能命中正文——用户拖到「某一行的左侧/右侧」时，指针通常已经
+ *   落在行的外面（装订线或行尾空白），靠命中正文判定会直接落空、退回成排序。
+ * - **按 X 判左右侧带**：行左右各留 22%（48~200px）的侧带 → 左/右侧开栏；
+ *   中间区域返回 null，交回普通重排（上下换位），两种手势互不抢占。
+ * - 目标是空段落 / 分栏自身 / 与拖拽范围重叠 → 不处理，交给普通重排。
  */
-function computeBlockColumnDrop(block: HoverBlock, clientX: number, clientY: number): ColDrop | null {
+function computeRowColumnDrop(clientX: number, clientY: number): ColDrop | null {
   const ed = editor.value
-  if (!ed || dragFrom.value == null) return null
+  const root = rootRef.value
+  if (!ed || !root || dragFrom.value == null) return null
+  const pm = ed.view.dom as HTMLElement
+  const pmRect = pm.getBoundingClientRect()
+  // 横向放宽到装订线/右侧留白，纵向只认正文范围
+  if (clientX < pmRect.left - 96 || clientX > pmRect.right + 48) return null
+  if (clientY < pmRect.top - 6 || clientY > contentBottom(pm) + 12) return null
+
   const dragNode = ed.state.doc.nodeAt(dragFrom.value)
   if (!dragNode) return null
   // 整块分栏/列本身不参与「并排成栏」
   if (dragNode.type.name === 'columns' || dragNode.type.name === 'column') return null
-  // 拖到自己身上不处理
-  if (block.from === dragFrom.value) return null
 
-  // 目标提升到「顶层块」：清单条目命中时按整张清单算，否则无法安全地换成块级分栏
-  const docSize = ed.state.doc.content.size
-  const $pos = ed.state.doc.resolve(Math.min(block.from, docSize))
-  const topFrom = $pos.depth > 0 ? $pos.before(1) : block.from
-  const topNode = ed.state.doc.nodeAt(topFrom)
-  if (!topNode) return null
-  if (topNode.type.name === 'columns' || topNode.type.name === 'column') return null
-  // 空段落作为落点：交给普通重排
-  if (topNode.isTextblock && topNode.content.size === 0) return null
-  // 拖拽范围与目标顶层块重叠（例如把清单里的条目拖回同一张清单）→ 不处理
-  const dragToPos = dragTo.value ?? dragFrom.value
-  if (dragFrom.value! < topFrom + topNode.nodeSize && dragToPos > topFrom) return null
-
-  const root = rootRef.value
-  if (!root) return null
-  const dom =
-    block.hitDom ??
-    (ed.view.nodeDOM(topFrom) as HTMLElement | null) ??
-    (ed.view.nodeDOM(block.from) as HTMLElement | null)
-  if (!dom) return null
-  const r = dom.getBoundingClientRect()
-  if (r.height <= 0) return null
-
-  // 只有贴住行的上下窄边才走普通重排（否则「拖到某行中间」很难命中并排）
-  const band = Math.max(6, Math.min(20, r.height * 0.12))
-  if (clientY < r.top + band || clientY > r.bottom - band) return null
-
-  const rootRect = root.getBoundingClientRect()
-  const side: 'left' | 'right' = clientX < r.left + r.width / 2 ? 'left' : 'right'
-  return {
-    mode: 'cols-with',
-    targetPos: topFrom,
-    side,
-    left: (side === 'left' ? r.left : r.right) - rootRect.left,
-    top: r.top - rootRect.top,
-    height: r.height,
+  // 1) 按 Y 收集命中的顶层行，优先取「离指针最近」的那一行
+  //    （行与行紧贴，指针停在上沿时会同时命中上下两行，取最矮/最先都会误判）
+  const candidates: { el: HTMLElement; r: DOMRect; dist: number }[] = []
+  for (const el of Array.from(pm.children) as HTMLElement[]) {
+    if (isIgnorablePmChild(el)) continue
+    const r = el.getBoundingClientRect()
+    if (r.height <= 0) continue
+    if (clientY < r.top - 6 || clientY > r.bottom + 6) continue
+    candidates.push({ el, r, dist: Math.abs(clientY - (r.top + r.height / 2)) })
   }
+  if (!candidates.length) return null
+  candidates.sort((a, b) => a.dist - b.dist)
+
+  // 2) 依次校验候选行，取第一个能安全换成分栏的
+  const docSize = ed.state.doc.content.size
+  const dragToPos = dragTo.value ?? dragFrom.value
+  const rootRect = root.getBoundingClientRect()
+  for (const cand of candidates) {
+    const mapped = resolveRowBlockPos(ed, cand.el)
+    if (!mapped) continue
+    // 提升到「顶层块」：清单条目命中时按整张清单算，否则无法安全地换成块级分栏
+    const $pos = ed.state.doc.resolve(Math.min(mapped.from, docSize))
+    const topFrom = $pos.depth >= 1 ? $pos.before(1) : mapped.from
+    const topNode = ed.state.doc.nodeAt(topFrom)
+    if (!topNode) continue
+
+    // 目标是「已存在的分栏」：在它左侧/右侧新建一列（不要在分栏里再套分栏）。
+    // 指针落在分栏内部时由 computeColumnDrop 抢先处理（入栏 / 栏间新建），这里只管外侧。
+    if (topNode.type.name === 'columns') {
+      const cr = cand.r
+      if (clientX >= cr.left - 4 && clientX <= cr.right + 4) continue
+      const index = clientX < cr.left ? 0 : topNode.childCount
+      return {
+        mode: 'new',
+        columnsPos: topFrom,
+        index,
+        left: (index === 0 ? cr.left : cr.right) - rootRect.left,
+        top: cr.top - rootRect.top,
+        height: cr.height,
+      }
+    }
+    if (topNode.type.name === 'column') continue
+    // 空段落作为落点：交给普通重排（避免产生「一半是空行」的分栏）
+    if (topNode.isTextblock && topNode.content.size === 0) continue
+    // 拖拽范围与目标顶层块重叠（例如把清单里的条目拖回同一张清单）→ 换下一个候选
+    if ((dragFrom.value as number) < topFrom + topNode.nodeSize && dragToPos > topFrom) continue
+    // 目标块必须本身就能成为一列（孤立列表项等在命令里也会被拒，这里先挡住）
+    if (!ed.schema.nodes.column.validContent(Fragment.from(topNode))) continue
+
+    // 3) X 侧带判定：左右侧带开栏，中间交回重排
+    const r = cand.r
+    const sideW = Math.min(Math.max(48, r.width * 0.22), 200)
+    const side: 'left' | 'right' | null =
+      clientX <= r.left + sideW ? 'left' : clientX >= r.right - sideW ? 'right' : null
+    if (!side) return null
+
+    return {
+      mode: 'cols-with',
+      targetPos: topFrom,
+      side,
+      left: (side === 'left' ? r.left : r.right) - rootRect.left,
+      top: r.top - rootRect.top,
+      height: r.height,
+    }
+  }
+  return null
+}
+
+/** 指针落在某个分栏内部时，返回最内层 columns 节点的文档位置 */
+function columnsPosAtPoint(clientX: number, clientY: number): number | null {
+  const ed = editor.value
+  if (!ed) return null
+  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+  const colsEl = (el?.closest?.('.gn-columns') ?? null) as HTMLElement | null
+  if (!colsEl) return null
+  let found: number | null = null
+  ed.state.doc.forEach((node, offset) => {
+    if (found != null || node.type.name !== 'columns') return
+    if (ed.view.nodeDOM(offset) === colsEl) found = offset
+  })
+  return found
 }
 
 /* ---- 自绘指针拖拽 ----
@@ -2257,33 +2297,34 @@ function updateDragTarget(clientX: number, clientY: number) {
   const ed = editor.value
   if (!ed) return
 
-  const block = resolveBlock(clientX, clientY)
-  if (block) {
-    // 指针在分栏内部（含栏内的块）→ 落点容器是最外层 columns
-    const colPos = block.node.type.name === 'columns' ? block.from : columnsAncestorPos(ed, block.from)
-    if (colPos != null) {
-      const target = computeColumnDrop(colPos, clientX, clientY)
-      if (target) {
-        dropCol.value = target
-        dropLineY.value = null
-        dropPos = null
-        setIntoHighlight(target)
-        dragGhost.value = { x: clientX, y: clientY, label: target.mode === 'into' ? '移入此栏' : '新建栏' }
-        return
-      }
-    } else {
-      // 落在普通行上 → 该行就地并排开一栏
-      const asCols = computeBlockColumnDrop(block, clientX, clientY)
-      if (asCols) {
-        dropCol.value = asCols
-        dropLineY.value = null
-        dropPos = null
-        clearIntoHighlight()
-        dragGhost.value = { x: clientX, y: clientY, label: '并排成栏' }
-        return
-      }
+  // 1) 指针在分栏内部 → 入栏 / 在栏间新建一栏
+  const columnsPos = columnsPosAtPoint(clientX, clientY)
+  if (columnsPos != null) {
+    const target = computeColumnDrop(columnsPos, clientX, clientY)
+    if (target) {
+      dropCol.value = target
+      dropLineY.value = null
+      dropPos = null
+      setIntoHighlight(target)
+      dragGhost.value = { x: clientX, y: clientY, label: target.mode === 'into' ? '移入此栏' : '新建栏' }
+      return
     }
   }
+
+  // 2) 指针在普通行的左右侧带 → 该行就地并排开一栏（目标本身是分栏时改为在它旁边新建一列）
+  const asCols = computeRowColumnDrop(clientX, clientY)
+  if (asCols) {
+    dropCol.value = asCols
+    dropLineY.value = null
+    dropPos = null
+    clearIntoHighlight()
+    const label =
+      asCols.mode === 'new' ? '新建栏' : asCols.side === 'left' ? '在左侧成栏' : '在右侧成栏'
+    dragGhost.value = { x: clientX, y: clientY, label }
+    return
+  }
+
+  // 3) 其余 → 普通上下重排
   clearIntoHighlight()
   dropCol.value = null
   updateDropLine(clientX, clientY)
@@ -2597,7 +2638,7 @@ onBeforeUnmount(() => {
     <!-- 块手柄：普通块显示拖动手柄；标题显示隐性 H1/H2/H3 -->
     <div v-show="handle.visible" class="block-handle visible" :class="{ heading: handle.headingLevel > 0 }" :style="{ top: handle.top + 'px', left: handle.left + 'px' }" @mouseenter="cancelHide" @mouseleave="hideNow">
       <button v-if="handle.headingLevel" class="bh-level" v-tooltip="`拖动排序 / 打开菜单 · H${handle.headingLevel}`" @mousedown="onGripDown" @click="onGripClick">H{{ handle.headingLevel }}</button>
-      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 拖到某行中间可并排成栏 / 点击打开菜单'" @mousedown="onGripDown" @click="onGripClick">
+      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 拖到某行左侧或右侧可与它并排成栏 / 点击打开菜单'" @mousedown="onGripDown" @click="onGripClick">
         <GripVertical :size="15" :stroke-width="2" />
       </button>
     </div>
@@ -2618,7 +2659,7 @@ onBeforeUnmount(() => {
       class="block-drop-col"
       :style="{ left: (dropCol.left ?? 0) + 'px', top: (dropCol.top ?? 0) + 'px', height: (dropCol.height ?? 0) + 'px' }"
     >
-      <span class="block-drop-col-badge">{{ dropCol.mode === 'cols-with' ? '并排成栏' : '新建栏' }}</span>
+      <span class="block-drop-col-badge">{{ dropCol.mode === 'cols-with' ? (dropCol.side === 'left' ? '左侧成栏' : '右侧成栏') : '新建栏' }}</span>
     </div>
 
     <!-- 文字格式浮条 -->
