@@ -24,6 +24,9 @@ const ALLOWED_ATTRS = new Set([
   'data-codeblock', 'data-title', 'data-cb',
   // 折叠块：编辑器序列化成 <details open>，旧数据可能写 data-open
   'open', 'data-open',
+  // 有序列表起始编号：markdown-it 对 "5. xxx" 输出 <ol start="5">，
+  // 不放行会连同编号一起被清洗掉，分享页从 1 重新开始
+  'start',
 ])
 
 function safeUrl(v: string): boolean {
@@ -46,6 +49,8 @@ export function sanitizeHtml(html: string): string {
           child.removeAttribute(attr.name)
         }
         if (name === 'style' && /expression|url\s*\(/i.test(attr.value)) child.removeAttribute(attr.name)
+        // start 只接受正整数，避免把任意字符串塞进属性
+        if (name === 'start' && !/^[1-9]\d{0,8}$/.test(attr.value.trim())) child.removeAttribute(attr.name)
       }
       if (tag === 'a') {
         child.setAttribute('target', '_blank')
