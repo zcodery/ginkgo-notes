@@ -2088,11 +2088,21 @@ function updateDropLine(e: DragEvent) {
   const ed = editor.value
   const root = rootRef.value
   if (!ed || !root) return
+  const rect = root.getBoundingClientRect()
   const block = resolveBlock(e.clientX, e.clientY)
-  if (!block) return
+  if (!block) {
+    // 落在正文下方空白区（padding-bottom）时按「插到文档末尾」处理，
+    // 否则 dropPos 会保持上一次的值或为 null，松手后看起来什么都没发生
+    const pm = ed.view.dom as HTMLElement
+    const bottom = contentBottom(pm)
+    if (e.clientY > bottom) {
+      dropPos = ed.state.doc.content.size
+      dropLineY.value = bottom - rect.top
+    }
+    return
+  }
   const dom = ed.view.nodeDOM(block.from) as HTMLElement | null
   if (!dom) return
-  const rect = root.getBoundingClientRect()
   const b = dom.getBoundingClientRect()
   const upper = e.clientY < b.top + b.height / 2
   dropPos = upper ? block.from : block.to
