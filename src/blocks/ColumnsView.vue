@@ -8,7 +8,7 @@
  * 交互要点同代码块 NodeView：工具栏在 contentDOM 之外，且是 INPUT/BUTTON，
  * 事件天然不会被编辑器抢走；NodeViewWrapper 已自动处理 ignoreMutation / stopEvent。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/vue-3'
 import { useEditorEditable } from '@/editor/editableContext'
 import { Minus, Plus, Columns3 } from 'lucide-vue-next'
@@ -86,9 +86,14 @@ function addColumn() {
 }
 
 function removeColumn() {
-  if (!canEdit.value || count.value <= MIN) return
+  if (!canEdit.value) return
   const pos = props.getPos()
   if (typeof pos !== 'number') return
+  // 仅剩 1 栏时，再减即退出分栏（整行退化为一个段落），符合「不用则无」
+  if (count.value <= MIN) {
+    props.editor.chain().focus().unwrapColumns({ columnsPos: pos }).run()
+    return
+  }
   const node = props.node
   let childPos = pos + 1
   for (let i = 0; i < node.childCount - 1; i++) childPos += node.child(i).nodeSize
@@ -129,6 +134,56 @@ function applyPreset(ratios: number[]) {
 }
 
 const hover = ref(false)
+
+/** 一列是否为「空」：仅含一个空文本块 */
+function isEmptyCol(col: any): boolean {
+  return !!col && col.childCount === 1 && col.firstChild?.isTextblock === true && col.firstChild.content?.size === 0
+}
+
+/**
+ * 动态清理：当某一列「从有内容变为空」时，自动删除该列；
+ * 若删完只剩一个空列或零列，命令会直接退出分栏（用则有，不用则无）。
+ * - 初始创建（如「分栏 2」空白两栏）不触发清理，保留用户显式开出的空栏；
+ * - 用户通过「+」显式加出的空栏也不触发清理（仅因内容被清空而触发的空栏才清）。
+ */
+let prevEmpties: boolean[] = []
+let firstSeen = false
+let pruning = false
+let skipNextPrune = false
+
+function checkPrune() {
+  const node = props.node
+  if (!node) return
+  const cur = Array.from(node.content.content).map((c: any) => isEmptyCol(c))
+  if (!firstSeen) {
+    firstSeen = true
+    prevEmpties = cur
+    return
+  }
+  if (skipNextPrune) {
+    skipNextPrune = false
+    prevEmpties = cur
+    return
+  }
+  const newlyEmpty: number[] = []
+  cur.forEach((e: boolean, i: number) => {
+    if (i < prevEmpties.length && e && !prevEmpties[i]) newlyEmpty.push(i)
+  })
+  prevEmpties = cur
+  if (newlyEmpty.length && !pruning && canEdit.value) {
+    pruning = true
+    queueMicrotask(() => {
+      pruning = false
+      const pos = props.getPos()
+      if (typeof pos === 'number' && canEdit.value) {
+        props.editor.commands.removeColumnsAt({ columnsPos: pos, indices: newlyEmpty })
+        skipNextPrune = true
+      }
+    })
+  }
+}
+
+watch(() => props.node, () => checkPrune(), { flush: 'post' })
 </script>
 
 <template>

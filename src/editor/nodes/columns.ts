@@ -1,8 +1,24 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import { TextSelection } from '@tiptap/pm/state'
-import type { Node as PMNode } from '@tiptap/pm/model'
+import type { Node as PMNode, Fragment } from '@tiptap/pm/model'
+import type { Transaction } from '@tiptap/pm/state'
 import ColumnsView from '@/blocks/ColumnsView.vue'
+
+/** 一列是否为「空」：仅含一个空文本块 */
+function isColEmpty(col: PMNode | null | undefined): boolean {
+  if (!col) return false
+  return col.childCount === 1 && col.firstChild?.isTextblock === true && col.firstChild.content.size === 0
+}
+
+/** 把 columns 节点整体替换为单个空段落（退出分栏） */
+function unwrapColumnsImpl(tr: Transaction, state: any, columnsPos: number, node: PMNode) {
+  const para = state.schema.nodes.paragraph.create()
+  tr.replaceWith(columnsPos, columnsPos + node.nodeSize, para)
+  tr.setSelection(TextSelection.near(tr.doc.resolve(columnsPos + 1)))
+}
+
+const MAX_COLUMNS = 4
 
 /**
  * 分栏容器：横向排布的若干「列」，每列内部是普通块内容。
@@ -26,6 +42,25 @@ declare module '@tiptap/core' {
        * - 选区为单块（或空段落）时，该块进入第一列，其余列空白，等价于"从现有行变多栏"。
        */
       convertToColumns: (opts?: { count?: number; from?: number; to?: number }) => ReturnType
+      /**
+       * 把 [from,to) 的块移动到某个分栏：
+       * - mode='new'：在 targetColumnsPos 的第 index 列之前新建一列并放入这些块（index 省略则末尾）；
+       *   若目标栏已达 MAX，自动降级为追加到最后一列（mode='into'）。
+       * - mode='into'：把块追加进第 columnIndex 列；若目标列仅有一个空段落则直接替换之。
+       * 源块始终会被删除（即「移动」而非「复制」）。
+       */
+      moveBlocksToColumn: (opts: {
+        from: number
+        to: number
+        targetColumnsPos: number
+        mode: 'new' | 'into'
+        index?: number
+        columnIndex?: number
+      }) => ReturnType
+      /** 按索引删除分栏中的若干列（索引去重、按原位置降序删除）；若删除后仅剩 1 个空列或 0 列则自动退出分栏 */
+      removeColumnsAt: (opts: { columnsPos: number; indices: number[] }) => ReturnType
+      /** 把分栏整行退化为一个空段落 */
+      unwrapColumns: (opts: { columnsPos: number }) => ReturnType
     }
   }
 }
@@ -105,6 +140,116 @@ export const Columns = Node.create({
             // 光标落到第一列首个块的起始处（near 兼容首个块非文本块的情况）
             tr.setSelection(TextSelection.near(tr.doc.resolve(firstPos + 3)))
           }
+          return true
+        },
+
+      moveBlocksToColumn:
+        (opts: { from: number; to: number; targetColumnsPos: number; mode: 'new' | 'into'; index?: number; columnIndex?: number }) =>
+        ({ state, dispatch, tr }) => {
+          const { from, to, targetColumnsPos, mode, index, columnIndex } = opts
+          const node = state.doc.nodeAt(targetColumnsPos)
+          if (!node || node.type.name !== 'columns') return false
+          const content: Fragment = state.doc.slice(from, to).content
+          if (content.size === 0) return false
+          // 拖拽内容必须是合法的列内容（block+），否则放弃（交由普通重排处理）
+          if (!state.schema.nodes.column.validContent(content)) return false
+
+          // 计算该分栏各列在文档中的起始位置
+          const colStarts: number[] = []
+          {
+            let p = targetColumnsPos + 1
+            for (let i = 0; i < node.childCount; i++) {
+              colStarts.push(p)
+              p += node.child(i).nodeSize
+            }
+          }
+
+          let effectiveMode: 'new' | 'into' = mode
+          let insertPos = -1
+          let intoColIndex = -1
+          if (effectiveMode === 'new') {
+            // 已满 4 栏则降级为「追加到最后一列」
+            if (node.childCount >= MAX_COLUMNS) effectiveMode = 'into'
+          }
+          if (effectiveMode === 'new') {
+            const idx = Math.min(Math.max(index ?? node.childCount, 0), node.childCount)
+            // 第 idx 列之前；idx === childCount 时追加到分栏内容末尾
+            insertPos = idx < node.childCount ? colStarts[idx] : targetColumnsPos + node.nodeSize - 1
+            const col = state.schema.nodes.column.create({ width: 1 }, content)
+            if (dispatch) tr.insert(insertPos, col)
+          } else {
+            intoColIndex = Math.min(Math.max(columnIndex ?? node.childCount - 1, 0), node.childCount - 1)
+            const col = node.child(intoColIndex)
+            const colStart = colStarts[intoColIndex]
+            const colEnd = colStart + col.nodeSize
+            if (dispatch) {
+              if (isColEmpty(col)) {
+                // 仅有一个空段落：直接替换为拖入的内容
+                tr.replaceWith(colStart + 1, colEnd - 1, content)
+              } else {
+                // 否则追加到列末尾
+                tr.insert(colEnd - 1, content)
+              }
+            }
+          }
+
+          // 删除源块（移动而非复制）；insert 之后用 mapping 把 from/to 映射到新坐标
+          const fromM = tr.mapping.map(from)
+          const toM = tr.mapping.map(to)
+          if (dispatch) tr.delete(fromM, toM)
+
+          if (dispatch) {
+            const caret = effectiveMode === 'new' ? insertPos + 3 : colStarts[intoColIndex] + 3
+            tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(caret, tr.doc.content.size))))
+          }
+          return true
+        },
+
+      removeColumnsAt:
+        (opts: { columnsPos: number; indices: number[] }) =>
+        ({ state, dispatch, tr }) => {
+          const { columnsPos, indices } = opts
+          const node = state.doc.nodeAt(columnsPos)
+          if (!node || node.type.name !== 'columns') return false
+          const uniq = [...new Set(indices)].filter((i) => i >= 0 && i < node.childCount)
+          if (!uniq.length) return false
+
+          const remainingIdx: number[] = []
+          for (let i = 0; i < node.childCount; i++) if (!uniq.includes(i)) remainingIdx.push(i)
+
+          // 删完剩 0 列，或仅剩 1 个空列 → 退出分栏
+          if (remainingIdx.length === 0 || (remainingIdx.length === 1 && isColEmpty(node.child(remainingIdx[0])))) {
+            if (dispatch) unwrapColumnsImpl(tr, state, columnsPos, node)
+            return true
+          }
+
+          if (dispatch) {
+            // 计算每列在「删除前」文档中的原始位置，按索引降序删除，保证坐标不被前面的删除影响
+            const origPos: number[] = []
+            {
+              let p = columnsPos + 1
+              for (let i = 0; i < node.childCount; i++) {
+                origPos.push(p)
+                p += node.child(i).nodeSize
+              }
+            }
+            for (let k = uniq.length - 1; k >= 0; k--) {
+              const i = uniq[k]
+              const pos = origPos[i]
+              const size = node.child(i).nodeSize
+              tr.delete(pos, pos + size)
+            }
+          }
+          return true
+        },
+
+      unwrapColumns:
+        (opts: { columnsPos: number }) =>
+        ({ state, dispatch, tr }) => {
+          const { columnsPos } = opts
+          const node = state.doc.nodeAt(columnsPos)
+          if (!node || node.type.name !== 'columns') return false
+          if (dispatch) unwrapColumnsImpl(tr, state, columnsPos, node)
           return true
         },
     }

@@ -1924,6 +1924,90 @@ const dragTo = ref<number | null>(null)
 const dropLineY = ref<number | null>(null)
 let dropPos: number | null = null
 
+interface ColDrop {
+  mode: 'new' | 'into'
+  columnsPos: number
+  index?: number
+  columnIndex?: number
+  left?: number
+  top?: number
+  height?: number
+  el?: HTMLElement
+}
+const dropCol = ref<ColDrop | null>(null)
+let lastIntoEl: HTMLElement | null = null
+
+function setIntoHighlight(t: ColDrop) {
+  if (t.mode !== 'into' || !t.el) {
+    clearIntoHighlight()
+    return
+  }
+  if (lastIntoEl && lastIntoEl !== t.el) lastIntoEl.classList.remove('gn-col-drop-into')
+  t.el.classList.add('gn-col-drop-into')
+  lastIntoEl = t.el
+}
+function clearIntoHighlight() {
+  if (lastIntoEl) {
+    lastIntoEl.classList.remove('gn-col-drop-into')
+    lastIntoEl = null
+  }
+}
+
+/** 判断拖拽落点是否落在某个分栏上，并返回「新建栏」或「入栏」目标 */
+function computeColumnDrop(columnsPos: number, clientX: number, clientY: number): ColDrop | null {
+  const ed = editor.value
+  if (!ed || dragFrom.value == null) return null
+  // 分栏/列节点本身不能被拖入列内
+  const dragNode = ed.state.doc.nodeAt(dragFrom.value)
+  if (dragNode && (dragNode.type.name === 'columns' || dragNode.type.name === 'column')) return null
+  const columnsNode = ed.state.doc.nodeAt(columnsPos)
+  if (!columnsNode || columnsNode.type.name !== 'columns') return null
+  // 拖动内容必须是合法的「列内容」（block+），否则交给普通重排逻辑处理
+  const slice = ed.state.doc.slice(dragFrom.value, dragTo.value ?? dragFrom.value)
+  if (!ed.schema.nodes.column.validContent(slice.content)) return null
+
+  const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null
+  if (!el) return null
+  const rowEl = el.closest('.gn-columns-row') as HTMLElement | null
+  if (!rowEl) return null
+  const root = rootRef.value
+  if (!root) return null
+  const colEls = Array.from(rowEl.children).filter((c) => c.classList?.contains('gn-column')) as HTMLElement[]
+  if (!colEls.length) return null
+
+  const rootRect = root.getBoundingClientRect()
+  const rowRect = rowEl.getBoundingClientRect()
+  const mkNew = (index: number, atX: number): ColDrop => ({
+    mode: 'new',
+    columnsPos,
+    index,
+    left: atX - rootRect.left,
+    top: rowRect.top - rootRect.top,
+    height: rowRect.height,
+  })
+
+  // 1) 行左右边缘 → 首 / 尾新建栏（拖到「某一行」的边侧即可开新栏）
+  if (clientX <= rowRect.left + 16) return mkNew(0, rowRect.left)
+  if (clientX >= rowRect.right - 16) return mkNew(colEls.length, rowRect.right)
+
+  // 2) 列与列之间的空隙 → 在该缝隙处新建栏
+  for (let i = 0; i < colEls.length - 1; i++) {
+    const rRight = colEls[i].getBoundingClientRect().right
+    const rLeft = colEls[i + 1].getBoundingClientRect().left
+    if (clientX >= rRight - 6 && clientX <= rLeft + 6) {
+      return mkNew(i + 1, (rRight + rLeft) / 2)
+    }
+  }
+
+  // 3) 落在某一列的内容区 → 入栏
+  const hit = el.closest('.gn-column') as HTMLElement | null
+  if (hit && colEls.includes(hit)) {
+    return { mode: 'into', columnsPos, columnIndex: colEls.indexOf(hit), el: hit }
+  }
+  // 兜底：其余情况在末尾新建
+  return mkNew(colEls.length, clientX)
+}
+
 function onDragStart(e: DragEvent) {
   if (!hoverBlock || !canEdit.value) {
     e.preventDefault()
@@ -1963,6 +2047,20 @@ function onDragOver(e: DragEvent) {
   e.preventDefault()
   e.stopPropagation()
   if (e.dataTransfer) e.dataTransfer.dropEffect = pageDrop ? "copy" : "move"
+
+  // 落点在分栏上 → 显示「新建栏 / 入栏」指示，不再显示普通重排线
+  const block = resolveBlock(e.clientX, e.clientY)
+  if (block && block.node.type.name === 'columns') {
+    const target = computeColumnDrop(block.from, e.clientX, e.clientY)
+    if (target) {
+      dropCol.value = target
+      dropLineY.value = null
+      setIntoHighlight(target)
+      return
+    }
+  }
+  clearIntoHighlight()
+  dropCol.value = null
   updateDropLine(e)
 }
 
@@ -2004,6 +2102,29 @@ function onDrop(e: DragEvent) {
   if (dragFrom.value == null) return
   e.preventDefault()
   e.stopPropagation()
+
+  // 落在分栏上：把拖拽块移入（新建栏 / 入栏）
+  if (dropCol.value) {
+    const t = dropCol.value
+    const from = dragFrom.value
+    const to = dragTo.value!
+    clearIntoHighlight()
+    dropCol.value = null
+    resetDrag()
+    ed.chain()
+      .focus()
+      .moveBlocksToColumn({
+        from,
+        to,
+        targetColumnsPos: t.columnsPos,
+        mode: t.mode,
+        index: t.index,
+        columnIndex: t.columnIndex,
+      })
+      .run()
+    return
+  }
+
   if (dropPos == null) return resetDrag()
   const from = dragFrom.value
   const to = dragTo.value!
@@ -2025,6 +2146,8 @@ function resetDrag() {
   dragTo.value = null
   dropLineY.value = null
   dropPos = null
+  dropCol.value = null
+  clearIntoHighlight()
 }
 
 /* ---------------- 图片 ---------------- */
@@ -2199,6 +2322,15 @@ onBeforeUnmount(() => {
     <!-- 拖拽指示线 -->
     <div v-if="dropLineY !== null" class="block-drop-line" :style="{ top: dropLineY + 'px' }"></div>
 
+    <!-- 拖入分栏：新建栏竖线指示 -->
+    <div
+      v-if="dropCol && dropCol.mode === 'new'"
+      class="block-drop-col"
+      :style="{ left: (dropCol.left ?? 0) + 'px', top: (dropCol.top ?? 0) + 'px', height: (dropCol.height ?? 0) + 'px' }"
+    >
+      <span class="block-drop-col-badge">新建栏</span>
+    </div>
+
     <!-- 文字格式浮条 -->
     <div v-if="bubble.visible" class="bubble-bar gn-pop" :style="{ top: bubble.top + 'px', left: bubble.left + 'px' }">
       <template v-if="!linkMode">
@@ -2354,6 +2486,29 @@ onBeforeUnmount(() => {
   border-radius: 2px;
   pointer-events: none;
   z-index: 30;
+}
+.block-drop-col {
+  position: absolute;
+  width: 3px;
+  background: var(--gn-accent);
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 30;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gn-accent) 22%, transparent);
+}
+.block-drop-col-badge {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--gn-accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  box-shadow: var(--gn-shadow-md);
 }
 .bubble-bar {
   position: absolute;

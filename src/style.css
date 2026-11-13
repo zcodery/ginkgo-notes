@@ -563,6 +563,12 @@ html.dark .note-editor .ProseMirror .gn-search-current {
     padding-top: 8px;
   }
 }
+/* 拖拽落点：把块拖到某列上时的「入栏」高亮（全局，作用于 NodeView 渲染的列元素） */
+.note-editor .ProseMirror .gn-column.gn-col-drop-into {
+  outline: 2px dashed var(--gn-accent, #337ea9);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--gn-accent, #337ea9) 10%, transparent);
+}
 
 .note-editor .ProseMirror strong {
   font-weight: 650;
