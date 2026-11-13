@@ -194,7 +194,7 @@ ginkgoNotes/
 | 50 | 公开分享页滚动 | ✅ | 路由级 `gn-standalone` 放开 body 原生滚动，离开路由自动移除 |
 | 51 | 只读代码块工具栏 | ✅ | 语言显示名、文件名、行数/字符统计、行号 gutter、行号/换行/折叠/复制、hljs 高亮；`v-html` 事件委托实现交互 |
 | 52 | 只读折叠块状态 | ✅ | `<details open>` 进入 sanitize 白名单并按 `data-open` 回填，避免展开态分享出去变收起 |
-| 53 | 有序列表编号 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start` |
+| 53 | 有序列表编号 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start`；编号色用 `--gn-text-strong`（亮色近黑 `#0f0f0e` / 暗色纯白 `#ffffff`）强化对比 |
 | 54 | 多栏分栏布局 | ✅ | 正文插入 1–4 栏，栏数 stepper（1–4 限制）+ 宽度比例预设（均分/1:2/2:1 等，按栏数动态）；每栏独立编辑；Markdown 以 `<!-- gn-columns[ widths="..."] -->` + `<!-- gn-col -->` 注释双向往返（含嵌套分栏与等宽省略）；公开分享页静态渲染 `.sv-columns/.sv-column`，`flex-grow` 实现列宽比例，窄屏（≤640px）纵向堆叠 |
 
 ### P1 — 部分完成 / 待完善
@@ -330,10 +330,11 @@ ginkgoNotes/
 | 45 | `9e1327b` | fix(share) | 只读页保留有序列表的起始编号 |
 | 46 | `242d4a2` | feat(editor) | 正文支持多栏分栏布局（columns/column 节点 + NodeView 工具栏 + Markdown 双向 + 只读页渲染） |
 | 47 | `35e7ee9` | fix(editor) | 有序列表编号颜色加深（`--gn-text-muted` → `--gn-text`） |
+| 48 | `a49e22d` | fix(editor) | 有序列表编号改用 `--gn-text-strong` 更强对比（亮色近黑/暗色纯白） |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `35e7ee9` — fix(editor): 有序列表编号颜色加深
+**HEAD**: `a49e22d` — fix(editor): 有序列表编号改用 --gn-text-strong 更强对比
 
 ---
 
