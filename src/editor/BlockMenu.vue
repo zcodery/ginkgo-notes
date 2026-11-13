@@ -25,6 +25,7 @@ import {
   ListChecks,
   Quote,
   Code2,
+  Columns3,
 } from 'lucide-vue-next'
 import { COLOR_PRESETS } from './marks/colors'
 import PageIcon from '@/components/PageIcon.vue'
@@ -45,7 +46,7 @@ export interface BlockMenuPage {
   icon: string
 }
 
-type SubKey = 'turn' | 'color' | 'move' | 'copyTo'
+type SubKey = 'turn' | 'color' | 'move' | 'copyTo' | 'columns'
 
 const props = defineProps<{
   visible: boolean
@@ -208,6 +209,34 @@ defineExpose({ openSub })
         <Link :size="15" :stroke-width="1.8" /><span class="bm-label">复制块链接</span>
         <kbd>F</kbd>
       </button>
+
+      <div class="bm-row" @mouseenter="openSub('columns')">
+        <button
+          class="bm-item"
+          :class="{ open: sub === 'columns' }"
+          @mousedown.prevent
+          @click="openSub('columns')"
+        >
+          <Columns3 :size="15" :stroke-width="1.8" /><span class="bm-label">转为分栏</span>
+          <ChevronRight class="bm-arrow" :size="14" :stroke-width="1.8" />
+        </button>
+        <div
+          v-if="sub === 'columns'"
+          ref="subRef"
+          class="bm-sub gn-pop"
+          :style="{ transform: `translateY(${subShift}px)` }"
+        >
+          <button
+            v-for="n in [2, 3, 4]"
+            :key="'col-' + n"
+            class="bm-item"
+            @mousedown.prevent="act('toColumns:' + n)"
+          >
+            <Columns3 :size="15" :stroke-width="1.8" />
+            <span class="bm-label">{{ n }} 栏</span>
+          </button>
+        </div>
+      </div>
       <button class="bm-item" @mouseenter="openSub(null)" @mousedown.prevent="act('delete')">
         <Trash2 :size="15" :stroke-width="1.8" /><span class="bm-label">删除</span>
         <kbd>Del</kbd>

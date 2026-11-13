@@ -1833,6 +1833,12 @@ function runBlockAction(action: string) {
   if (action === "insertAbove") return insertEmptyBlock(from, name)
   if (action === "insertBelow") return insertEmptyBlock(to, name)
   if (action.startsWith("turn:")) return turnBlock(from, to, action.slice(5))
+  if (action.startsWith("toColumns:")) {
+    const n = Number(action.slice(11))
+    // 直接用编辑器当前选区：选中多行时整段选区都会被转成多栏；单选/光标处则转换当前块
+    if (n >= 1 && n <= 4) ed.chain().focus().convertToColumns({ count: n }).run()
+    return
+  }
   if (action.startsWith("font:")) return colorBlock(from, to, "font", action.slice(5))
   if (action.startsWith("bg:")) return colorBlock(from, to, "bg", action.slice(3))
   if (action.startsWith("moveTo:")) return void sendBlockToPage(action.slice(7), from, to, true)
