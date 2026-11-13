@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.3.0 | 更新于 2026-11-12
+> 版本 0.3.0 | 更新于 2026-11-13
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 
@@ -25,6 +25,7 @@
 2. **引用式高级块**：多维表格是独立实体（`server/db.ts` 里的 `databases` + `db_rows` 表），正文只写 ` ```ginkgo-db <id>` fence，支持跨页复用与同步。
 3. **写操作串行化**：`src/db/repo.ts` 的 `serial('page:<id>')` / `serial('db:<id>')` 防止标题/正文两路保存交错导致旧快照覆盖。
 4. **只读内容走 HTML 渲染**：公开分享页用 `src/utils/renderMarkdown.ts` 白名单清洗后输出 HTML，不加载 TipTap，也不暴露任何编辑路径。
+5. **编辑器状态随 Markdown 持久化**：折叠状态写成 `<!-- gn-li collapsed -->` / `<details open>`，解析时经 token 预处理还原；只读页按白名单回填，保证编辑态与分享态一致。
 
 ---
 
@@ -50,7 +51,7 @@ ginkgoNotes/
 │   ├── notify.ts        # 站内通知 + 可选 SMTP 邮件
 │   └── mailer.ts        # nodemailer 懒加载封装
 ├── src/
-│   ├── App.vue          # 路由外壳
+│   ├── App.vue          # 路由外壳 + 公开分享页 gn-standalone 滚动模式
 │   ├── main.ts
 │   ├── store.ts         # Pinia 全局状态
 │   ├── types.ts         # 前后端共用类型
@@ -67,6 +68,10 @@ ginkgoNotes/
 │   │   ├── extensions.ts    # 扩展清单（含自定义 GnTableCell/Diagram/Database/PageLink）
 │   │   ├── markdown.ts      # Markdown ↔ ProseMirror 块级 1:1 映射
 │   │   ├── nodes/           # database / diagram / pageLink / codeBlock / tableCell
+│   │   │   ├── details.ts  # <details> 折叠块（open 属性 + 箭头交互）
+│   │   │   └── listFold.ts # 列表与任务项逐层折叠（collapsed 属性 + widget）
+│   │   ├── foldAnim.ts     # WAAPI 折叠动画（grid 轨道 / 任务项 height / 淡入淡出）
+│   │   ├── codeLanguages.ts # 语言别名归一化、显示名与 highlight id
 │   │   ├── marks/colors.ts  # FontColor / BgColor + 18 预设色
 │   │   ├── SlashMenu.vue    # / 命令菜单
 │   │   ├── BlockMenu.vue    # 块级手柄菜单（类型转换、颜色、上下移动、生成子页）
@@ -111,12 +116,13 @@ ginkgoNotes/
 │   │   ├── AuthView.vue        # 登录/注册/2FA/GitHub OAuth
 │   │   ├── ProfileView.vue     # 个人中心
 │   │   ├── SharedNoteView.vue  # 共享给我（只读/可编辑按角色）
-│   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录）
+│   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录、只读代码块工具栏）
 │   │   └── settings/           # 10 个设置子组件
-│   ├── utils/           # 导入导出与只读渲染
+│   ├── utils/           # 通用工具、导入导出与只读渲染
+│   │   ├── clipboard.ts        # 统一复制入口（安全上下文 + execCommand 降级）
 │   │   ├── importExport.ts     # Markdown/Notion/Zip/JSON 全链路迁移
 │   │   ├── exportPage.ts       # html2canvas → 图片 / jsPDF → PDF
-│   │   └── renderMarkdown.ts   # 只读 Markdown→HTML（白名单清洗）
+│   │   └── renderMarkdown.ts   # 只读 Markdown→HTML（白名单清洗 + 结构化代码块）
 │   ├── i18n/            # 简 / 繁 / 英三套界面语言
 │   ├── shortcuts.ts     # 快捷键定义
 │   ├── userState.ts    # 登录态 / 用户信息
@@ -180,6 +186,12 @@ ginkgoNotes/
 | 44 | 旧数据迁移 | ✅ | 旧版 IndexedDB（v2）一键导入到后端，图片保持原 id |
 | 45 | 意见反馈 | ✅ | 提交到 `feedback` 表 + 通知所有管理员；管理员可见全部、可回复 |
 | 46 | 版本检测 | ✅ | 设置页 About 区域 |
+| 47 | 折叠动画与裁切 | ✅ | WAAPI 300ms 过渡（首行轨道钉为实测像素、内容淡入淡出）；`::details-content` / 列表子项 `align-self:stretch` 保证轨道归零后内容真正隐藏；细线 chevron 箭头统一编辑器与只读页 |
+| 48 | 任意层级列表折叠 | ✅ | 普通列表深层与任务列表项均可逐层展开收起；块手柄自动让位；折叠状态经 `<!-- gn-li collapsed -->` 注释往返持久化 |
+| 49 | 剪贴板兼容 | ✅ | 统一 `copyText()`；局域网 HTTP 等非安全上下文降级 `execCommand('copy')`，复制后恢复焦点与选区；覆盖分享、集成、代码块、图表、AI 全部复制入口 |
+| 50 | 公开分享页滚动 | ✅ | 路由级 `gn-standalone` 放开 body 原生滚动，离开路由自动移除 |
+| 51 | 只读代码块工具栏 | ✅ | 语言显示名、文件名、行数/字符统计、行号 gutter、行号/换行/折叠/复制、hljs 高亮；`v-html` 事件委托实现交互 |
+| 52 | 只读折叠块状态 | ✅ | `<details open>` 进入 sanitize 白名单并按 `data-open` 回填，避免展开态分享出去变收起 |
 
 ### P1 — 部分完成 / 待完善
 
@@ -288,8 +300,31 @@ ginkgoNotes/
 | 19 | `3b8d15f5` | feat(notify) | 通知支持同步发送到绑定邮箱（SMTP） |
 | 20 | `c11df82f` | feat(i18n) | 笔记页、侧栏、通知、锁屏等界面接入繁体与英文 |
 | 21 | `5265b8df` | feat(table) | 表格改为行列手柄 + 菜单操作，支持单元格颜色、列对齐与拷贝副本 |
+| 22 | `a879619` | chore | 基础设施 |
+| 23 | `7a3d2c1` | feat(editor) | 编辑器内核 |
+| 24 | `ad2f9db` | feat(blocks) | 高级块（代码/图表/多维表格/页面卡片） |
+| 25 | `a0f7b3d` | feat(ui) | 通用组件（侧栏/搜索/分享/目录等） |
+| 26 | `d16f123` | feat(ui) | 路由页面 |
+| 27 | `28e0be0` | feat(i18n) | 国际化 |
+| 28 | `eb65d46` | feat(core) | 应用外壳与全局状态 |
+| 29 | `ad46ad7` | docs | 开发文档 |
+| 30 | `2043cd6` | chore | 基础设施 |
+| 31 | `b2c63d7` | docs | 开发文档 |
+| 32 | `6d9c6f0` | chore | 基础设施 |
+| 33 | `b1e3a04` | feat(editor) | 编辑器内核 |
+| 34 | `c067aaf` | feat(blocks) | 高级块（代码/图表/多维表格/页面卡片） |
+| 35 | `ebf1a54` | feat(ui) | 路由页面 |
+| 36 | `f95e9e2` | feat(i18n) | 国际化 |
+| 37 | `faa274d` | feat(utils) | 导入导出与只读渲染 |
+| 38 | `f045c75` | feat(core) | 应用外壳与全局状态 |
+| 39 | `1e8dfd7` | fix(utils) | 统一剪贴板复制入口，兼容非安全上下文 |
+| 40 | `01c366d` | refactor(style) | 折叠交互与只读页样式整合 |
+| 41 | `8cfe565` | feat(editor) | 折叠动画改用 WAAPI，支持嵌套任务项逐层折叠 |
+| 42 | `36d8097` | feat(share) | 公开分享页放开滚动并补齐代码块工具栏 |
 
-**HEAD**: `5265b8df` — feat(table): 表格改为行列手柄 + 菜单操作，支持单元格颜色、列对齐与拷贝副本
+> 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
+
+**HEAD**: `36d8097` — feat(share): 公开分享页放开滚动并补齐代码块工具栏
 
 ---
 
@@ -312,7 +347,7 @@ ginkgoNotes/
 
 ```bash
 # 开发
-pnpm dev              # concurrently 起 api (3101) + web (5173)
+pnpm dev              # concurrently 起 api (3101) + web (3100)
 # Windows 一键
 run.bat               # 同上 + 自动开浏览器
 
@@ -364,6 +399,13 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 5. **代码高亮**：未知语言（不在 lowlight 注册表的）会降级为纯文本，不要自己瞎写 fallback。
 6. **PIN 与 2FA 的错误码**：已登录态下密码/PIN 输错返回 **400**，不是 401。401 仅用于"未登录"，这样前端不会误触发登出流程。
 7. **Webhook 防抖**：`page.updated` 在自动保存路径上有 5 秒防抖合并，不要为每次字符修改都触发 Webhook。
+8. **折叠动画不能写 DOM 属性**：ProseMirror `setNodeMarkup()` 会走 ReplaceStep 重建节点（`view.nodeDOM(pos)` 不再是同一节点），`DOMObserver` 也会清掉 inline style / class；必须在 `dispatch` 之后用 WAAPI 对重建节点补动画。
+9. **`auto 0fr` 不会收缩**：`0fr` 的自动最小值仍取 min-content，收起终态必须写 `minmax(0, 0fr)`。WAAPI keyframes 里也不能把首行写成 `auto`——Chromium 会连首行一起插值，标题行鼓起、文字漂移；首行要钉成 `getComputedStyle()` 读出的实测像素值。
+10. **轨道归零 ≠ 内容隐藏**：grid item 需要 `align-self: stretch` 才会跟着轨道收缩；`<details>` 在现代 Chromium/Safari 会把内容包进 `::details-content`，真正要裁的是这个伪元素而不是内层 div。
+11. **共享 CSS 变量必须放 `:root`**：`--gn-chevron` 之类若定义在 `.note-editor` 局部变量块，公开分享页不在该作用域，`var()` 解析为空会让整条 `mask` 失效、图标变成实心方块。
+12. **局域网 HTTP 不是安全上下文**：`navigator.clipboard` 可能缺失或被拒绝，所有复制必须走 `copyText()` 的 `execCommand` 降级，并恢复焦点/选区以免抢走编辑器光标。
+13. **任务项 DOM 特殊**：`taskItem` 是 `<li><label/><div><p/><ul/></div></li>`，子列表不在 li 的直接子级；折叠 widget、块手柄让位判断、CSS 选择器都要兼容 `> div >`。折叠注释是独立 `html_block` 且总在 `list_item_open` 之前，必须在 token 预处理阶段挂到紧随其后的列表项。
+14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
 
 ---
 
