@@ -192,6 +192,7 @@ ginkgoNotes/
 | 50 | 公开分享页滚动 | ✅ | 路由级 `gn-standalone` 放开 body 原生滚动，离开路由自动移除 |
 | 51 | 只读代码块工具栏 | ✅ | 语言显示名、文件名、行数/字符统计、行号 gutter、行号/换行/折叠/复制、hljs 高亮；`v-html` 事件委托实现交互 |
 | 52 | 只读折叠块状态 | ✅ | `<details open>` 进入 sanitize 白名单并按 `data-open` 回填，避免展开态分享出去变收起 |
+| 53 | 有序列表编号 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start` |
 
 ### P1 — 部分完成 / 待完善
 
@@ -322,10 +323,12 @@ ginkgoNotes/
 | 41 | `8cfe565` | feat(editor) | 折叠动画改用 WAAPI，支持嵌套任务项逐层折叠 |
 | 42 | `36d8097` | feat(share) | 公开分享页放开滚动并补齐代码块工具栏 |
 | 43 | `b6b75ce` | fix(editor) | 深层嵌套列表的折叠箭头不再被父级 overflow 裁掉 |
+| 44 | `6adc7e2` | fix(editor) | 有序列表编号从 1 开始，嵌套层重新计数 |
+| 45 | `9e1327b` | fix(share) | 只读页保留有序列表的起始编号 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `b6b75ce` — fix(editor): 深层嵌套列表的折叠箭头不再被父级 overflow 裁掉
+**HEAD**: `9e1327b` — fix(share): 只读页保留有序列表的起始编号
 
 ---
 
@@ -408,6 +411,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 13. **任务项 DOM 特殊**：`taskItem` 是 `<li><label/><div><p/><ul/></div></li>`，子列表不在 li 的直接子级；折叠 widget、块手柄让位判断、CSS 选择器都要兼容 `> div >`。折叠注释是独立 `html_block` 且总在 `list_item_open` 之前，必须在 token 预处理阶段挂到紧随其后的列表项。
 14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
 15. **嵌套列表的 `overflow:hidden` 会裁掉折叠箭头**：箭头是 `position:absolute; left:-26px`，落在父级 `ul` 的左边界之外；为折叠裁切给 `li > ul/ol` 加 `overflow:hidden` 会把深层箭头一起裁没，表现为「只有顶层有箭头、子级全空白」。改用 `overflow:visible` + `clip-path: inset(0 -9999px 0 -9999px)` 只裁垂直方向，并让 widget 与 gutter 色带保持 `pointer-events:auto`，鼠标进入装订区才能触发 `li:hover` 淡入。回归必须断言 widget 中心的 `elementFromPoint` 命中自身——只测 `opacity` 会完全漏掉裁剪问题。
+16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
 
 ---
 
