@@ -146,8 +146,8 @@ function isEmptyCol(col: any): boolean {
  * - 初始创建（如「分栏 2」空白两栏）不触发清理，保留用户显式开出的空栏；
  * - 用户通过「+」显式加出的空栏也不触发清理（仅因内容被清空而触发的空栏才清）。
  */
-let prevEmpties: boolean[] = []
-let firstSeen = false
+// 初始即记录每列的空状态：这样挂载后的第一次编辑就能正确对比（否则首次清空会被当作「首帧」跳过）
+let prevEmpties: boolean[] = Array.from(props.node?.content?.content ?? []).map((c: any) => isEmptyCol(c))
 let pruning = false
 let skipNextPrune = false
 
@@ -155,11 +155,6 @@ function checkPrune() {
   const node = props.node
   if (!node) return
   const cur = Array.from(node.content.content).map((c: any) => isEmptyCol(c))
-  if (!firstSeen) {
-    firstSeen = true
-    prevEmpties = cur
-    return
-  }
   if (skipNextPrune) {
     skipNextPrune = false
     prevEmpties = cur
