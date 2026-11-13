@@ -711,6 +711,24 @@ html.dark {
   margin: 2px 0;
   list-style: none;
 }
+/* 有序列表编号：li 被改成 display:grid（两列 [符号 | 正文]）后不再是
+   display:list-item，内建 counter(list-item) 只保留初值、不会递增，
+   所以原来的 content: counter(list-item) "." 把每一项都渲染成 "0."
+   （<ol start="5"> 则恒为 "4."）。改用自定义 counter：每个 ol 上 reset
+   建立独立作用域，嵌套列表自然重新从 1 数起。 */
+.note-editor .ProseMirror ol {
+  counter-reset: gn-ol 0;
+}
+/* HTML start 属性（Markdown 的 "5. xxx"）：类型化 attr() 换算成初值 start-1。
+   老浏览器不支持时 @supports 不成立，退化为从 1 开始，编号仍连续不会回到 0.。 */
+@supports (counter-reset: x calc(attr(start number, 1) - 1)) {
+  .note-editor .ProseMirror ol[start] {
+    counter-reset: gn-ol calc(attr(start number, 1) - 1);
+  }
+}
+.note-editor .ProseMirror ol li {
+  counter-increment: gn-ol;
+}
 /* 两列 [符号 | 正文]；⠿ / ▾ 在正文左缘外侧导轨，不占 padding */
 .note-editor .ProseMirror ul:not([data-type="taskList"]) li,
 .note-editor .ProseMirror ol li {
@@ -810,7 +828,7 @@ html.dark {
   padding-bottom: 0;
 }
 .note-editor .ProseMirror ol li::before {
-  content: counter(list-item) ".";
+  content: counter(gn-ol) ".";
   grid-column: 1;
   grid-row: 1;
   color: var(--gn-text-muted);
