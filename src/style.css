@@ -889,7 +889,7 @@ html.dark {
   content: "•";
   grid-column: 1;
   grid-row: 1;
-  color: var(--gn-text-muted);
+  color: var(--gn-text-strong);
   height: var(--gn-line-h);
   line-height: var(--gn-line-h);
   text-align: center;

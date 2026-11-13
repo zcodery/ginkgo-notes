@@ -667,10 +667,9 @@ onMounted(() => load())
   box-sizing: border-box;
   padding-right: 14px;
   text-align: right;
-  color: var(--gn-text-muted);
+  color: var(--gn-text-strong);
   background: var(--gn-bg-code);
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
 }
 .sv-body :deep(.sv-code-ln-ghost) {
   flex: 1 1 auto;
