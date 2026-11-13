@@ -196,6 +196,7 @@ ginkgoNotes/
 | 52 | 只读折叠块状态 | ✅ | `<details open>` 进入 sanitize 白名单并按 `data-open` 回填，避免展开态分享出去变收起 |
 | 53 | 列表与编号颜色 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start`；所有编号/标记类（有序数字、无序圆点、代码行号）统一用 `--gn-text-strong`（亮色近黑 `#0f0f0e` / 暗色纯白 `#ffffff`）强化对比，只读页代码行号去掉 `opacity:0.75` 淡化 |
 | 54 | 多栏分栏布局 | ✅ | 正文插入 1–4 栏，栏数 stepper（1–4 限制）+ 宽度比例预设（均分/1:2/2:1 等，按栏数动态）；每栏独立编辑；**现有内容可一键转多栏**——选中多行后 /分栏 或块菜单「转为分栏」即把选区顶层块就地包成分栏，块依次轮流入列（列多补空段、块多轮流分配，支持嵌套）；Markdown 以 `<!-- gn-columns[ widths="..."] -->` + `<!-- gn-col -->` 注释双向往返（含嵌套分栏与等宽省略）；公开分享页静态渲染 `.sv-columns/.sv-column`，`flex-grow` 实现列宽比例，窄屏（≤640px）纵向堆叠 |
+| 55 | 拖拽建栏 / 入栏 / 空栏自动消失 | ✅ | 拖动任意块（左侧 ⠿）到分栏行：**行左右边缘或列间空隙→新建一列**（按指针 x 定位插入位，达 4 栏上限自动降级为追加末列），**落在某列内容区→并入该列**（空列则替换空段）；拖动内容须为合法 `block+`（`column.validContent` 校验，否则回退普通重排）；源块始终删除（移动语义，`tr.mapping` 校正删除坐标）；指示：新建栏竖线 + 「新建栏」徽标、入栏虚线高亮；**空栏动态清理**——某列由有内容变为空自动删除，删到仅剩 1 空列/0 列时整行退化为段落（用则有，不用则无），初始创建与「+」显式空栏不误清 |
 
 ### P1 — 部分完成 / 待完善
 
@@ -333,10 +334,11 @@ ginkgoNotes/
 | 48 | `a49e22d` | fix(editor) | 有序列表编号改用 `--gn-text-strong` 更强对比（亮色近黑/暗色纯白） |
 | 49 | `c9e3249` | fix(editor) | 其余编号类颜色一并改深（无序圆点 + 代码行号），只读页行号去淡化 |
 | 50 | `05f081b` | feat(editor) | 现有内容可一键转为多栏（convertToColumns + 斜杠 + 块菜单，支持选中多行批量并排） |
+| 51 | `b72931d` | feat(editor) | 拖块建栏 / 拖入栏 / 空栏动态消失（moveBlocksToColumn + removeColumnsAt + unwrapColumns + 拖拽落点识别） |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `05f081b` — feat(editor): 现有内容可一键转为多栏（convertToColumns + 斜杠 + 块菜单）
+**HEAD**: `b72931d` — feat(editor): 拖块建栏 / 拖入栏 / 空栏动态消失
 
 ---
 
@@ -420,6 +422,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
 15. **嵌套列表的 `overflow:hidden` 会裁掉折叠箭头**：箭头是 `position:absolute; left:-26px`，落在父级 `ul` 的左边界之外；为折叠裁切给 `li > ul/ol` 加 `overflow:hidden` 会把深层箭头一起裁没，表现为「只有顶层有箭头、子级全空白」。改用 `overflow:visible` + `clip-path: inset(0 -9999px 0 -9999px)` 只裁垂直方向，并让 widget 与 gutter 色带保持 `pointer-events:auto`，鼠标进入装订区才能触发 `li:hover` 淡入。回归必须断言 widget 中心的 `elementFromPoint` 命中自身——只测 `opacity` 会完全漏掉裁剪问题。
 17. **分栏 Markdown 往返的 `splitColumns` 必须只取分隔符之间**：序列化用 `<!-- gn-columns -->` 包整体、每列用 `<!-- gn-col -->` 分隔；反序列化切分时若从位置 0 起切，首个分隔符前的填充换行会生成一个空列 chunk，导致左列内容错位到第二列。修复：仅当遇到顶层分隔符且已有一个起始点时才收尾上一段，`start` 始终指向当前分隔符之后；嵌套分栏靠 `gn-columns` 开合深度计数，不参与顶层切分。
+18. **拖块入栏的两个坐标坑**：①追加到分栏末尾时 `colStarts[idx]` 在 `idx === childCount` 处是 `undefined`，必须用 `columnsPos + node.nodeSize - 1`（分栏内容末尾）作为插入位；②同一事务里先 `tr.insert` 新列再删除源块，源块坐标必须用 `tr.mapping.map(from/to)` 映射后再 `tr.delete`，否则源在插入点之前时删除位置错位。另外 `.gn-column` 是 NodeView 渲染的跨组件元素，`scoped` 样式加不上，入栏高亮类（`.gn-col-drop-into`）必须写在全局 `style.css`。
 16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
 
 ---
