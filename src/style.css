@@ -33,6 +33,7 @@
   --gn-text: #252523;
   --gn-text-soft: #5f5f5c;
   --gn-text-muted: #96968f;
+  --gn-text-strong: #0f0f0e; /* 比 --gn-text 更深，用于有序列表编号等需强对比处 */
   --gn-border: #ebebe8;
   --gn-border-strong: #dededa;
   --gn-accent: #2f6b4f;
@@ -83,6 +84,7 @@ html.dark {
   --gn-text: #ececea;
   --gn-text-soft: #b3b3ad;
   --gn-text-muted: #83837c;
+  --gn-text-strong: #ffffff; /* 暗色下纯白，保证编号最高对比度 */
   --gn-border: #2c2c2a;
   --gn-border-strong: #3a3a37;
   --gn-accent: #6cb894;
@@ -874,7 +876,7 @@ html.dark {
   content: counter(gn-ol) ".";
   grid-column: 1;
   grid-row: 1;
-  color: var(--gn-text);
+  color: var(--gn-text-strong);
   font-variant-numeric: tabular-nums;
   height: var(--gn-line-h);
   line-height: var(--gn-line-h);

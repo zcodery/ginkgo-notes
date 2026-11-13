@@ -443,6 +443,9 @@ onMounted(() => load())
 .sv-body :deep(ol) {
   list-style: decimal;
 }
+.sv-body :deep(ol li::marker) {
+  color: var(--gn-text-strong);
+}
 .sv-body :deep(li) {
   margin: 0.15em 0;
 }
