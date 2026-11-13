@@ -200,6 +200,7 @@ ginkgoNotes/
 | 56 | 拖到普通行即并排开栏 | ✅ | 拖块到**任何还没有分栏的行**都能就地开一栏，落点模型为「**按 Y 锁定行、按 X 判左右侧带**」：遍历正文顶层行 DOM 找行带包住指针 y 的行（多行交界取离指针最近的一行，并跳过与拖拽范围重叠的行），行左右各 22%（夹取 48–200px）为侧带 → 与目标并排成两栏，中间区域返回 null 交回普通重排（上下换位），两种手势互不抢占；指针允许落在行的**外侧**（装订线 / 行尾留白），不要求 `posAtCoords` 命中正文；目标自动提升到「顶层块」（清单条目命中时按整张清单算）；拖动清单条目时按原列表类型与属性回包（`toColumnContent`，有序列表保留 `start`）才能成为合法一列；与目标范围重叠（如拖回同一张清单）、目标为空段落时回退普通重排；目标本身是已存在的分栏时，落在其左右外侧改为「在该侧新建一列」（不嵌套分栏）；命令返回 false 时兜底按普通移动落位，避免「松手回到原位」 |
 | 57 | 拖拽交互修复（自绘指针拖拽） | ✅ | **原生 HTML5 拖拽在 `dragstart` 里隐藏手柄（拖拽源）会被浏览器直接取消整个拖拽** → 改为 `mousedown` + document `mousemove/mouseup` 自绘拖拽，不依赖 dragstart/dragover/drop；5px 阈值区分「点击开菜单」与「拖动」；拖拽中跟随指针显示「并排成栏/新建栏/移入此栏/上下移动」胶囊，靠近上下边缘自动滚动。**`target instanceof HTMLElement` 对 SVG 手柄恒为 false**（SVGElement 不是 HTMLElement），指针移到手柄就会把手柄隐藏、mousedown 落到 `.nv-inner` → 改用 `Element`。分栏落点改从 columns 节点 DOM 取 `.gn-columns-row`（指针在容器边框/内边距上时 `elementFromPoint` 命中的是 `.gn-columns` 本身）。栏内块有独立手柄（`tryResolveColumnChild`），可单独拖出/拖到另一栏，源栏空了自动消失；删除统一走 `safeDeleteRange`（覆盖整列内容时扩大为整列，避免 `column` 变空导致 schema 非法） |
 | 58 | 拖拽落点改「侧带」判定 | ✅ | 修掉「拖到另一行的左侧/右侧分不了栏」：旧实现要求指针必须**压在正文上**（`posAtCoords` 能命中）且 y 落在行的中间 63%，真实拖动时指针常在行的外侧（装订线/行尾留白）或贴住行的上下沿 → 判定落空、退回排序。改为 ①`columnsPosAtPoint` 用 `elementFromPoint` 找最内层 `.gn-columns`，指针在分栏边框/内边距上也能正确入栏；②`computeRowColumnDrop` 完全脱离 `posAtCoords`，按 y 遍历 `pm.children` 锁定行、按 x 侧带决定左/右，指针允许在行外 ±96px；③交界处按「离指针垂直中心最近」选行并跳过与拖拽范围重叠的行（原来取最矮会选中拖拽源自己）；④目标是已存在分栏且指针在其外侧时新建一列。拖拽胶囊细分为「在左侧成栏 / 在右侧成栏 / 新建栏 / 移入此栏 / 上下移动」 |
+| 59 | 清单条目级并排成栏 | ✅ | 拖待办/列表里的**某一条**到另一条的左侧或右侧即可分栏：目标条目从原清单切出单独成列，原清单按位置拆成「前面的条目 + 分栏 + 后面的条目」（`makeColumnsWithListItem`），两列各自按原列表类型与属性回包、`taskItem` 的 `checked` 保留；列表只剩一条时天然退化为整体替换，不留空列表。落点先按 y 用 `posAtCoords` 锁定具体条目，再用该条目的矩形做左右侧带（22%，夹取 48–200px），中间区域仍走上下重排。此前整张清单被当作目标、与拖拽源重叠而被跳过，表现为「怎么拖都是上下移动」 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -340,10 +341,11 @@ ginkgoNotes/
 | 52 | `d86e097` | feat(editor) | 拖到任意普通行中间即并排开一栏（makeColumnsWithBlock + 清单条目回包 + 落点分区） |
 | 53 | `0af3d08` | fix(editor) | 拖拽建栏彻底修好：自绘指针拖拽替代原生 HTML5 拖拽、SVG 手柄命中修复、栏内块独立手柄、safeDeleteRange |
 | 54 | `7ff049d` | fix(editor) | 拖到任意行的左右侧都能并排成栏：落点改按 Y 锁行 + X 侧带，指针可在行外、交界处取最近行 |
+| 55 | `15d6563` | feat(editor) | 清单条目级并排成栏（makeColumnsWithListItem + 按条目矩形判左右侧带） |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `7ff049d` — fix(editor): 拖到任意行的左右侧都能并排成栏（按 Y 锁行 + X 侧带）
+**HEAD**: `15d6563` — feat(editor): 清单条目也能拖到左右侧并排成栏
 
 ---
 
@@ -434,6 +436,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 21. **`instanceof HTMLElement` 会漏掉 SVG**：lucide 图标是 `SVGElement`，`svg instanceof HTMLElement === false`。`updateBlockHandleFromPointer` 曾用它判断「指针是否在手柄上」，导致指针移到手柄那一刻就被当成悬停在正文 → 手柄被隐藏 → 随后的 `mousedown` 落到 `.nv-inner`，拖拽永远无法开始（同样不报错）。判断 DOM 归属统一用 `instanceof Element`。
 22. **删除范围可能让 `column` 变空**：`column` 的 content 是 `block+`，把某列唯一内容删掉会留下非法空列，ProseMirror 直接抛错。所有「移动/删除块」的位置都要先过 `safeDeleteRange(doc, from, to)`：范围覆盖整列内容时扩大为整列，只剩这一列时扩大为整个 `columns`。
 23. **拖拽落点别依赖「指针压在正文上」**：用 `view.posAtCoords()` 或 `resolveBlock()` 判定拖拽目标行，会隐含要求指针命中正文元素与文本位置。用户「拖到某行的左侧/右侧」时，指针往往已经在行的外面（左侧装订线、行尾留白），`posAtCoords` 直接返回 null → 整条分栏判定链断开 → 退回普通重排，表现为「怎么拖都只是换位置」。正确做法：**按 y 遍历 `view.dom.children` 的矩形锁行，按 x 判左右侧带**，两者都不依赖命中。另外两条随之而来的坑：①行与行是紧贴的，指针停在交界处会同时命中上下两行，按「高度最小」选会选中拖拽源自己，必须按「离指针垂直中心最近」选并跳过与拖拽范围重叠的行；②分栏内的判定也别用 `closest('.gn-column')` 反查 pos，改用 `elementFromPoint` 拿到 `.gn-columns` 元素后与 `view.nodeDOM(pos)` 比对，这样指针落在容器边框/内边距上也能正确入栏。
+24. **清单行是「一个块」，但分栏要按「条目」粒度**：`view.dom.children` 里整张 `ul/ol` 只占一行 DOM，`resolveRowBlockPos` 对列表永远返回**第一条**的 pos。若直接把这行当目标，会得到「整张清单」——它必然与拖拽源重叠（源就在同一张清单里）而被跳过，表现就是拖待办项时怎么拖都只显示「上下移动」。正确做法：先用 `posAtCoords({left: 列表左侧, top: 指针 y})` 定位到**具体那一条**，再用这一条的 `li` 矩形做左右侧带判定；落位时不能把整张清单换成一列（那会把所有条目塞进同一列），要把目标条目从清单里切出来单独成列，原清单按位置拆成「前面的条目 + 分栏 + 后面的条目」（见 `makeColumnsWithListItem`），拆分前必须先删除拖拽源并用 `tr.mapping.map` 重新定位目标条目——源和目标常常在同一张清单里，删掉源之后索引会变。
 
 ---
 
