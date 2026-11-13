@@ -743,6 +743,14 @@ html.dark {
   left: calc(-1 * var(--gn-gutter-lead));
   width: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
 }
+/* 有折叠箭头的行：左侧装订区色带必须参与 hit-test。
+   箭头是 position:absolute 且落在 li.left - 26px，随着嵌套变深会越过最外层
+   li 的左边界、进入祖先 li 的盒子。若色带仍是 pointer-events:none，
+   elementFromPoint 只会命中祖先 li，li:hover 也就只命中顶层——结果顶层
+   箭头亮、深层箭头全灭。色带高度只有首行、右边界止于符号列，不盖正文文字。 */
+.note-editor .ProseMirror li:has(> .gn-list-fold, > div > .gn-list-fold)::after {
+  pointer-events: auto;
+}
 .note-editor .ProseMirror ul:not([data-type="taskList"]) li > p,
 .note-editor .ProseMirror ol li > p {
   grid-column: 2;
@@ -763,10 +771,15 @@ html.dark {
   position: relative;
   z-index: 1;
   min-height: 0;
-  overflow: hidden;
+  /* 只裁垂直方向。原来的 overflow:hidden 会连同子项左侧负定位的折叠箭头
+     一起裁掉：箭头落在 li.left - 26px，嵌套越深越往祖先 li 的盒子里挪，
+     于是顶层箭头可见、深层箭头全被父级 ul 裁没。clip-path 左右各放开
+     9999px 保住装订区，垂直仍裁到容器边界，轨道归零时内容一样裁得干净。 */
+  overflow: visible;
+  clip-path: inset(0 -9999px 0 -9999px);
   /* li 上有 align-items:start，会让 grid item 保持自然高度而不拉伸。
      第二行轨道收到 0 后子列表仍撑着 60+px 并溢出父容器（内容看得见！），
-     必须显式 stretch，让 item 高度跟着轨道走，overflow:hidden 才裁得到内容。 */
+     必须显式 stretch，让 item 高度跟着轨道走，裁切才生效。 */
   align-self: stretch;
 }
 /* 折叠的静态终态。过渡由 foldAnim.ts 用 WAAPI 补（PM 会重建节点，CSS transition
@@ -844,7 +857,11 @@ html.dark {
   cursor: pointer;
   color: var(--gn-text-muted);
   opacity: 0;
-  pointer-events: none;
+  /* 不可见但始终可命中：opacity 不影响 hit-test，只有 pointer-events 影响。
+     深层嵌套时箭头坐标会进入祖先 li 的盒子，若这里是 none，hit-test 会被
+     祖先 li 抢走，li:hover 只命中顶层，深层箭头便永远淡入不了。
+     鼠标进入箭头区域 → 命中本行 widget → li:hover 成立 → 下方规则淡入并可点。 */
+  pointer-events: auto;
   border-radius: 5px;
   user-select: none;
   transition:
@@ -884,14 +901,11 @@ html.dark {
   color: var(--gn-accent);
   background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
 }
-/* 光标在子列表里时，不显示父项折叠箭头（收起态 / 当前激活行除外） */
-.note-editor .ProseMirror li:has(> .gn-list-fold, > div > .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within, > div > p:focus-within)):not([data-collapsed="true"])
-  > .gn-list-fold:not(.is-active),
-.note-editor .ProseMirror li:has(> .gn-list-fold, > div > .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within, > div > p:focus-within)):not([data-collapsed="true"])
-  > div > .gn-list-fold:not(.is-active) {
-  opacity: 0;
-  pointer-events: none;
-}
+/* 旧规则「光标在子列表里时隐藏父项箭头」已移除：
+   上面的 li:hover:not(:has(li:hover)) 已经保证只点亮最内层 hover 行，
+   键盘在子列表里输入而鼠标不在行上时本来就没有 li:hover、也就没有箭头。
+   保留旧规则反而会在编辑器聚焦子列表时把命中行自己的箭头设回
+   opacity:0 / pointer-events:none，让深层箭头再次「点不到」。 */
 .note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold::before,
 .note-editor .ProseMirror li[data-collapsed="true"] > div > .gn-list-fold::before {
   transform: rotate(0deg);
