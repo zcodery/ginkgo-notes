@@ -47,6 +47,13 @@
   --gn-text-pad: 3px; /* 段落上下内边距 */
   --gn-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
   --gn-mono: "SFMono-Regular", ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, Menlo, monospace;
+  /* 折叠动画常量：编辑器与公开分享页共用，必须放全局（分享页不在 .note-editor 内） */
+  --gn-collapse-duration: 0.3s;
+  --gn-collapse-fade: 0.3s;
+  --gn-collapse-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 统一折叠箭头：lucide ChevronRight 细线路径，做 mask 后由 currentColor 上色，
+     比字体字符 ▸/▾ 更清爽，也不会随系统字体变化而错位 */
+  --gn-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E");
   color-scheme: light;
 }
 
@@ -106,6 +113,19 @@ body {
   text-rendering: optimizeLegibility;
   font-size: 15px;
   overflow: hidden;
+}
+
+/* 公开分享页不在 .app-shell 里，改用文档原生滚动（由 App.vue 按路由挂 class） */
+html.gn-standalone,
+body.gn-standalone {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+body.gn-standalone #app {
+  height: auto;
+  min-height: 100%;
 }
 
 ::selection {
@@ -247,10 +267,7 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   --gn-gutter-body: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
   /* 浮动手柄列：相对 .note-editor 左缘，不挤正文 */
   --gn-handle-left: calc(-1 * var(--gn-gutter-compact));
-  /* 列表子级 / 折叠块 展开收起 */
-  --gn-collapse-duration: 0.3s;
-  --gn-collapse-fade: 0.3s;
-  --gn-collapse-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 折叠动画常量与 chevron 已提到 :root（分享页也要用） */
   /* 首行行盒内锚点比例（0=顶 1=底）：⠿ 略上、Hn 略下，减轻图标/大写字形错位 */
   --gn-handle-body-y-ratio: 0.46;
   --gn-handle-heading-y-ratio: 0.55;
@@ -721,7 +738,8 @@ html.dark {
   z-index: 0;
 }
 .note-editor .ProseMirror ul:not([data-type="taskList"]) li:has(> .gn-list-fold)::after,
-.note-editor .ProseMirror ol li:has(> .gn-list-fold)::after {
+.note-editor .ProseMirror ol li:has(> .gn-list-fold)::after,
+.note-editor .ProseMirror ul[data-type="taskList"] li:has(> div > .gn-list-fold)::after {
   left: calc(-1 * var(--gn-gutter-lead));
   width: calc(var(--gn-gutter-lead) + var(--gn-gutter-text));
 }
@@ -746,17 +764,37 @@ html.dark {
   z-index: 1;
   min-height: 0;
   overflow: hidden;
+  /* li 上有 align-items:start，会让 grid item 保持自然高度而不拉伸。
+     第二行轨道收到 0 后子列表仍撑着 60+px 并溢出父容器（内容看得见！），
+     必须显式 stretch，让 item 高度跟着轨道走，overflow:hidden 才裁得到内容。 */
+  align-self: stretch;
 }
-.note-editor .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li)[data-collapsed="true"]:has(> :is(ul, ol)):not(.gn-fold-host-anim) {
-  grid-template-rows: auto 0px;
+/* 折叠的静态终态。过渡由 foldAnim.ts 用 WAAPI 补（PM 会重建节点，CSS transition
+   拿不到起始值）。minmax(0, Xfr) 里的 0 是关键 —— 直接写 0fr 的话自动最小值
+   仍取内容 min-content，第二行压不到 0。 */
+.note-editor .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li):has(> :is(ul, ol)) {
+  grid-template-rows: auto minmax(0, 1fr);
 }
-.note-editor .ProseMirror .gn-fold-panel-anim {
+.note-editor .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li)[data-collapsed="true"]:has(> :is(ul, ol)) {
+  grid-template-rows: auto minmax(0, 0fr);
+}
+/* 收起后别让子列表的 2px 上外边距再撑出一条缝 */
+.note-editor .ProseMirror li[data-collapsed="true"] > :is(ul, ol) {
+  margin-top: 0;
+}
+/* 任务列表项：子列表被包在 contentDOM 的 div 里（li > label + div > p + ul），
+   不是 li 的第二个 grid item，所以上面那套 grid 折叠管不到它。
+   这里只给收起终态（height:0），过渡由 foldAnim.ts 的 WAAPI 补 height 动画。
+   用 height:0 + overflow:hidden 而不是 display:none，scrollHeight 才能拿到自然高度，
+   也才能保留展开时的内容布局。 */
+.note-editor .ProseMirror ul[data-type="taskList"] li[data-collapsed="true"] > div > :is(ul, ol) {
+  height: 0;
   min-height: 0;
   overflow: hidden;
-}
-.note-editor .ProseMirror .gn-fold-host-anim > :is(ul, ol, .gn-details-content) {
-  min-height: 0;
-  overflow: hidden;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 .note-editor .ProseMirror ol li::before {
   content: counter(list-item) ".";
@@ -816,33 +854,47 @@ html.dark {
     transform var(--gn-collapse-fade) var(--gn-collapse-ease);
   z-index: 5;
 }
-/* ▾：当前行（.is-active / 最内层 hover）或已收起；不依赖 li 上的 class（PM 会清） */
+/* ▾：当前行（.is-active / 最内层 hover）或已收起；不依赖 li 上的 class（PM 会清）。
+   widget 的位置有两种：普通 listItem 是 `li > .gn-list-fold`，taskItem 的 contentDOM
+   是 div，widget 会落在 `li > div > .gn-list-fold`。两种都要命中，否则任务项的箭头
+   永远停在 opacity:0 / pointer-events:none，看得见结构却点不到。 */
 .note-editor .ProseMirror .gn-list-fold.is-active,
-.note-editor .ProseMirror li:has(> .gn-list-fold):hover:not(:has(li:hover)) > .gn-list-fold,
-.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold {
+.note-editor .ProseMirror li:hover:not(:has(li:hover)) > .gn-list-fold,
+.note-editor .ProseMirror li:hover:not(:has(li:hover)) > div > .gn-list-fold,
+.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold,
+.note-editor .ProseMirror li[data-collapsed="true"] > div > .gn-list-fold {
   opacity: 0.72;
   pointer-events: auto;
   transition-delay: 0s;
 }
 .note-editor .ProseMirror .gn-list-fold::before {
-  content: "▾";
-  font-size: 15px;
-  line-height: 1;
-  transform: translateY(1px);
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  background-color: currentColor;
+  -webkit-mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  /* chevron 原图朝右：展开时转 90° 朝下，收起时回到朝右 */
+  transform: rotate(90deg);
   transition: transform var(--gn-collapse-fade) var(--gn-collapse-ease);
 }
 .note-editor .ProseMirror .gn-list-fold:hover {
   opacity: 1;
+  color: var(--gn-accent);
   background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
 }
 /* 光标在子列表里时，不显示父项折叠箭头（收起态 / 当前激活行除外） */
-.note-editor .ProseMirror li:has(> .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within)):not([data-collapsed="true"])
-  > .gn-list-fold:not(.is-active) {
+.note-editor .ProseMirror li:has(> .gn-list-fold, > div > .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within, > div > p:focus-within)):not([data-collapsed="true"])
+  > .gn-list-fold:not(.is-active),
+.note-editor .ProseMirror li:has(> .gn-list-fold, > div > .gn-list-fold):has(ul :focus-within, ol :focus-within):not(:has(> p:focus-within, > div > p:focus-within)):not([data-collapsed="true"])
+  > div > .gn-list-fold:not(.is-active) {
   opacity: 0;
   pointer-events: none;
 }
-.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold::before {
-  transform: translateY(1px) rotate(-90deg);
+.note-editor .ProseMirror li[data-collapsed="true"] > .gn-list-fold::before,
+.note-editor .ProseMirror li[data-collapsed="true"] > div > .gn-list-fold::before {
+  transform: rotate(0deg);
 }
 /* 嵌套列表层级引导线（相对子列表左缘） */
 .note-editor .ProseMirror ul:not([data-type="taskList"]) > li > ul::before,
@@ -968,7 +1020,7 @@ html.dark {
 .note-editor .ProseMirror details.gn-details {
   position: relative;
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid var(--gn-border);
   border-radius: var(--gn-radius);
   margin: 8px 0;
@@ -976,6 +1028,26 @@ html.dark {
   overflow: visible;
   background: transparent;
   transition: border-color 0.12s;
+}
+/* 新版 Chromium / Safari 会把 <details> 里除 summary 以外的内容包进
+   ::details-content 伪元素，它才是 grid 第二行的 item。只靠内层 div 的
+   overflow:hidden 没用 —— div 会带着自然高度越过轨道为 0 的伪元素继续显示，
+   于是「轨道归零了但内容还挂在外面」。必须让伪元素自身也裁剪并拉伸。 */
+.note-editor .ProseMirror details.gn-details::details-content {
+  overflow: hidden;
+  min-height: 0;
+  align-self: stretch;
+}
+/* 老兜底：不认识 ::details-content 的浏览器，只裁垂直方向溢出，
+   左右各放开 9999px 以保住左侧装订区（⠿ 手柄 / 折叠箭头）不被裁掉。
+   现代浏览器把 clip-path 撤掉，交给上面的伪元素处理，避免影响内部下拉面板。 */
+.note-editor .ProseMirror details.gn-details[data-open="false"] {
+  clip-path: inset(0 -9999px 0 -9999px);
+}
+@supports selector(details::details-content) {
+  .note-editor .ProseMirror details.gn-details[data-open="false"] {
+    clip-path: none;
+  }
 }
 .note-editor .ProseMirror details.gn-details[data-open="true"] {
   border-color: color-mix(in srgb, var(--gn-accent) 30%, var(--gn-border));
@@ -992,33 +1064,50 @@ html.dark {
 .note-editor .ProseMirror details.gn-details > summary.gn-details-summary::-webkit-details-marker {
   display: none;
 }
+/* 箭头拆成两层：::before 是圆形 hover 底，::after 是细线 chevron。
+   不能合并 —— mask 会把 hover 底色一起裁掉，只剩一条线。 */
 .note-editor .ProseMirror details.gn-details > summary.gn-details-summary::before {
-  content: "▸";
+  content: "";
   position: absolute;
   left: 8px;
   top: 50%;
-  width: 26px;
-  height: 26px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transform: translateY(-50%);
-  color: var(--gn-accent);
-  font-size: 15px;
-  line-height: 1;
-  border-radius: 5px;
+  width: 24px;
+  height: 24px;
+  margin-top: -12px;
+  border-radius: 7px;
+  background: transparent;
+  transition: background 0.15s ease;
+}
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary::after {
+  content: "";
+  position: absolute;
+  left: 13px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin-top: -7px;
+  color: var(--gn-text-soft);
+  background-color: currentColor;
+  -webkit-mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  transform: rotate(0deg);
   transition:
     transform var(--gn-collapse-fade) var(--gn-collapse-ease),
-    background 0.12s;
+    color 0.15s ease;
+  pointer-events: none;
 }
 .note-editor .ProseMirror details.gn-details > summary.gn-details-summary:hover::before {
   background: color-mix(in srgb, var(--gn-accent) 12%, transparent);
 }
-.note-editor .ProseMirror details.gn-details[data-open="true"] > summary.gn-details-summary::before {
-  transform: translateY(-50%) rotate(90deg);
+.note-editor .ProseMirror details.gn-details > summary.gn-details-summary:hover::after {
+  color: var(--gn-accent);
 }
-.note-editor .ProseMirror details.gn-details[data-open="false"]:not(.gn-fold-host-anim) {
-  grid-template-rows: auto 0px;
+.note-editor .ProseMirror details.gn-details[data-open="true"] > summary.gn-details-summary::after {
+  transform: rotate(90deg);
+  color: var(--gn-accent);
+}
+.note-editor .ProseMirror details.gn-details[data-open="false"] {
+  grid-template-rows: auto minmax(0, 0fr);
 }
 .note-editor .ProseMirror details.gn-details > div.gn-details-content {
   padding: 10px 12px 12px;
@@ -1026,8 +1115,12 @@ html.dark {
   background: transparent;
   overflow: hidden;
   min-height: 0;
+  align-self: stretch;
   border-radius: 0 0 var(--gn-radius) var(--gn-radius);
 }
+/* 收起态**不要**动内容区的 padding / border-top：那样会在 dispatch 的瞬间先把
+   内容上提 23px、分割线立刻消失，动画还没开始就已经跳了一下。
+   轨道归零后由 ::details-content 的 overflow:hidden 统一裁掉，不需要改内层尺寸。 */
 .note-editor .ProseMirror details.gn-details > div.gn-details-content > * + * {
   margin-top: 4px;
 }
@@ -1264,13 +1357,14 @@ html.dark {
   background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact));
 }
 /* 列表：用 ::after 画首行色带（不用整行 background，避免牵连子列表） */
-.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li, ul[data-type="taskList"] li):not(:has(> .gn-list-fold))::after {
+.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li, ul[data-type="taskList"] li):not(:has(> .gn-list-fold, > div > .gn-list-fold))::after {
   top: 2px;
   height: var(--gn-line-h);
   width: var(--gn-gutter-band);
   background-image: linear-gradient(90deg, color-mix(in srgb, var(--gn-accent) 10%, transparent) 0, color-mix(in srgb, var(--gn-accent) 10%, transparent) var(--gn-gutter-grip), transparent var(--gn-gutter-grip), color-mix(in srgb, var(--gn-border) 35%, transparent) var(--gn-gutter-compact), transparent var(--gn-gutter-compact), color-mix(in srgb, var(--gn-border) 22%, transparent) var(--gn-gutter-band), transparent var(--gn-gutter-band));
 }
-.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li):has(> .gn-list-fold)::after {
+.note-editor.is-gutter-tuning .ProseMirror :is(ul:not([data-type="taskList"]) li, ol li):has(> .gn-list-fold)::after,
+.note-editor.is-gutter-tuning .ProseMirror ul[data-type="taskList"] li:has(> div > .gn-list-fold)::after {
   left: calc(-1 * var(--gn-gutter-lead));
   top: 2px;
   height: var(--gn-line-h);
