@@ -1970,6 +1970,10 @@ function computeColumnDrop(columnsPos: number, clientX: number, clientY: number)
   if (!el) return null
   const rowEl = el.closest('.gn-columns-row') as HTMLElement | null
   if (!rowEl) return null
+  // 命中的分栏必须是当前解析到的这一层（嵌套分栏时避免作用到外层）
+  const columnsEl = rowEl.closest('.gn-columns') as HTMLElement | null
+  const nodeDom = ed.view.nodeDOM(columnsPos) as HTMLElement | null
+  if (!columnsEl || !nodeDom || columnsEl !== nodeDom) return null
   const root = rootRef.value
   if (!root) return null
   const colEls = Array.from(rowEl.children).filter((c) => c.classList?.contains('gn-column')) as HTMLElement[]
