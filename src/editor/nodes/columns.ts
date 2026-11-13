@@ -140,6 +140,20 @@ declare module '@tiptap/core' {
         to: number
         side: 'left' | 'right'
       }) => ReturnType
+      /**
+       * 清单条目级的「并排成栏」。
+       *
+       * 目标是一个 listItem/taskItem 时不能按整张清单换成分栏（那会把整张表放进一列），
+       * 必须把这一条从列表里**切出来单独成列**：原列表按位置拆成「前面的条目」
+       * + 分栏 + 「后面的条目」，分栏两列分别是目标条目与拖入内容（各自回包成同类列表）。
+       * 列表只有这一条时退化为整体替换，不会留下空列表。
+       */
+      makeColumnsWithListItem: (opts: {
+        itemPos: number
+        from: number
+        to: number
+        side: 'left' | 'right'
+      }) => ReturnType
       /** 按索引删除分栏中的若干列（索引去重、按原位置降序删除）；若删除后仅剩 1 个空列或 0 列则自动退出分栏 */
       removeColumnsAt: (opts: { columnsPos: number; indices: number[] }) => ReturnType
       /** 把分栏整行退化为一个空段落 */
@@ -336,8 +350,77 @@ export const Columns = Node.create({
           return true
         },
 
-      removeColumnsAt:
-        (opts: { columnsPos: number; indices: number[] }) =>
+      makeColumnsWithListItem:
+        (opts: { itemPos: number; from: number; to: number; side: 'left' | 'right' }) =>
+        ({ state, dispatch, tr }) => {
+          const { itemPos, from, to, side } = opts
+          if (to <= from) return false
+          // 源就是目标条目本身 / 源范围覆盖目标 → 没有意义
+          if (itemPos >= from && itemPos < to) return false
+
+          const item = state.doc.nodeAt(itemPos)
+          if (!item || (item.type.name !== 'listItem' && item.type.name !== 'taskItem')) return false
+          const $item = state.doc.resolve(itemPos)
+          const list = $item.parent
+          if (!LIST_TYPES.includes(list.type.name)) return false
+
+          const columnType = state.schema.nodes.column
+          const columnsType = state.schema.nodes.columns
+          if (!columnType || !columnsType) return false
+
+          const raw: Fragment = state.doc.slice(from, to).content
+          if (raw.size === 0) return false
+          const content = toColumnContent(state, raw, from)
+          if (!content) return false
+
+          // 目标条目单独回包成同类列表（保留 taskItem 的 checked 等属性），才能作为一列
+          const targetFrag = Fragment.from(list.type.create(list.attrs, Fragment.from(item)))
+          if (!columnType.validContent(targetFrag)) return false
+          const targetCol = columnType.create({ width: 1 }, targetFrag)
+          const dragCol = columnType.create({ width: 1 }, content)
+          const columnsNode = columnsType.create(null, side === 'left' ? [dragCol, targetCol] : [targetCol, dragCol])
+
+          if (dispatch) {
+            // 1) 先删源块（可能是同一张清单里的另一条，删除后列表结构与位置都会变）
+            const [dFrom, dTo] = safeDeleteRange(state.doc, from, to)
+            tr.delete(dFrom, dTo)
+
+            // 2) 把目标条目映射到删除后的坐标，并重新确认它仍在列表里
+            const itemPos2 = tr.mapping.map(itemPos)
+            const item2 = tr.doc.nodeAt(itemPos2)
+            if (!item2 || (item2.type.name !== 'listItem' && item2.type.name !== 'taskItem')) return false
+            const $i2 = tr.doc.resolve(itemPos2)
+            const list2 = $i2.parent
+            if (!LIST_TYPES.includes(list2.type.name)) return false
+            const listPos2 = $i2.before($i2.depth)
+
+            // 3) 该条目在列表中的序号（按子节点实际偏移累加，避免额外包裹层算错）
+            let idx = 0
+            let p = listPos2 + 1
+            while (p < itemPos2 && idx < list2.childCount) {
+              p += list2.child(idx).nodeSize
+              idx++
+            }
+            const beforeItems: PMNode[] = []
+            const afterItems: PMNode[] = []
+            list2.forEach((child: PMNode, _offset: number, i: number) => {
+              if (i < idx) beforeItems.push(child)
+              else if (i > idx) afterItems.push(child)
+            })
+
+            // 4) 原列表拆成「前面的条目」+ 分栏 + 「后面的条目」；空的半边直接不生成
+            const parts: PMNode[] = []
+            if (beforeItems.length) parts.push(list2.type.create(list2.attrs, Fragment.from(beforeItems)))
+            parts.push(columnsNode)
+            if (afterItems.length) parts.push(list2.type.create(list2.attrs, Fragment.from(afterItems)))
+
+            tr.replaceWith(listPos2, listPos2 + list2.nodeSize, Fragment.from(parts))
+            tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(listPos2 + 3, tr.doc.content.size))))
+          }
+          return true
+        },
+
+      removeColumnsAt:        (opts: { columnsPos: number; indices: number[] }) =>
         ({ state, dispatch, tr }) => {
           const { columnsPos, indices } = opts
           const node = state.doc.nodeAt(columnsPos)

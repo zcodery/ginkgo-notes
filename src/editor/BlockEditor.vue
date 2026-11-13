@@ -1987,6 +1987,8 @@ interface ColDrop {
   targetPos?: number
   /** mode='cols-with'：拖入块落在目标块的左侧还是右侧 */
   side?: 'left' | 'right'
+  /** mode='cols-with'：目标是一条清单条目时，该条目的文档位置（走 makeColumnsWithListItem） */
+  itemPos?: number
   index?: number
   columnIndex?: number
   left?: number
@@ -2145,6 +2147,34 @@ function computeRowColumnDrop(clientX: number, clientY: number): ColDrop | null 
       }
     }
     if (topNode.type.name === 'column') continue
+
+    // 目标是清单（bulletList / orderedList / taskList）：按「条目」粒度并排。
+    // 整张清单换成一列没有意义（会把所有条目塞进同一列），用户要的是「这一条与拖入内容并排」，
+    // 所以要把指针所在的那一条从列表里切出来单独成列（makeColumnsWithListItem）。
+    if (isListTypeName(topNode.type.name)) {
+      const hit = listItemAtY(ed, cand.el, clientY)
+      if (!hit) continue
+      const itemEl = ed.view.nodeDOM(hit.from) as HTMLElement | null
+      if (!itemEl) continue
+      const ir = itemEl.getBoundingClientRect()
+      if (ir.height <= 0) continue
+      // 拖到的那一条就是被拖动的条目本身 → 不处理
+      if ((dragFrom.value as number) < hit.from + hit.node.nodeSize && dragToPos > hit.from) continue
+      const itemSideW = Math.min(Math.max(48, ir.width * 0.22), 200)
+      const itemSide: 'left' | 'right' | null =
+        clientX <= ir.left + itemSideW ? 'left' : clientX >= ir.right - itemSideW ? 'right' : null
+      if (!itemSide) return null
+      return {
+        mode: 'cols-with',
+        targetPos: topFrom,
+        itemPos: hit.from,
+        side: itemSide,
+        left: (itemSide === 'left' ? ir.left : ir.right) - rootRect.left,
+        top: ir.top - rootRect.top,
+        height: ir.height,
+      }
+    }
+
     // 空段落作为落点：交给普通重排（避免产生「一半是空行」的分栏）
     if (topNode.isTextblock && topNode.content.size === 0) continue
     // 拖拽范围与目标顶层块重叠（例如把清单里的条目拖回同一张清单）→ 换下一个候选
@@ -2169,6 +2199,28 @@ function computeRowColumnDrop(clientX: number, clientY: number): ColDrop | null 
     }
   }
   return null
+}
+
+/** 指针落在某张清单上时，按 y 定位到具体的那一条（清单行是一个整体，必须再细分） */
+function listItemAtY(
+  ed: NonNullable<typeof editor.value>,
+  listEl: HTMLElement,
+  clientY: number,
+): { from: number; node: PMNode } | null {
+  const r = listEl.getBoundingClientRect()
+  // x 取列表左侧文字区即可：posAtCoords 只靠 y 定位行，x 只用来避免落在装订线外
+  const left = r.left + Math.min(Math.max(12, r.width / 6), 48)
+  const info = ed.view.posAtCoords({ left, top: clientY })
+  if (!info) return null
+  const mapped = blockFromResolvedPos(ed, info.pos)
+  if (!mapped) return null
+  if (mapped.node.type.name !== 'listItem' && mapped.node.type.name !== 'taskItem') return null
+  return mapped
+}
+
+/** 清单类节点的类型名（顶层块是这些时按条目粒度处理分栏） */
+function isListTypeName(name: string): boolean {
+  return name === 'bulletList' || name === 'orderedList' || name === 'taskList'
 }
 
 /** 指针落在某个分栏内部时，返回最内层 columns 节点的文档位置 */
@@ -2415,6 +2467,21 @@ function performBlockDrop(ed: NonNullable<typeof editor.value>) {
   if (from === to && !t) return
 
   if (t) {
+    // 目标是清单中的某一条：把它从列表里切出来单独成列
+    if (t.mode === 'cols-with' && t.itemPos != null && t.side) {
+      const ok = ed
+        .chain()
+        .focus()
+        .makeColumnsWithListItem({ itemPos: t.itemPos, from, to, side: t.side })
+        .run()
+      if (!ok) {
+        const item = ed.state.doc.nodeAt(t.itemPos)
+        if (item) {
+          moveBlockRange(ed, from, to, t.side === 'left' ? t.itemPos : t.itemPos + item.nodeSize)
+        }
+      }
+      return
+    }
     if (t.mode === 'cols-with' && t.targetPos != null && t.side) {
       const ok = ed
         .chain()
