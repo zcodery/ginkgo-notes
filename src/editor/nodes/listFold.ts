@@ -2,7 +2,7 @@ import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { attachTooltip } from '@/directives/tooltip'
-import { runFoldAnimation } from '@/editor/collapseRun'
+import { animateFold } from '@/editor/foldAnim'
 
 /**
  * 列表项折叠：
@@ -11,8 +11,9 @@ import { runFoldAnimation } from '@/editor/collapseRun'
  * - 折叠状态存在节点属性里，CSS 负责隐藏子列表
  */
 
-const FOLDABLE_PARENTS = new Set(['bulletList', 'orderedList'])
+const FOLDABLE_PARENTS = new Set(['bulletList', 'orderedList', 'taskList'])
 const NESTED_LISTS = new Set(['bulletList', 'orderedList', 'taskList'])
+const FOLDABLE_ITEMS = new Set(['listItem', 'taskItem'])
 
 export const ListFold = Extension.create({
   name: 'listFold',
@@ -20,7 +21,7 @@ export const ListFold = Extension.create({
   addGlobalAttributes() {
     return [
       {
-        types: ['listItem'],
+        types: ['listItem', 'taskItem'],
         attributes: {
           collapsed: {
             default: false,
@@ -42,7 +43,7 @@ export const ListFold = Extension.create({
             const decorations: Decoration[] = []
 
             state.doc.descendants((node, pos, parent) => {
-              if (node.type.name !== 'listItem') return
+              if (!FOLDABLE_ITEMS.has(node.type.name)) return
               if (!parent || !FOLDABLE_PARENTS.has(parent.type.name)) return
 
               const last = node.lastChild
@@ -91,23 +92,17 @@ export const ListFold = Extension.create({
 
               const pos = Number(arrow.dataset.foldPos)
               const node = view.state.doc.nodeAt(pos)
-              if (!node || node.type.name !== 'listItem') return true
+              if (!node || !FOLDABLE_ITEMS.has(node.type.name)) return true
 
               const expanding = !!node.attrs.collapsed
-              const nextCollapsed = !node.attrs.collapsed
-              const li = arrow.closest('li') as HTMLElement | null
-              const sub = li?.querySelector(':scope > ul, :scope > ol') as HTMLElement | null
-
-              const commit = () => {
-                view.dispatch(
-                  view.state.tr.setNodeMarkup(pos, undefined, {
-                    ...node.attrs,
-                    collapsed: nextCollapsed,
-                  }),
-                )
-              }
-
-              runFoldAnimation(li, sub, expanding, commit)
+              view.dispatch(
+                view.state.tr.setNodeMarkup(pos, undefined, {
+                  ...node.attrs,
+                  collapsed: !node.attrs.collapsed,
+                }),
+              )
+              // 取重建后的 li 补动画，理由见 foldAnim.ts
+              animateFold(view.nodeDOM(pos), expanding)
               return true
             },
           },

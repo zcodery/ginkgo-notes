@@ -20,6 +20,7 @@ import BlockMenu, { type BlockMenuInfo, type BlockMenuPage } from "./BlockMenu.v
 import TableControls from "./TableControls.vue"
 import AiPanel from "./AiPanel.vue"
 import { tr } from "@/i18n/phrases"
+import { copyText } from "@/utils/clipboard"
 import type { AiMode } from "./ai"
 
 const props = withDefaults(
@@ -232,12 +233,20 @@ let handleTargetDom: HTMLElement | null = null
 /** 当前显示 ▾ 的 listItem 行（类挂在 widget 上，避免 PM 重绘清掉 li 上的 class） */
 let gutterHoverLi: HTMLElement | null = null
 
+/**
+ * 折叠 widget 的落点有两种：普通 listItem 是 `li > .gn-list-fold`，
+ * taskItem 的 contentDOM 是 div，widget 会落在 `li > div > .gn-list-fold`。
+ * 块手柄让位 / 高亮当前行都要兼容后者，否则 ⠿ 会直接压在任务项的折叠箭头上。
+ */
+function foldWidgetOf(li: Element | null | undefined): HTMLElement | null {
+  return (li?.querySelector(":scope > .gn-list-fold, :scope > div > .gn-list-fold") as HTMLElement | null) ?? null
+}
+
 function syncActiveFold(li: HTMLElement | null) {
   const pm = editor.value?.view.dom as HTMLElement | undefined
   pm?.querySelectorAll(".gn-list-fold.is-active").forEach(el => el.classList.remove("is-active"))
   gutterHoverLi = li
-  const fold = li?.querySelector(":scope > .gn-list-fold")
-  fold?.classList.add("is-active")
+  foldWidgetOf(li)?.classList.add("is-active")
 }
 
 function clearGutterHoverRow() {
@@ -904,7 +913,7 @@ function computeHandleLeft(block: HoverBlock, root: HTMLElement): number {
   const lead = cssLengthPx(style, "--gn-gutter-lead")
   const rowLeft = block.hitDom.getBoundingClientRect().left
   const hasFold =
-    block.hitDom.tagName === "LI" && !!block.hitDom.querySelector(":scope > .gn-list-fold")
+    block.hitDom.tagName === "LI" && !!foldWidgetOf(block.hitDom)
   const rail = hasFold ? lead : compact
   return Math.round(rowLeft - rail - rootRect.left)
 }
@@ -932,10 +941,10 @@ function showBlockHandle(block: HoverBlock, clientY: number): boolean {
     }
   }
   const top = Math.round(centerY - rect.top)
-  const listFold = block.hitDom.tagName === "LI" && !!block.hitDom.querySelector(":scope > .gn-list-fold")
+  const listFold = block.hitDom.tagName === "LI" && !!foldWidgetOf(block.hitDom)
   const listItem = block.hitDom.tagName === "LI"
   if (block.hitDom.tagName === "LI") {
-    if (block.hitDom.querySelector(":scope > .gn-list-fold")) syncActiveFold(block.hitDom)
+    if (listFold) syncActiveFold(block.hitDom)
     else clearGutterHoverRow()
   } else {
     clearGutterHoverRow()
@@ -1601,19 +1610,7 @@ function notify(msg: string) {
 }
 
 async function writeClipboard(text: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    return
-  } catch {
-    /* 非安全上下文（局域网 http）没有 clipboard API，退回 execCommand */
-  }
-  const ta = document.createElement("textarea")
-  ta.value = text
-  ta.style.cssText = "position:fixed;opacity:0;pointer-events:none"
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand("copy")
-  ta.remove()
+  await copyText(text)
 }
 
 function openBlockMenu() {

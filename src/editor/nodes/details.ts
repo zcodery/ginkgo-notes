@@ -1,6 +1,6 @@
 import { Extension, Node, mergeAttributes } from '@tiptap/core'
 import { Plugin, TextSelection } from '@tiptap/pm/state'
-import { runFoldAnimation } from '@/editor/collapseRun'
+import { animateFold } from '@/editor/foldAnim'
 
 /**
  * 折叠块：直接渲染原生 <details>/<summary>，由浏览器负责显示/隐藏，
@@ -138,18 +138,14 @@ export const GnDetailsClick = Extension.create({
                 if (!node || node.type.name !== 'details') return true
 
                 const willOpen = !node.attrs.open
-                const content = detailsEl.querySelector(':scope > .gn-details-content') as HTMLElement | null
-
-                const commit = () => {
-                  view.dispatch(
-                    view.state.tr.setNodeMarkup(pos, undefined, {
-                      ...node.attrs,
-                      open: willOpen,
-                    }),
-                  )
-                }
-
-                runFoldAnimation(detailsEl, content, willOpen, commit)
+                view.dispatch(
+                  view.state.tr.setNodeMarkup(pos, undefined, {
+                    ...node.attrs,
+                    open: willOpen,
+                  }),
+                )
+                // setNodeMarkup 会重建节点，取重建后的元素补一段 WAAPI 过渡
+                animateFold(view.nodeDOM(pos), willOpen)
                 return true
               }
 

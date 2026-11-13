@@ -147,12 +147,43 @@ function serializeList(node: JSONContent, pad: string): string {
 
 const LI_COLLAPSED_RE = /^<!--\s*gn-li\s+collapsed\s*-->$/i
 
+/**
+ * 把折叠标记挂到对应列表项的 token 上。
+ *
+ * `<!-- gn-li collapsed -->` 会被 markdown-it 输出成独立的 `html_block`，位置取决于
+ * 层级：顶层项在列表块**之外**，嵌套项落在父 item 内部、子列表之前。原来的写法只在
+ * `bullet_list_open` 分支内部找同级注释，两种位置都抓不到，结果折叠状态一存盘就丢。
+ *
+ * 共同点是「注释总在目标 list_item_open 之前」。所以扫一遍扁平 token 流，遇到注释
+ * 记下 pending，遇到下一个 `list_item_open` 就把标记挂上去并把注释从流里摘掉，
+ * convertBlocks 按节点读取即可，不用跨递归传递状态。
+ */
+function markCollapsedItems(tokens: Token[]): Token[] {
+  const out: Token[] = []
+  let pending = false
+  for (const t of tokens) {
+    if (t.type === 'html_block' && LI_COLLAPSED_RE.test(t.content.trim())) {
+      pending = true
+      continue
+    }
+    if (t.type === 'list_item_open' && pending) {
+      t.meta = { ...(t.meta ?? {}), gnCollapsed: true }
+      pending = false
+    }
+    out.push(t)
+  }
+  return out
+}
+
 function serializeListItem(item: JSONContent, marker: string, pad: string): string {
   const kids = item.content ?? []
   const out: string[] = []
   if (item.attrs?.collapsed) out.push(`${pad}<!-- gn-li collapsed -->`)
-  // 子级缩进要与父级标记等宽，否则有序列表（"1. "）的嵌套会失效
-  const childPad = pad + ' '.repeat(marker.length)
+  // 子级缩进要与父级的**列表标记**等宽，而不是整行前缀。
+  // 任务项的 `[ ] ` 属于正文，真正的列表标记只有 `- `（2 字符）；按 6 字符缩进
+  // 会被 markdown-it 当成缩进代码块，嵌套子列表直接塌成一段文字。
+  const markerWidth = /^- \[[ xX]\] /.test(marker) ? 2 : marker.length
+  const childPad = pad + ' '.repeat(markerWidth)
   let i = 0
 
   if (kids[0]?.type === 'paragraph') {
@@ -758,19 +789,13 @@ function convertBlocks(
       const items: { content: JSONContent[]; checked: boolean | null; collapsed: boolean }[] = []
 
       let j = i + 1
-      let pendingCollapsed = false
       while (j < closeIdx) {
-        if (tokens[j].type === 'html_block' && LI_COLLAPSED_RE.test(tokens[j].content.trim())) {
-          pendingCollapsed = true
-          j++
-          continue
-        }
         if (tokens[j].type === 'list_item_open') {
           const itemClose = matchClose(tokens, j)
           const inner = convertBlocks(tokens, j + 1, itemClose, detailsBlocks)
           const checked = inner[0]?.type === 'paragraph' ? taskStateOf(inner[0]) : null
-          items.push({ content: inner, checked, collapsed: pendingCollapsed })
-          pendingCollapsed = false
+          // 标记由 markCollapsedItems() 在预处理时挂到这个 list_item_open 上
+          items.push({ content: inner, checked, collapsed: !!tokens[j].meta?.gnCollapsed })
           j = itemClose + 1
         } else {
           j++
@@ -784,7 +809,10 @@ function convertBlocks(
           type: 'taskList',
           content: items.map((it) => ({
             type: 'taskItem',
-            attrs: { checked: !!it.checked },
+            attrs: {
+              checked: !!it.checked,
+              ...(it.collapsed ? { collapsed: true } : {}),
+            },
             content: it.content.length ? it.content : [{ type: 'paragraph' }],
           })),
         })
@@ -926,7 +954,7 @@ export function markdownToDoc(content: string): JSONContent {
   // 先抠出 <details> 整块（markdown-it 的 HTML 块遇空行会截断），换成占位注释
   const detailsBlocks: DetailsBlock[] = []
   const source = extractDetailsBlocks(content, detailsBlocks)
-  const tokens = md.parse(source, {})
+  const tokens = markCollapsedItems(md.parse(source, {}))
   let nodes = convertBlocks(tokens, 0, tokens.length, detailsBlocks)
   if (!nodes.length) nodes = [{ type: 'paragraph' }]
   // 末尾永远留一个空段落：保存时会被滤掉，打开后再补回来，方便继续输入
