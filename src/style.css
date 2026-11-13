@@ -874,7 +874,7 @@ html.dark {
   content: counter(gn-ol) ".";
   grid-column: 1;
   grid-row: 1;
-  color: var(--gn-text-muted);
+  color: var(--gn-text);
   font-variant-numeric: tabular-nums;
   height: var(--gn-line-h);
   line-height: var(--gn-line-h);
