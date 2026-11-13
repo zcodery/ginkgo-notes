@@ -67,9 +67,10 @@ ginkgoNotes/
 │   │   ├── BlockEditor.vue   # 主编排：扩展装配、防抖保存、Slash/块/表格/AI 面板
 │   │   ├── extensions.ts    # 扩展清单（含自定义 GnTableCell/Diagram/Database/PageLink）
 │   │   ├── markdown.ts      # Markdown ↔ ProseMirror 块级 1:1 映射
-│   │   ├── nodes/           # database / diagram / pageLink / codeBlock / tableCell
+│   │   ├── nodes/           # database / diagram / pageLink / codeBlock / tableCell / columns
 │   │   │   ├── details.ts  # <details> 折叠块（open 属性 + 箭头交互）
-│   │   │   └── listFold.ts # 列表与任务项逐层折叠（collapsed 属性 + widget）
+│   │   │   ├── listFold.ts # 列表与任务项逐层折叠（collapsed 属性 + widget）
+│   │   │   └── columns.ts  # 多栏分栏节点（columns/column、width 属性、Markdown 双向）
 │   │   ├── foldAnim.ts     # WAAPI 折叠动画（grid 轨道 / 任务项 height / 淡入淡出）
 │   │   ├── codeLanguages.ts # 语言别名归一化、显示名与 highlight id
 │   │   ├── marks/colors.ts  # FontColor / BgColor + 18 预设色
@@ -95,7 +96,8 @@ ginkgoNotes/
 │   │   ├── diagramTemplates.ts # 8 个图表模板
 │   │   ├── mermaid.ts          # Mermaid 封装（动态 import + 明暗配色）
 │   │   ├── CodeBlockView.vue   # 代码块工具栏（语言选择、文件名、复制、prettier、折叠、行号）
-│   │   └── PageLinkBlock.vue    # 子页面卡片
+│   │   ├── PageLinkBlock.vue    # 子页面卡片
+│   │   └── ColumnsView.vue      # 多栏分栏 NodeView（栏数 stepper + 宽度比例预设 + 增删栏）
 │   ├── components/      # 编辑器外部通用 UI
 │   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间切换）
 │   │   ├── PageTree.vue / Item.vue # 页面树（拖拽、重命名、右键菜单）
@@ -193,6 +195,7 @@ ginkgoNotes/
 | 51 | 只读代码块工具栏 | ✅ | 语言显示名、文件名、行数/字符统计、行号 gutter、行号/换行/折叠/复制、hljs 高亮；`v-html` 事件委托实现交互 |
 | 52 | 只读折叠块状态 | ✅ | `<details open>` 进入 sanitize 白名单并按 `data-open` 回填，避免展开态分享出去变收起 |
 | 53 | 有序列表编号 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start` |
+| 54 | 多栏分栏布局 | ✅ | 正文插入 1–4 栏，栏数 stepper（1–4 限制）+ 宽度比例预设（均分/1:2/2:1 等，按栏数动态）；每栏独立编辑；Markdown 以 `<!-- gn-columns[ widths="..."] -->` + `<!-- gn-col -->` 注释双向往返（含嵌套分栏与等宽省略）；公开分享页静态渲染 `.sv-columns/.sv-column`，`flex-grow` 实现列宽比例，窄屏（≤640px）纵向堆叠 |
 
 ### P1 — 部分完成 / 待完善
 
@@ -325,10 +328,12 @@ ginkgoNotes/
 | 43 | `b6b75ce` | fix(editor) | 深层嵌套列表的折叠箭头不再被父级 overflow 裁掉 |
 | 44 | `6adc7e2` | fix(editor) | 有序列表编号从 1 开始，嵌套层重新计数 |
 | 45 | `9e1327b` | fix(share) | 只读页保留有序列表的起始编号 |
+| 46 | `242d4a2` | feat(editor) | 正文支持多栏分栏布局（columns/column 节点 + NodeView 工具栏 + Markdown 双向 + 只读页渲染） |
+| 47 | `35e7ee9` | fix(editor) | 有序列表编号颜色加深（`--gn-text-muted` → `--gn-text`） |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `9e1327b` — fix(share): 只读页保留有序列表的起始编号
+**HEAD**: `35e7ee9` — fix(editor): 有序列表编号颜色加深
 
 ---
 
@@ -411,6 +416,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 13. **任务项 DOM 特殊**：`taskItem` 是 `<li><label/><div><p/><ul/></div></li>`，子列表不在 li 的直接子级；折叠 widget、块手柄让位判断、CSS 选择器都要兼容 `> div >`。折叠注释是独立 `html_block` 且总在 `list_item_open` 之前，必须在 token 预处理阶段挂到紧随其后的列表项。
 14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
 15. **嵌套列表的 `overflow:hidden` 会裁掉折叠箭头**：箭头是 `position:absolute; left:-26px`，落在父级 `ul` 的左边界之外；为折叠裁切给 `li > ul/ol` 加 `overflow:hidden` 会把深层箭头一起裁没，表现为「只有顶层有箭头、子级全空白」。改用 `overflow:visible` + `clip-path: inset(0 -9999px 0 -9999px)` 只裁垂直方向，并让 widget 与 gutter 色带保持 `pointer-events:auto`，鼠标进入装订区才能触发 `li:hover` 淡入。回归必须断言 widget 中心的 `elementFromPoint` 命中自身——只测 `opacity` 会完全漏掉裁剪问题。
+17. **分栏 Markdown 往返的 `splitColumns` 必须只取分隔符之间**：序列化用 `<!-- gn-columns -->` 包整体、每列用 `<!-- gn-col -->` 分隔；反序列化切分时若从位置 0 起切，首个分隔符前的填充换行会生成一个空列 chunk，导致左列内容错位到第二列。修复：仅当遇到顶层分隔符且已有一个起始点时才收尾上一段，`start` 始终指向当前分隔符之后；嵌套分栏靠 `gn-columns` 开合深度计数，不参与顶层切分。
 16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
 
 ---

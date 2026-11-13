@@ -5,10 +5,10 @@
 
 ## 1. 项目身份
 
-**银杏笔记**（GinkgoNotes）是一个 Markdown-first 的个人笔记应用。
-- 后端：Node.js + Hono + SQLite + Better-SQLite3
-- 前端：Vue 3 + Vite + TipTap (ProseMirror) + Pinia + Naive UI
-- 实时同步：Yjs + WebSocket
+**银杏笔记**（GinkgoNotes）是一个 Markdown-first 的自托管个人笔记应用。
+- 后端：Express 5 + Node.js `node:sqlite`（DatabaseSync，WAL 模式）
+- 前端：Vue 3.5 + Vite 8 + TipTap 3 (ProseMirror) + Pinia + TailwindCSS 4 + lucide-vue-next
+- 写保护：写操作经 `src/db/repo.ts` 的 `serial()` 串行化（无 Yjs/WebSocket 实时同步）
 - 特性：多层块引用、Mermaid/Code 高亮、多维表格、AI 代理（OpenAI 兼容）、MCP 服务器、Webhook、SMTP 邮件、公开分享、成员协作
 
 ## 2. 核心事实源
