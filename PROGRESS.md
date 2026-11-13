@@ -197,6 +197,7 @@ ginkgoNotes/
 | 53 | 列表与编号颜色 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start`；所有编号/标记类（有序数字、无序圆点、代码行号）统一用 `--gn-text-strong`（亮色近黑 `#0f0f0e` / 暗色纯白 `#ffffff`）强化对比，只读页代码行号去掉 `opacity:0.75` 淡化 |
 | 54 | 多栏分栏布局 | ✅ | 正文插入 1–4 栏，栏数 stepper（1–4 限制）+ 宽度比例预设（均分/1:2/2:1 等，按栏数动态）；每栏独立编辑；**现有内容可一键转多栏**——选中多行后 /分栏 或块菜单「转为分栏」即把选区顶层块就地包成分栏，块依次轮流入列（列多补空段、块多轮流分配，支持嵌套）；Markdown 以 `<!-- gn-columns[ widths="..."] -->` + `<!-- gn-col -->` 注释双向往返（含嵌套分栏与等宽省略）；公开分享页静态渲染 `.sv-columns/.sv-column`，`flex-grow` 实现列宽比例，窄屏（≤640px）纵向堆叠 |
 | 55 | 拖拽建栏 / 入栏 / 空栏自动消失 | ✅ | 拖动任意块（左侧 ⠿）到分栏行：**行左右边缘或列间空隙→新建一列**（按指针 x 定位插入位，达 4 栏上限自动降级为追加末列），**落在某列内容区→并入该列**（空列则替换空段）；拖动内容须为合法 `block+`（`column.validContent` 校验，否则回退普通重排）；源块始终删除（移动语义，`tr.mapping` 校正删除坐标）；指示：新建栏竖线 + 「新建栏」徽标、入栏虚线高亮；**空栏动态清理**——某列由有内容变为空自动删除，删到仅剩 1 空列/0 列时整行退化为段落（用则有，不用则无），初始创建与「+」显式空栏不误清 |
+| 56 | 拖到普通行即并排开栏 | ✅ | 拖块到**任何还没有分栏的行**都能就地开一栏：目标行上下 30%（夹取 6–48px）为界，**中间区域→与目标并排成两栏**（指针 x 决定拖入块在左在右），上下窄边仍走普通重排；目标自动提升到「顶层块」（清单条目命中时按整张清单算）；拖动清单条目时按原列表类型与属性回包（`toColumnContent`，有序列表保留 `start`）才能成为合法一列；与目标范围重叠（如拖回同一张清单）、目标为空段落、目标为分栏时回退普通重排；命令返回 false 时兜底按普通移动落位，避免「松手回到原位」 |
 
 ### P1 — 部分完成 / 待完善
 
@@ -335,10 +336,11 @@ ginkgoNotes/
 | 49 | `c9e3249` | fix(editor) | 其余编号类颜色一并改深（无序圆点 + 代码行号），只读页行号去淡化 |
 | 50 | `05f081b` | feat(editor) | 现有内容可一键转为多栏（convertToColumns + 斜杠 + 块菜单，支持选中多行批量并排） |
 | 51 | `b72931d` | feat(editor) | 拖块建栏 / 拖入栏 / 空栏动态消失（moveBlocksToColumn + removeColumnsAt + unwrapColumns + 拖拽落点识别） |
+| 52 | `d86e097` | feat(editor) | 拖到任意普通行中间即并排开一栏（makeColumnsWithBlock + 清单条目回包 + 落点分区） |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `b72931d` — feat(editor): 拖块建栏 / 拖入栏 / 空栏动态消失
+**HEAD**: `d86e097` — feat(editor): 拖到任意普通行中间即可并排开一栏
 
 ---
 
@@ -424,6 +426,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 17. **分栏 Markdown 往返的 `splitColumns` 必须只取分隔符之间**：序列化用 `<!-- gn-columns -->` 包整体、每列用 `<!-- gn-col -->` 分隔；反序列化切分时若从位置 0 起切，首个分隔符前的填充换行会生成一个空列 chunk，导致左列内容错位到第二列。修复：仅当遇到顶层分隔符且已有一个起始点时才收尾上一段，`start` 始终指向当前分隔符之后；嵌套分栏靠 `gn-columns` 开合深度计数，不参与顶层切分。
 18. **拖块入栏的两个坐标坑**：①追加到分栏末尾时 `colStarts[idx]` 在 `idx === childCount` 处是 `undefined`，必须用 `columnsPos + node.nodeSize - 1`（分栏内容末尾）作为插入位；②同一事务里先 `tr.insert` 新列再删除源块，源块坐标必须用 `tr.mapping.map(from/to)` 映射后再 `tr.delete`，否则源在插入点之前时删除位置错位。另外 `.gn-column` 是 NodeView 渲染的跨组件元素，`scoped` 样式加不上，入栏高亮类（`.gn-col-drop-into`）必须写在全局 `style.css`。
 16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
+19. **普通行拖拽不能只走重排**：`updateDropLine` 的落点由指针在目标块上下半区决定（取 `block.from` / `block.to`），当目标块紧邻被拖块时，落点恰好等于块自身边界（`target >= from && target <= to`）→ 直接 return，表现就是「松手后又回到原位」。要实现「拖到某一行就开一栏」，必须先在 `onDragOver` 里按 y 分区（中间区 → `cols-with`，上下窄边仍留给重排），并把落点目标提升到**顶层块**。另一个坑：拖清单条目时 `resolveBlock` 返回的是 `taskItem`/`listItem`，它们不在 `block` 组里，`column.validContent` 直接为 false——必须按原列表类型与属性回包成 `taskList`/`bulletList`/`orderedList` 才是合法列内容；而孤立的 `listItem` 不能作为目标被换成块级 `columns`（会破坏列表结构），只能先提升到整张清单。
 
 ---
 
