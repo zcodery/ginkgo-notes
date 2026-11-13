@@ -197,7 +197,8 @@ ginkgoNotes/
 | 53 | 列表与编号颜色 | ✅ | 自定义 `gn-ol` 计数器修复 `display:grid` 的 `li` 让 `counter(list-item)` 恒为 `0.` 的问题；顶层 1./2./3.、嵌套重新从 1 数起；`@supports` + 类型化 `attr()` 支持 `<ol start>`；只读页 sanitize 白名单放行并校验 `start`；所有编号/标记类（有序数字、无序圆点、代码行号）统一用 `--gn-text-strong`（亮色近黑 `#0f0f0e` / 暗色纯白 `#ffffff`）强化对比，只读页代码行号去掉 `opacity:0.75` 淡化 |
 | 54 | 多栏分栏布局 | ✅ | 正文插入 1–4 栏，栏数 stepper（1–4 限制）+ 宽度比例预设（均分/1:2/2:1 等，按栏数动态）；每栏独立编辑；**现有内容可一键转多栏**——选中多行后 /分栏 或块菜单「转为分栏」即把选区顶层块就地包成分栏，块依次轮流入列（列多补空段、块多轮流分配，支持嵌套）；Markdown 以 `<!-- gn-columns[ widths="..."] -->` + `<!-- gn-col -->` 注释双向往返（含嵌套分栏与等宽省略）；公开分享页静态渲染 `.sv-columns/.sv-column`，`flex-grow` 实现列宽比例，窄屏（≤640px）纵向堆叠 |
 | 55 | 拖拽建栏 / 入栏 / 空栏自动消失 | ✅ | 拖动任意块（左侧 ⠿）到分栏行：**行左右边缘或列间空隙→新建一列**（按指针 x 定位插入位，达 4 栏上限自动降级为追加末列），**落在某列内容区→并入该列**（空列则替换空段）；拖动内容须为合法 `block+`（`column.validContent` 校验，否则回退普通重排）；源块始终删除（移动语义，`tr.mapping` 校正删除坐标）；指示：新建栏竖线 + 「新建栏」徽标、入栏虚线高亮；**空栏动态清理**——某列由有内容变为空自动删除，删到仅剩 1 空列/0 列时整行退化为段落（用则有，不用则无），初始创建与「+」显式空栏不误清 |
-| 56 | 拖到普通行即并排开栏 | ✅ | 拖块到**任何还没有分栏的行**都能就地开一栏：目标行上下 30%（夹取 6–48px）为界，**中间区域→与目标并排成两栏**（指针 x 决定拖入块在左在右），上下窄边仍走普通重排；目标自动提升到「顶层块」（清单条目命中时按整张清单算）；拖动清单条目时按原列表类型与属性回包（`toColumnContent`，有序列表保留 `start`）才能成为合法一列；与目标范围重叠（如拖回同一张清单）、目标为空段落、目标为分栏时回退普通重排；命令返回 false 时兜底按普通移动落位，避免「松手回到原位」 |
+| 56 | 拖到普通行即并排开栏 | ✅ | 拖块到**任何还没有分栏的行**都能就地开一栏：目标行上下 12%（夹取 6–20px）为界，**中间区域→与目标并排成两栏**（指针 x 决定拖入块在左在右），上下窄边仍走普通重排；目标自动提升到「顶层块」（清单条目命中时按整张清单算）；拖动清单条目时按原列表类型与属性回包（`toColumnContent`，有序列表保留 `start`）才能成为合法一列；与目标范围重叠（如拖回同一张清单）、目标为空段落、目标为分栏时回退普通重排；命令返回 false 时兜底按普通移动落位，避免「松手回到原位」 |
+| 57 | 拖拽交互修复（自绘指针拖拽） | ✅ | **原生 HTML5 拖拽在 `dragstart` 里隐藏手柄（拖拽源）会被浏览器直接取消整个拖拽** → 改为 `mousedown` + document `mousemove/mouseup` 自绘拖拽，不依赖 dragstart/dragover/drop；5px 阈值区分「点击开菜单」与「拖动」；拖拽中跟随指针显示「并排成栏/新建栏/移入此栏/上下移动」胶囊，靠近上下边缘自动滚动。**`target instanceof HTMLElement` 对 SVG 手柄恒为 false**（SVGElement 不是 HTMLElement），指针移到手柄就会把手柄隐藏、mousedown 落到 `.nv-inner` → 改用 `Element`。分栏落点改从 columns 节点 DOM 取 `.gn-columns-row`（指针在容器边框/内边距上时 `elementFromPoint` 命中的是 `.gn-columns` 本身）。栏内块有独立手柄（`tryResolveColumnChild`），可单独拖出/拖到另一栏，源栏空了自动消失；删除统一走 `safeDeleteRange`（覆盖整列内容时扩大为整列，避免 `column` 变空导致 schema 非法） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -337,10 +338,11 @@ ginkgoNotes/
 | 50 | `05f081b` | feat(editor) | 现有内容可一键转为多栏（convertToColumns + 斜杠 + 块菜单，支持选中多行批量并排） |
 | 51 | `b72931d` | feat(editor) | 拖块建栏 / 拖入栏 / 空栏动态消失（moveBlocksToColumn + removeColumnsAt + unwrapColumns + 拖拽落点识别） |
 | 52 | `d86e097` | feat(editor) | 拖到任意普通行中间即并排开一栏（makeColumnsWithBlock + 清单条目回包 + 落点分区） |
+| 53 | `0af3d08` | fix(editor) | 拖拽建栏彻底修好：自绘指针拖拽替代原生 HTML5 拖拽、SVG 手柄命中修复、栏内块独立手柄、safeDeleteRange |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `d86e097` — feat(editor): 拖到任意普通行中间即可并排开一栏
+**HEAD**: `0af3d08` — fix(editor): 拖拽建栏彻底修好（自绘指针拖拽 + SVG 手柄命中修复）
 
 ---
 
@@ -427,6 +429,9 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 18. **拖块入栏的两个坐标坑**：①追加到分栏末尾时 `colStarts[idx]` 在 `idx === childCount` 处是 `undefined`，必须用 `columnsPos + node.nodeSize - 1`（分栏内容末尾）作为插入位；②同一事务里先 `tr.insert` 新列再删除源块，源块坐标必须用 `tr.mapping.map(from/to)` 映射后再 `tr.delete`，否则源在插入点之前时删除位置错位。另外 `.gn-column` 是 NodeView 渲染的跨组件元素，`scoped` 样式加不上，入栏高亮类（`.gn-col-drop-into`）必须写在全局 `style.css`。
 16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
 19. **普通行拖拽不能只走重排**：`updateDropLine` 的落点由指针在目标块上下半区决定（取 `block.from` / `block.to`），当目标块紧邻被拖块时，落点恰好等于块自身边界（`target >= from && target <= to`）→ 直接 return，表现就是「松手后又回到原位」。要实现「拖到某一行就开一栏」，必须先在 `onDragOver` 里按 y 分区（中间区 → `cols-with`，上下窄边仍留给重排），并把落点目标提升到**顶层块**。另一个坑：拖清单条目时 `resolveBlock` 返回的是 `taskItem`/`listItem`，它们不在 `block` 组里，`column.validContent` 直接为 false——必须按原列表类型与属性回包成 `taskList`/`bulletList`/`orderedList` 才是合法列内容；而孤立的 `listItem` 不能作为目标被换成块级 `columns`（会破坏列表结构），只能先提升到整张清单。
+20. **原生 HTML5 拖拽 + 自绘手柄 = 拖不动**：在 `dragstart` 里把拖拽源（块手柄）隐藏，浏览器会判定拖拽被取消，`dragover`/`drop` 全部不再触发，表现就是「拖了没反应、松手弹回原位」，而且**不会报错**，极难排查。块拖拽一律用 `mousedown` + document `mousemove/mouseup` 自绘，别在 `dragstart` 里动拖拽源的 DOM。
+21. **`instanceof HTMLElement` 会漏掉 SVG**：lucide 图标是 `SVGElement`，`svg instanceof HTMLElement === false`。`updateBlockHandleFromPointer` 曾用它判断「指针是否在手柄上」，导致指针移到手柄那一刻就被当成悬停在正文 → 手柄被隐藏 → 随后的 `mousedown` 落到 `.nv-inner`，拖拽永远无法开始（同样不报错）。判断 DOM 归属统一用 `instanceof Element`。
+22. **删除范围可能让 `column` 变空**：`column` 的 content 是 `block+`，把某列唯一内容删掉会留下非法空列，ProseMirror 直接抛错。所有「移动/删除块」的位置都要先过 `safeDeleteRange(doc, from, to)`：范围覆盖整列内容时扩大为整列，只剩这一列时扩大为整个 `columns`。
 
 ---
 
