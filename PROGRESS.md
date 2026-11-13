@@ -187,7 +187,7 @@ ginkgoNotes/
 | 45 | 意见反馈 | ✅ | 提交到 `feedback` 表 + 通知所有管理员；管理员可见全部、可回复 |
 | 46 | 版本检测 | ✅ | 设置页 About 区域 |
 | 47 | 折叠动画与裁切 | ✅ | WAAPI 300ms 过渡（首行轨道钉为实测像素、内容淡入淡出）；`::details-content` / 列表子项 `align-self:stretch` 保证轨道归零后内容真正隐藏；细线 chevron 箭头统一编辑器与只读页 |
-| 48 | 任意层级列表折叠 | ✅ | 普通列表深层与任务列表项均可逐层展开收起；块手柄自动让位；折叠状态经 `<!-- gn-li collapsed -->` 注释往返持久化 |
+| 48 | 任意层级列表折叠 | ✅ | 普通列表深层与任务列表项均可逐层展开收起；深层装订区可独立命中并只点亮对应层箭头；块手柄自动让位；折叠状态经 `<!-- gn-li collapsed -->` 注释往返持久化 |
 | 49 | 剪贴板兼容 | ✅ | 统一 `copyText()`；局域网 HTTP 等非安全上下文降级 `execCommand('copy')`，复制后恢复焦点与选区；覆盖分享、集成、代码块、图表、AI 全部复制入口 |
 | 50 | 公开分享页滚动 | ✅ | 路由级 `gn-standalone` 放开 body 原生滚动，离开路由自动移除 |
 | 51 | 只读代码块工具栏 | ✅ | 语言显示名、文件名、行数/字符统计、行号 gutter、行号/换行/折叠/复制、hljs 高亮；`v-html` 事件委托实现交互 |
@@ -321,10 +321,11 @@ ginkgoNotes/
 | 40 | `01c366d` | refactor(style) | 折叠交互与只读页样式整合 |
 | 41 | `8cfe565` | feat(editor) | 折叠动画改用 WAAPI，支持嵌套任务项逐层折叠 |
 | 42 | `36d8097` | feat(share) | 公开分享页放开滚动并补齐代码块工具栏 |
+| 43 | `b6b75ce` | fix(editor) | 深层嵌套列表的折叠箭头不再被父级 overflow 裁掉 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `36d8097` — feat(share): 公开分享页放开滚动并补齐代码块工具栏
+**HEAD**: `b6b75ce` — fix(editor): 深层嵌套列表的折叠箭头不再被父级 overflow 裁掉
 
 ---
 
@@ -406,6 +407,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 12. **局域网 HTTP 不是安全上下文**：`navigator.clipboard` 可能缺失或被拒绝，所有复制必须走 `copyText()` 的 `execCommand` 降级，并恢复焦点/选区以免抢走编辑器光标。
 13. **任务项 DOM 特殊**：`taskItem` 是 `<li><label/><div><p/><ul/></div></li>`，子列表不在 li 的直接子级；折叠 widget、块手柄让位判断、CSS 选择器都要兼容 `> div >`。折叠注释是独立 `html_block` 且总在 `list_item_open` 之前，必须在 token 预处理阶段挂到紧随其后的列表项。
 14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
+15. **嵌套列表的 `overflow:hidden` 会裁掉折叠箭头**：箭头是 `position:absolute; left:-26px`，落在父级 `ul` 的左边界之外；为折叠裁切给 `li > ul/ol` 加 `overflow:hidden` 会把深层箭头一起裁没，表现为「只有顶层有箭头、子级全空白」。改用 `overflow:visible` + `clip-path: inset(0 -9999px 0 -9999px)` 只裁垂直方向，并让 widget 与 gutter 色带保持 `pointer-events:auto`，鼠标进入装订区才能触发 `li:hover` 淡入。回归必须断言 widget 中心的 `elementFromPoint` 命中自身——只测 `opacity` 会完全漏掉裁剪问题。
 
 ---
 
