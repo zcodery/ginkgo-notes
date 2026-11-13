@@ -377,6 +377,40 @@ onMounted(() => load())
   line-height: 1.75;
   word-wrap: break-word;
 }
+/* 分栏（公开页静态渲染） */
+.sv-body :deep(.sv-columns) {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+  margin: 0.6em 0;
+}
+.sv-body :deep(.sv-column) {
+  flex-grow: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+.sv-body :deep(.sv-column) > :first-child {
+  margin-top: 0;
+}
+.sv-body :deep(.sv-column) > :last-child {
+  margin-bottom: 0;
+}
+.sv-body :deep(.sv-column + .sv-column) {
+  border-left: 1px solid var(--gn-border, #e3e3e8);
+  padding-left: 18px;
+}
+@media (max-width: 640px) {
+  .sv-body :deep(.sv-columns) {
+    flex-direction: column;
+    gap: 0.4em;
+  }
+  .sv-body :deep(.sv-column + .sv-column) {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--gn-border, #e3e3e8);
+    padding-top: 0.4em;
+  }
+}
 .sv-body :deep(h1),
 .sv-body :deep(h2),
 .sv-body :deep(h3),

@@ -108,6 +108,110 @@ export function renderMarkdown(source: string, opts: RenderOptions): string {
   let content = applyHighlightSyntax(source)
   content = content.replace(/<!--\s*gn-table[^>]*-->\n?/g, '')
   content = content.replace(/<!--\s*gn-li\s+collapsed\s*-->\n?/gi, '')
+  return renderColumnAware(content, opts)
+}
+
+/**
+ * 分栏感知渲染：把正文切成「普通文本段」与「分栏块」交替处理。
+ * - 普通文本段走 renderBodyImpl（与之前一致的 markdown → HTML 管线）；
+ * - 分栏块按 `<!-- gn-col -->` 切成 N 列，每列递归 renderColumnAware 后再包一层。
+ * 这样无需把已渲染的 HTML 重新塞回 markdown 让 markdown-it 二次解析，
+ * 列内嵌套分栏、代码块、着重等都能正常递归渲染。
+ */
+function renderColumnAware(content: string, opts: RenderOptions): string {
+  let out = ''
+  let pendingStart = 0
+  let i = 0
+  while (i < content.length) {
+    const openIdx = content.indexOf('<!--', i)
+    if (openIdx === -1) break
+    const head = content.slice(openIdx)
+    if (!/^<!--\s*gn-columns\b/i.test(head)) {
+      // 非分栏的注释（用户手写、或被剥掉的 gn-table 等）不参与分栏切分，跳过继续扫
+      i = openIdx + 4
+      continue
+    }
+    const openClose = content.indexOf('-->', openIdx)
+    if (openClose === -1) break
+    let depth = 1
+    let scan = openClose + 3
+    let closePos = -1
+    let closeLen = 0
+    const re = /<!--\s*(?:\/gn-columns|gn-columns\b)\s*-->/gi
+    re.lastIndex = scan
+    let m: RegExpExecArray | null
+    while ((m = re.exec(content))) {
+      if (/\/gn-columns/i.test(m[0])) {
+        depth--
+        if (depth === 0) {
+          closePos = m.index
+          closeLen = m[0].length
+          break
+        }
+      } else {
+        depth++
+      }
+    }
+    if (closePos === -1) break
+
+    out += renderBodyImpl(content.slice(pendingStart, openIdx), opts)
+    const widths = parseColumnsWidths(content.slice(openIdx, openClose + 3))
+    const inner = content.slice(openClose + 3, closePos)
+    const chunks = splitColumns(inner)
+    const colsHtml = chunks
+      .map((chunk, idx) => {
+        const w = widths[idx] ?? 1
+        const innerHtml = renderColumnAware(chunk, opts)
+        return `<div class="sv-column" style="flex-grow:${w};flex-basis:0;min-width:0">${innerHtml}</div>`
+      })
+      .join('')
+    out += `<div class="sv-columns">${colsHtml}</div>`
+    i = closePos + closeLen
+    pendingStart = i
+  }
+  out += renderBodyImpl(content.slice(pendingStart), opts)
+  return out
+}
+
+/** 把分栏内部文本按顶层 `<!-- gn-col -->` 切成若干列（嵌套分栏不参与切分） */
+function splitColumns(inner: string): string[] {
+  const chunks: string[] = []
+  let depth = 0
+  let start: number | null = null
+  const re = /<!--\s*(?:\/gn-columns|gn-columns\b|gn-col\b)\s*-->/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(inner))) {
+    const text = m[0].toLowerCase()
+    if (text.includes('/gn-columns')) {
+      depth = Math.max(0, depth - 1)
+      continue
+    }
+    if (text.includes('gn-columns')) {
+      depth++
+      continue
+    }
+    if (depth === 0) {
+      if (start !== null) chunks.push(inner.slice(start, m.index))
+      start = m.index + m[0].length
+    }
+  }
+  if (start !== null) chunks.push(inner.slice(start))
+  return chunks
+}
+
+function parseColumnsWidths(comment: string): number[] {
+  const m = /widths\s*=\s*"([^"]*)"/i.exec(comment)
+  if (!m) return []
+  return m[1]
+    .split(',')
+    .map((s) => {
+      const n = Number(s.trim())
+      return Number.isFinite(n) && n > 0 ? n : 1
+    })
+}
+
+/** 一段普通正文 → HTML（与旧 renderMarkdown 完全一致的内容管线） */
+function renderBodyImpl(content: string, opts: RenderOptions): string {
   const defaultFence = md.renderer.rules.fence!
   md.renderer.rules.fence = (tokens, idx) => {
     const token = tokens[idx]!

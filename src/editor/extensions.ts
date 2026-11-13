@@ -17,6 +17,7 @@ import { DiagramNode } from './nodes/diagram'
 import { DatabaseNode } from './nodes/database'
 import { PageLinkNode } from './nodes/pageLink'
 import { EnhancedCodeBlock } from './nodes/codeBlock'
+import { Columns, Column } from './nodes/columns'
 import { FontColor, BgColor } from './marks/colors'
 import { SearchReplace } from './searchReplace'
 
@@ -70,5 +71,8 @@ export function buildExtensions(placeholder = "输入 '/' 唤起命令……") {
     DatabaseNode,
     PageLinkNode,
     SearchReplace,
+    // 分栏：横向排布的若干列，每列内部是普通块内容
+    Columns,
+    Column,
   ]
 }

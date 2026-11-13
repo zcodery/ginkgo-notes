@@ -519,6 +519,49 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   z-index: 2;
 }
 
+/* ===== 分栏（columns / column） ===== */
+.note-editor .ProseMirror .gn-columns {
+  position: relative;
+  margin-block: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--gn-radius, 10px);
+  padding: 2px 4px;
+  box-sizing: border-box;
+}
+.note-editor .ProseMirror .gn-columns:hover,
+.note-editor .ProseMirror .gn-columns.ProseMirror-selectednode {
+  border-color: var(--gn-border, #e3e3e8);
+}
+.note-editor .ProseMirror .gn-columns-row {
+  display: flex;
+  gap: 18px;
+  align-items: stretch;
+}
+.note-editor .ProseMirror .gn-column {
+  flex-grow: 1;
+  flex-basis: 0;
+  min-width: 0;
+  border-radius: 8px;
+}
+/* 列与列之间加一条淡分割线，窄屏堆叠时改为上分割线 */
+.note-editor .ProseMirror .gn-column + .gn-column {
+  border-left: 1px solid var(--gn-border, #e3e3e8);
+  padding-left: 18px;
+}
+/* 窄屏：分栏改为纵向堆叠，避免挤压内容 */
+@media (max-width: 640px) {
+  .note-editor .ProseMirror .gn-columns-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .note-editor .ProseMirror .gn-column + .gn-column {
+    border-left: none;
+    padding-left: 0;
+    border-top: 1px solid var(--gn-border, #e3e3e8);
+    padding-top: 8px;
+  }
+}
+
 .note-editor .ProseMirror strong {
   font-weight: 650;
 }

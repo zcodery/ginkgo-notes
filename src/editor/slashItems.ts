@@ -20,6 +20,7 @@ import {
   FileText,
   ChevronDown,
   Highlighter,
+  Columns3,
 } from 'lucide-vue-next'
 import { diagramTemplates } from '@/blocks/diagramTemplates'
 
@@ -235,6 +236,36 @@ export const slashItems: SlashItem[] = [
     keywords: ['hr', 'divider', 'fenge', '分割线'],
     group: '基础块',
     run: (editor) => editor.chain().focus().setHorizontalRule().run(),
+  },
+  {
+    id: 'columns2',
+    title: '分栏（2 栏）',
+    desc: '左右两列并排，各自独立编辑',
+    icon: Columns3,
+    shortcut: 'fl2',
+    keywords: ['columns', 'column', 'fenlan', '分栏', '双栏', '两栏', '并排'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().setColumns({ count: 2 }).run(),
+  },
+  {
+    id: 'columns3',
+    title: '分栏（3 栏）',
+    desc: '三列并排，各自独立编辑',
+    icon: Columns3,
+    shortcut: 'fl3',
+    keywords: ['columns', 'column', 'fenlan', '分栏', '三栏', '并排'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().setColumns({ count: 3 }).run(),
+  },
+  {
+    id: 'columns4',
+    title: '分栏（4 栏）',
+    desc: '四列并排，各自独立编辑',
+    icon: Columns3,
+    shortcut: 'fl4',
+    keywords: ['columns', 'column', 'fenlan', '分栏', '四栏', '并排'],
+    group: '基础块',
+    run: (editor) => editor.chain().focus().setColumns({ count: 4 }).run(),
   },
   {
     id: 'image',

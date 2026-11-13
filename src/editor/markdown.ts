@@ -394,6 +394,26 @@ function serializeNode(node: JSONContent): string {
     case 'detailsSummary':
     case 'detailsContent':
       return '' // 由父节点 details 处理
+    case 'columns': {
+      const cols = node.content ?? []
+      if (!cols.length) return ''
+      const widths = cols.map((c) => Number(c.attrs?.width ?? 1))
+      const anyNonDefault = widths.some((w) => w !== 1)
+      const parts: string[] = []
+      parts.push(`<!-- gn-columns${anyNonDefault ? ` widths="${widths.join(',')}"` : ''} -->`)
+      for (const col of cols) {
+        parts.push('<!-- gn-col -->')
+        const inner = (col.content ?? [])
+          .map(serializeNode)
+          .filter((s) => s !== '')
+          .join('\n\n')
+        parts.push(inner)
+      }
+      parts.push('<!-- /gn-columns -->')
+      return parts.join('\n')
+    }
+    case 'column':
+      return '' // 由父节点 columns 处理
     case 'horizontalRule':
       return '---'
     case 'image':
@@ -642,9 +662,9 @@ interface DetailsBlock {
 }
 
 /** 由抽出来的 <details> 信息构造 TipTap 节点（内部 Markdown 递归解析） */
-function buildDetailsNode(info: DetailsBlock, detailsBlocks: DetailsBlock[]): JSONContent {
+function buildDetailsNode(info: DetailsBlock, detailsBlocks: DetailsBlock[], columnsBlocks: ColumnsBlock[] = []): JSONContent {
   const innerTokens = md.parse(info.contentMd, {})
-  const innerBlocks = convertBlocks(innerTokens, 0, innerTokens.length, detailsBlocks)
+  const innerBlocks = convertBlocks(innerTokens, 0, innerTokens.length, detailsBlocks, columnsBlocks)
   return {
     type: 'details',
     attrs: { open: info.open },
@@ -713,6 +733,144 @@ function extractDetailsBlocks(src: string, out: DetailsBlock[]): string {
   return result
 }
 
+/* ============================================================
+ *  分栏块（columns / column）
+ *
+ * 与 details 同理：markdown-it 遇到嵌套 / 多块会截断，所以先把整段
+ * `<!-- gn-columns --> … <!-- /gn-columns -->` 抠出来换成占位注释，
+ * 再按 `<!-- gn-col -->` 把内部切成 N 列，每列各自递归解析成文档。
+ * 列宽比例写在容器注释上：`widths="1,2"`（缺省视为全部 1）。
+ * ============================================================ */
+
+interface ColumnsBlock {
+  widths: number[]
+  columns: JSONContent[]
+}
+
+const COLUMNS_PLACEHOLDER_RE = /^<!--\s*gn-columns:(\d+)\s*-->$/i
+
+function parseColumnsWidths(comment: string): number[] {
+  const m = /widths\s*=\s*"([^"]*)"/i.exec(comment)
+  if (!m) return []
+  return m[1]
+    .split(',')
+    .map((s) => {
+      const n = Number(s.trim())
+      return Number.isFinite(n) && n > 0 ? n : 1
+    })
+}
+
+/**
+ * 把分栏内部文本按「顶层」的 `<!-- gn-col -->` 切成若干列。
+ * 嵌套的分栏（内部也有 gn-col 分隔符）不被切错：靠 columns 的嵌套深度计数。
+ * 只取相邻分隔符之间的内容（忽略首条分隔符之前的填充换行与末条之后的收尾换行）。
+ */
+function splitColumns(inner: string): string[] {
+  const chunks: string[] = []
+  let depth = 0
+  let start: number | null = null
+  const re = /<!--\s*(?:\/gn-columns|gn-columns\b|gn-col\b)\s*-->/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(inner))) {
+    const text = m[0].toLowerCase()
+    if (text.includes('/gn-columns')) {
+      depth = Math.max(0, depth - 1)
+      continue
+    }
+    if (text.includes('gn-columns')) {
+      depth++
+      continue
+    }
+    // 顶层分隔符：上一段（若有）收尾，下一段从分隔符之后开始
+    if (depth === 0) {
+      if (start !== null) chunks.push(inner.slice(start, m.index))
+      start = m.index + m[0].length
+    }
+  }
+  if (start !== null) chunks.push(inner.slice(start))
+  return chunks
+}
+
+/**
+ * 把源码里的分栏块抠出来换成占位注释（支持嵌套）。
+ * 每个分栏的列内容通过 markdownToDoc 递归解析（自然处理嵌套分栏）。
+ */
+function extractColumnsBlocks(src: string, out: ColumnsBlock[]): string {
+  let result = ''
+  let i = 0
+  while (i < src.length) {
+    const openIdx = src.indexOf('<!--', i)
+    if (openIdx === -1) {
+      result += src.slice(i)
+      break
+    }
+    const head = src.slice(openIdx)
+    if (!/^<!--\s*gn-columns\b/i.test(head)) {
+      // 不是分栏标记，跳过这 4 个字符继续往前找
+      result += src.slice(i, openIdx + 4)
+      i = openIdx + 4
+      continue
+    }
+    const openClose = src.indexOf('-->', openIdx)
+    if (openClose === -1) {
+      result += src.slice(i)
+      break
+    }
+    const openComment = src.slice(openIdx, openClose + 3)
+    const widths = parseColumnsWidths(openComment)
+
+    // 找配对的 <!-- /gn-columns -->，按嵌套深度计数
+    let depth = 1
+    let scan = openClose + 3
+    let closePos = -1
+    let closeLen = 0
+    const re = /<!--\s*(?:\/gn-columns|gn-columns\b)\s*-->/gi
+    re.lastIndex = scan
+    let m: RegExpExecArray | null
+    while ((m = re.exec(src))) {
+      if (/\/gn-columns/i.test(m[0])) {
+        depth--
+        if (depth === 0) {
+          closePos = m.index
+          closeLen = m[0].length
+          break
+        }
+      } else {
+        depth++
+      }
+    }
+    if (closePos === -1) {
+      result += src.slice(i)
+      break
+    }
+
+    const inner = src.slice(openClose + 3, closePos)
+    const chunks = splitColumns(inner)
+    const columns = chunks.map((chunk) => markdownToDoc(chunk))
+    const idx = out.push({ widths, columns }) - 1
+    result += src.slice(i, openIdx) + `<!--gn-columns:${idx}-->`
+    i = closePos + closeLen
+  }
+  return result
+}
+
+/** 由解析好的列文档构造分栏节点；去掉序列化时补的末尾空段落 */
+function buildColumnsNode(info: ColumnsBlock, _columnsBlocks: ColumnsBlock[]): JSONContent {
+  const cols = info.columns.map((colDoc, i) => {
+    let content = colDoc.content ?? []
+    const last = content[content.length - 1]
+    if (last && last.type === 'paragraph' && !last.content?.length) {
+      content = content.slice(0, -1)
+    }
+    return {
+      type: 'column',
+      attrs: { width: info.widths[i] ?? 1 },
+      content: content.length ? content : [{ type: 'paragraph' }],
+    }
+  })
+  return { type: 'columns', content: cols }
+}
+
 /** 只判断是否为待办项，不修改内容 */
 function taskStateOf(paragraph: JSONContent): boolean | null {
   const first = paragraph.content?.[0]
@@ -734,6 +892,7 @@ function convertBlocks(
   from: number,
   to: number,
   detailsBlocks: DetailsBlock[] = [],
+  columnsBlocks: ColumnsBlock[] = [],
 ): JSONContent[] {
   const nodes: JSONContent[] = []
   let i = from
@@ -748,7 +907,17 @@ function convertBlocks(
       if (ph) {
         const info = detailsBlocks[Number(ph[1])]
         if (info) {
-          nodes.push(buildDetailsNode(info, detailsBlocks))
+          nodes.push(buildDetailsNode(info, detailsBlocks, columnsBlocks))
+          i++
+          continue
+        }
+      }
+      // 分栏块：已被 extractColumnsBlocks 换成占位注释
+      const colPh = COLUMNS_PLACEHOLDER_RE.exec(t.content.trim())
+      if (colPh) {
+        const info = columnsBlocks[Number(colPh[1])]
+        if (info) {
+          nodes.push(buildColumnsNode(info, columnsBlocks))
           i++
           continue
         }
@@ -792,7 +961,7 @@ function convertBlocks(
       while (j < closeIdx) {
         if (tokens[j].type === 'list_item_open') {
           const itemClose = matchClose(tokens, j)
-          const inner = convertBlocks(tokens, j + 1, itemClose, detailsBlocks)
+          const inner = convertBlocks(tokens, j + 1, itemClose, detailsBlocks, columnsBlocks)
           const checked = inner[0]?.type === 'paragraph' ? taskStateOf(inner[0]) : null
           // 标记由 markCollapsedItems() 在预处理时挂到这个 list_item_open 上
           items.push({ content: inner, checked, collapsed: !!tokens[j].meta?.gnCollapsed })
@@ -833,7 +1002,7 @@ function convertBlocks(
 
     if (t.type === 'blockquote_open') {
       const closeIdx = matchClose(tokens, i)
-      const inner = convertBlocks(tokens, i + 1, closeIdx, detailsBlocks)
+      const inner = convertBlocks(tokens, i + 1, closeIdx, detailsBlocks, columnsBlocks)
       nodes.push({
         type: 'blockquote',
         content: inner.length ? inner : [{ type: 'paragraph' }],
@@ -953,9 +1122,12 @@ export function markdownToDoc(content: string): JSONContent {
   }
   // 先抠出 <details> 整块（markdown-it 的 HTML 块遇空行会截断），换成占位注释
   const detailsBlocks: DetailsBlock[] = []
-  const source = extractDetailsBlocks(content, detailsBlocks)
+  const columnsBlocks: ColumnsBlock[] = []
+  let source = extractDetailsBlocks(content, detailsBlocks)
+  // 再抠出分栏整块（结构同 details），换成占位注释
+  source = extractColumnsBlocks(source, columnsBlocks)
   const tokens = markCollapsedItems(md.parse(source, {}))
-  let nodes = convertBlocks(tokens, 0, tokens.length, detailsBlocks)
+  let nodes = convertBlocks(tokens, 0, tokens.length, detailsBlocks, columnsBlocks)
   if (!nodes.length) nodes = [{ type: 'paragraph' }]
   // 末尾永远留一个空段落：保存时会被滤掉，打开后再补回来，方便继续输入
   const last = nodes[nodes.length - 1]
