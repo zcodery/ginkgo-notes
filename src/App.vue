@@ -152,6 +152,20 @@ watch(
   (on) => setPinIdleWatch(on),
 )
 
+/**
+ * 公开分享页直接挂在 template 根上，不在 .app-shell 里。
+ * 应用外壳依赖 body { overflow:hidden } 做内部滚动，分享页必须放开文档滚动，
+ * 否则长文章只能看到首屏（body 被锁死，页面无处可滚）。
+ */
+watch(
+  isPublicShare,
+  (v) => {
+    document.documentElement.classList.toggle('gn-standalone', v)
+    document.body.classList.toggle('gn-standalone', v)
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
   await initTheme()
   await initEditorPrefs()
@@ -179,6 +193,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('popstate', syncRoute)
   document.removeEventListener('keydown', onKeydown)
+  document.documentElement.classList.remove('gn-standalone')
+  document.body.classList.remove('gn-standalone')
   if (versionTimer) window.clearInterval(versionTimer)
 })
 </script>

@@ -6,6 +6,8 @@ import { resolveCoverBackgroundSync } from '@/components/pageCover'
 import { readPublicShare, type PublicSharePayload } from '@/api/features'
 import { renderMarkdown } from '@/utils/renderMarkdown'
 import { renderMermaid } from '@/blocks/mermaid'
+import { copyText } from '@/utils/clipboard'
+import { codeLineNumbers } from '@/editor/codePrefs'
 import { store, toggleTheme } from '@/store'
 
 const props = defineProps<{ token: string }>()
@@ -90,14 +92,67 @@ function goTrail(i: number) {
   void load(target.id)
 }
 
+/** 行号是全局偏好，同步到页面上所有代码块（含按钮的选中态） */
+function syncLineNumbers() {
+  const root = bodyRef.value
+  if (!root) return
+  const on = codeLineNumbers.value
+  for (const box of root.querySelectorAll<HTMLElement>('.sv-code')) {
+    box.classList.toggle('show-lines', on)
+    box.querySelector<HTMLElement>('[data-cb="lines"]')?.classList.toggle('active', on)
+  }
+}
+
+/** 代码块工具栏：v-html 里没有 Vue 组件，统一在容器上做事件委托 */
+async function onBodyClick(e: MouseEvent) {
+  const btn = (e.target as HTMLElement | null)?.closest<HTMLElement>('.sv-code-btn[data-cb]')
+  const box = btn?.closest<HTMLElement>('.sv-code')
+  if (!btn || !box || !bodyRef.value?.contains(btn)) return
+
+  switch (btn.dataset.cb) {
+    case 'lines':
+      codeLineNumbers.value = !codeLineNumbers.value
+      break
+    case 'wrap':
+      btn.classList.toggle('active', box.classList.toggle('wrap'))
+      break
+    case 'fold': {
+      const folded = box.classList.toggle('is-collapsed')
+      btn.textContent = folded ? '展开' : '收起'
+      btn.classList.toggle('active', folded)
+      break
+    }
+    case 'copy': {
+      const code = box.querySelector('code')?.textContent ?? ''
+      const ok = await copyText(code)
+      btn.textContent = ok ? '已复制' : '复制失败'
+      btn.classList.toggle('is-ok', ok)
+      window.setTimeout(() => {
+        btn.textContent = '复制'
+        btn.classList.remove('is-ok')
+      }, 1600)
+      break
+    }
+  }
+}
+
 async function enhance() {
   await nextTick()
   const root = bodyRef.value
   if (!root) return
-  const blocks = root.querySelectorAll<HTMLElement>('pre code')
+  syncLineNumbers()
+  const blocks = root.querySelectorAll<HTMLElement>('.sv-code pre code')
   if (blocks.length) {
     const hljs = (await import('highlight.js/lib/common')).default
-    blocks.forEach((el) => hljs.highlightElement(el))
+    blocks.forEach((el) => {
+      // 主题切换时 DOM 没重建，别重复高亮同一个元素
+      if (el.dataset.highlighted === 'yes') return
+      try {
+        hljs.highlightElement(el)
+      } catch {
+        /* 未注册的语言保持纯文本 */
+      }
+    })
   }
   for (const el of root.querySelectorAll<HTMLElement>('.sv-mermaid')) {
     const r = await renderMermaid(el.dataset.code ?? '', store.theme === 'dark')
@@ -106,6 +161,7 @@ async function enhance() {
 }
 
 watch([html, () => store.theme], enhance)
+watch(codeLineNumbers, syncLineNumbers)
 onMounted(() => load())
 </script>
 
@@ -153,7 +209,7 @@ onMounted(() => load())
         </div>
         <h1 class="sv-title">{{ data.page.title || '未命名' }}</h1>
         <div v-if="data.page.updatedAt" class="sv-meta">更新于 {{ new Date(data.page.updatedAt).toLocaleString() }}</div>
-        <div ref="bodyRef" class="sv-body gn-prose" v-html="html"></div>
+        <div ref="bodyRef" class="sv-body gn-prose" v-html="html" @click="onBodyClick"></div>
 
         <section v-if="data.children.length" class="sv-children">
           <div class="sv-children-title">子页面</div>
@@ -387,6 +443,210 @@ onMounted(() => load())
   overflow-x: auto;
   font-size: 13.5px;
   line-height: 1.6;
+}
+
+/* ===== 只读页折叠块：换掉浏览器默认的实心三角，与编辑器统一 ===== */
+.sv-body :deep(details > summary) {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  user-select: none;
+}
+.sv-body :deep(details > summary::-webkit-details-marker) {
+  display: none;
+}
+.sv-body :deep(details > summary::before) {
+  content: "";
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  background-color: var(--gn-text-soft);
+  -webkit-mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  mask: var(--gn-chevron) center / 14px 14px no-repeat;
+  transform: rotate(0deg);
+  transition:
+    transform var(--gn-collapse-fade) var(--gn-collapse-ease),
+    background-color 0.15s ease;
+}
+.sv-body :deep(details > summary:hover::before),
+.sv-body :deep(details[open] > summary::before) {
+  background-color: var(--gn-accent);
+}
+.sv-body :deep(details[open] > summary::before) {
+  transform: rotate(90deg);
+}
+
+/* ===== 只读页代码块：语言 / 名字 / 行号 / 换行 / 折叠 / 复制 ===== */
+.sv-body :deep(.sv-code) {
+  margin: 14px 0;
+  border: 1px solid var(--gn-border);
+  border-radius: var(--gn-radius);
+  background: var(--gn-bg-code);
+  overflow: hidden;
+}
+.sv-body :deep(.sv-code-bar) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--gn-border);
+  background: color-mix(in srgb, var(--gn-bg-sidebar) 45%, transparent);
+  font-family: var(--gn-font);
+  font-size: 12px;
+  line-height: 1.4;
+  user-select: none;
+  transition: border-color 0.18s ease;
+}
+.sv-body :deep(.sv-code.is-collapsed .sv-code-bar) {
+  border-bottom-color: transparent;
+}
+.sv-body :deep(.sv-code-lang) {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.sv-body :deep(.sv-code-title) {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--gn-text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sv-body :deep(.sv-code-spacer) {
+  flex: 1 1 auto;
+  min-width: 4px;
+}
+.sv-body :deep(.sv-code-count) {
+  flex: 0 0 auto;
+  color: var(--gn-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.sv-body :deep(.sv-code-btn) {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.sv-body :deep(.sv-code-btn:hover) {
+  background: var(--gn-bg-hover);
+  border-color: var(--gn-border);
+  color: var(--gn-text);
+}
+.sv-body :deep(.sv-code-btn.active) {
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
+.sv-body :deep(.sv-code-btn.is-ok) {
+  color: var(--gn-success, #16a34a);
+}
+/* 折叠同样交给 CSS 的 flex 轨道过渡，收起/展开平滑无跳变 */
+.sv-body :deep(.sv-code-fold) {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  transition: grid-template-rows 0.22s ease, opacity 0.18s ease;
+}
+.sv-body :deep(.sv-code-fold-inner) {
+  min-height: 0;
+  overflow: hidden;
+}
+.sv-body :deep(.sv-code.is-collapsed .sv-code-fold) {
+  grid-template-rows: minmax(0, 0fr);
+  opacity: 0;
+}
+.sv-body :deep(.sv-code-wrap) {
+  position: relative;
+}
+.sv-body :deep(.sv-code pre) {
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--gn-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+}
+.sv-body :deep(.sv-code.wrap pre) {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sv-body :deep(.sv-code pre code) {
+  display: block;
+  padding: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+/* 行号：每行配一份不可见的原文，自动换行时行号仍对齐折行后的首行 */
+.sv-body :deep(.sv-code-ln) {
+  display: none;
+  position: absolute;
+  inset: 0;
+  padding: 12px 14px 12px 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  font-family: var(--gn-mono);
+  font-size: 13.5px;
+  line-height: 1.62;
+  tab-size: 2;
+  white-space: pre;
+}
+.sv-body :deep(.sv-code.show-lines .sv-code-ln) {
+  display: block;
+}
+.sv-body :deep(.sv-code.show-lines pre) {
+  padding-left: var(--sv-ln-w);
+}
+.sv-body :deep(.sv-code.wrap .sv-code-ln) {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sv-body :deep(.sv-code-ln-row) {
+  display: flex;
+}
+.sv-body :deep(.sv-code-ln-num) {
+  flex: 0 0 var(--sv-ln-w);
+  box-sizing: border-box;
+  padding-right: 14px;
+  text-align: right;
+  color: var(--gn-text-muted);
+  background: var(--gn-bg-code);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.sv-body :deep(.sv-code-ln-ghost) {
+  flex: 1 1 auto;
+  min-width: 0;
+  visibility: hidden;
+}
+@media (max-width: 768px) {
+  .sv-body :deep(.sv-code-count) {
+    display: none;
+  }
+  .sv-body :deep(.sv-code-title) {
+    max-width: 90px;
+  }
 }
 .sv-body :deep(code) {
   font-family: var(--gn-mono);
