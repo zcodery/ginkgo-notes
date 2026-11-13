@@ -2055,7 +2055,8 @@ function computeBlockColumnDrop(block: HoverBlock, clientX: number, clientY: num
   const r = dom.getBoundingClientRect()
   if (r.height <= 0) return null
 
-  const band = Math.max(6, Math.min(48, r.height * 0.3))
+  // 只有贴住行的上下窄边才走普通重排（否则「拖到某行中间」很难命中并排）
+  const band = Math.max(6, Math.min(20, r.height * 0.12))
   if (clientY < r.top + band || clientY > r.bottom - band) return null
 
   const rootRect = root.getBoundingClientRect()
