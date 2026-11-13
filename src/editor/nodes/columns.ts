@@ -1,7 +1,8 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { VueNodeViewRenderer } from '@tiptap/vue-3'
 import { TextSelection } from '@tiptap/pm/state'
-import type { Node as PMNode, Fragment } from '@tiptap/pm/model'
+import { Fragment } from '@tiptap/pm/model'
+import type { Node as PMNode } from '@tiptap/pm/model'
 import type { Transaction } from '@tiptap/pm/state'
 import ColumnsView from '@/blocks/ColumnsView.vue'
 
@@ -9,6 +10,43 @@ import ColumnsView from '@/blocks/ColumnsView.vue'
 function isColEmpty(col: PMNode | null | undefined): boolean {
   if (!col) return false
   return col.childCount === 1 && col.firstChild?.isTextblock === true && col.firstChild.content.size === 0
+}
+
+const LIST_TYPES = ['bulletList', 'orderedList', 'taskList']
+
+/**
+ * 把拖拽出来的内容规整成合法的「列内容」（column 的 content 是 `block+`）。
+ * - 本身合法（普通段落/标题等）→ 原样返回；
+ * - 全是列表项（listItem / taskItem，拖动清单条目就是这种）→ 按原列表类型回包成
+ *   bulletList / orderedList / taskList，否则「一个孤立的 li」不是合法块；
+ * - 其它（如半截列表、孤立的行内内容）→ 返回 null，交给普通重排。
+ */
+function toColumnContent(state: any, content: Fragment, from: number): Fragment | null {
+  const columnType = state.schema.nodes.column
+  if (!columnType) return null
+  if (columnType.validContent(content)) return content
+  if (!content.childCount) return null
+
+  let allListItems = true
+  content.forEach((c: PMNode) => {
+    if (c.type.name !== 'listItem' && c.type.name !== 'taskItem') allListItems = false
+  })
+  if (!allListItems) return null
+
+  // 优先沿用「原列表」的类型与属性（有序列表的 start 等），保证语义不丢
+  const parent = from <= state.doc.content.size ? state.doc.resolve(from).parent : state.doc
+  const parentIsList = LIST_TYPES.includes(parent.type.name)
+  const nodes = state.schema.nodes
+  const listType = parentIsList
+    ? parent.type
+    : content.firstChild!.type.name === 'taskItem'
+      ? nodes.taskList
+      : nodes.bulletList
+  if (!listType) return null
+
+  const wrapped = listType.create(parentIsList ? parent.attrs : null, content)
+  const frag = Fragment.from(wrapped)
+  return columnType.validContent(frag) ? frag : null
 }
 
 /** 把 columns 节点整体替换为单个空段落（退出分栏） */
@@ -56,6 +94,19 @@ declare module '@tiptap/core' {
         mode: 'new' | 'into'
         index?: number
         columnIndex?: number
+      }) => ReturnType
+      /**
+       * 把「普通块」就地变成两栏，并把拖拽进来的块放到它的左/右侧。
+       * 用于「拖一个块到任意普通行上 → 该行动态多出一栏」，无需先存在分栏。
+       * - 目标块成为其中一列，拖拽内容成为另一列（side 决定左右）；
+       * - 源块会被删除（移动语义），即便源块在目标之前/之后都按原坐标正确换算；
+       * - 目标本身是 columns/column、与源范围重叠、或内容不合法时返回 false（交给普通重排）。
+       */
+      makeColumnsWithBlock: (opts: {
+        targetPos: number
+        from: number
+        to: number
+        side: 'left' | 'right'
       }) => ReturnType
       /** 按索引删除分栏中的若干列（索引去重、按原位置降序删除）；若删除后仅剩 1 个空列或 0 列则自动退出分栏 */
       removeColumnsAt: (opts: { columnsPos: number; indices: number[] }) => ReturnType
@@ -149,10 +200,11 @@ export const Columns = Node.create({
           const { from, to, targetColumnsPos, mode, index, columnIndex } = opts
           const node = state.doc.nodeAt(targetColumnsPos)
           if (!node || node.type.name !== 'columns') return false
-          const content: Fragment = state.doc.slice(from, to).content
-          if (content.size === 0) return false
-          // 拖拽内容必须是合法的列内容（block+），否则放弃（交由普通重排处理）
-          if (!state.schema.nodes.column.validContent(content)) return false
+          const raw: Fragment = state.doc.slice(from, to).content
+          if (raw.size === 0) return false
+          // 拖拽内容必须是合法的列内容（block+）；清单条目会回包成同类列表
+          const content = toColumnContent(state, raw, from)
+          if (!content) return false
 
           // 计算该分栏各列在文档中的起始位置
           const colStarts: number[] = []
@@ -201,6 +253,48 @@ export const Columns = Node.create({
           if (dispatch) {
             const caret = effectiveMode === 'new' ? insertPos + 3 : colStarts[intoColIndex] + 3
             tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(caret, tr.doc.content.size))))
+          }
+          return true
+        },
+
+      makeColumnsWithBlock:
+        (opts: { targetPos: number; from: number; to: number; side: 'left' | 'right' }) =>
+        ({ state, dispatch, tr }) => {
+          const { targetPos, from, to, side } = opts
+          if (to <= from) return false
+          const target = state.doc.nodeAt(targetPos)
+          if (!target) return false
+          if (target.type.name === 'columns' || target.type.name === 'column') return false
+          // 目标必须是「顶层块」；孤立列表项不能直接换成块级分栏（会破坏列表结构）
+          if (target.type.name === 'listItem' || target.type.name === 'taskItem') return false
+          // 拖到自己身上（或与自己重叠）时不做处理，避免自我嵌套
+          if (from < targetPos + target.nodeSize && to > targetPos) return false
+          // 空段落作为目标是「占位行」，保持普通移动语义，不产生半空分栏
+          if (target.isTextblock && target.content.size === 0) return false
+
+          const raw: Fragment = state.doc.slice(from, to).content
+          if (raw.size === 0) return false
+
+          const columnType = state.schema.nodes.column
+          const columnsType = state.schema.nodes.columns
+          if (!columnType || !columnsType) return false
+          // 目标块必须本身就能成为一列；拖拽内容允许是清单条目（回包成同类列表）
+          if (!columnType.validContent(Fragment.from(target))) return false
+          const content = toColumnContent(state, raw, from)
+          if (!content) return false
+
+          const targetCol = columnType.create({ width: 1 }, target)
+          const dragCol = columnType.create({ width: 1 }, content)
+          const cols = side === 'left' ? [dragCol, targetCol] : [targetCol, dragCol]
+          const columnsNode = columnsType.create(null, cols)
+
+          if (dispatch) {
+            // 先删源块：源在目标之前时目标坐标要相应前移；源在目标之后则不受影响
+            tr.delete(from, to)
+            const at = from < targetPos ? targetPos - (to - from) : targetPos
+            tr.replaceWith(at, at + target.nodeSize, columnsNode)
+            // 光标落到第一列首个块内（near 兼容非文本块）
+            tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(at + 2, tr.doc.content.size))))
           }
           return true
         },

@@ -1925,8 +1925,12 @@ const dropLineY = ref<number | null>(null)
 let dropPos: number | null = null
 
 interface ColDrop {
-  mode: 'new' | 'into'
-  columnsPos: number
+  mode: 'new' | 'into' | 'cols-with'
+  columnsPos?: number
+  /** mode='cols-with'：要把拖入块并排进去的目标普通块起始位置 */
+  targetPos?: number
+  /** mode='cols-with'：拖入块落在目标块的左侧还是右侧 */
+  side?: 'left' | 'right'
   index?: number
   columnIndex?: number
   left?: number
@@ -2012,6 +2016,60 @@ function computeColumnDrop(columnsPos: number, clientX: number, clientY: number)
   return mkNew(colEls.length, clientX)
 }
 
+/**
+ * 拖到「还没有分栏」的普通行上：在该行就地开一栏。
+ * - 行的上下窄边（band）→ 仍走普通重排（便于上下换位）；
+ * - 其余中间区域     → 目标行与拖入块并排成两栏（x 决定放左还是放右）；
+ * - 目标是空段落     → 不处理（保持普通移动，避免半空分栏）。
+ */
+function computeBlockColumnDrop(block: HoverBlock, clientX: number, clientY: number): ColDrop | null {
+  const ed = editor.value
+  if (!ed || dragFrom.value == null) return null
+  const dragNode = ed.state.doc.nodeAt(dragFrom.value)
+  if (!dragNode) return null
+  // 整块分栏/列本身不参与「并排成栏」
+  if (dragNode.type.name === 'columns' || dragNode.type.name === 'column') return null
+  // 拖到自己身上不处理
+  if (block.from === dragFrom.value) return null
+
+  // 目标提升到「顶层块」：清单条目命中时按整张清单算，否则无法安全地换成块级分栏
+  const docSize = ed.state.doc.content.size
+  const $pos = ed.state.doc.resolve(Math.min(block.from, docSize))
+  const topFrom = $pos.depth > 0 ? $pos.before(1) : block.from
+  const topNode = ed.state.doc.nodeAt(topFrom)
+  if (!topNode) return null
+  if (topNode.type.name === 'columns' || topNode.type.name === 'column') return null
+  // 空段落作为落点：交给普通重排
+  if (topNode.isTextblock && topNode.content.size === 0) return null
+  // 拖拽范围与目标顶层块重叠（例如把清单里的条目拖回同一张清单）→ 不处理
+  const dragToPos = dragTo.value ?? dragFrom.value
+  if (dragFrom.value! < topFrom + topNode.nodeSize && dragToPos > topFrom) return null
+
+  const root = rootRef.value
+  if (!root) return null
+  const dom =
+    block.hitDom ??
+    (ed.view.nodeDOM(topFrom) as HTMLElement | null) ??
+    (ed.view.nodeDOM(block.from) as HTMLElement | null)
+  if (!dom) return null
+  const r = dom.getBoundingClientRect()
+  if (r.height <= 0) return null
+
+  const band = Math.max(6, Math.min(48, r.height * 0.3))
+  if (clientY < r.top + band || clientY > r.bottom - band) return null
+
+  const rootRect = root.getBoundingClientRect()
+  const side: 'left' | 'right' = clientX < r.left + r.width / 2 ? 'left' : 'right'
+  return {
+    mode: 'cols-with',
+    targetPos: topFrom,
+    side,
+    left: (side === 'left' ? r.left : r.right) - rootRect.left,
+    top: r.top - rootRect.top,
+    height: r.height,
+  }
+}
+
 function onDragStart(e: DragEvent) {
   if (!hoverBlock || !canEdit.value) {
     e.preventDefault()
@@ -2054,13 +2112,24 @@ function onDragOver(e: DragEvent) {
 
   // 落点在分栏上 → 显示「新建栏 / 入栏」指示，不再显示普通重排线
   const block = resolveBlock(e.clientX, e.clientY)
-  if (block && block.node.type.name === 'columns') {
-    const target = computeColumnDrop(block.from, e.clientX, e.clientY)
-    if (target) {
-      dropCol.value = target
-      dropLineY.value = null
-      setIntoHighlight(target)
-      return
+  if (block) {
+    if (block.node.type.name === 'columns') {
+      const target = computeColumnDrop(block.from, e.clientX, e.clientY)
+      if (target) {
+        dropCol.value = target
+        dropLineY.value = null
+        setIntoHighlight(target)
+        return
+      }
+    } else {
+      // 落在普通行上 → 该行就地并排开一栏
+      const asCols = computeBlockColumnDrop(block, e.clientX, e.clientY)
+      if (asCols) {
+        dropCol.value = asCols
+        dropLineY.value = null
+        clearIntoHighlight()
+        return
+      }
     }
   }
   clearIntoHighlight()
@@ -2107,7 +2176,7 @@ function onDrop(e: DragEvent) {
   e.preventDefault()
   e.stopPropagation()
 
-  // 落在分栏上：把拖拽块移入（新建栏 / 入栏）
+  // 落在分栏/普通行上：把拖拽块移入（新建栏 / 入栏 / 与目标并排成栏）
   if (dropCol.value) {
     const t = dropCol.value
     const from = dragFrom.value
@@ -2115,17 +2184,37 @@ function onDrop(e: DragEvent) {
     clearIntoHighlight()
     dropCol.value = null
     resetDrag()
-    ed.chain()
+    if (t.mode === 'cols-with' && t.targetPos != null && t.side) {
+      const ok = ed
+        .chain()
+        .focus()
+        .makeColumnsWithBlock({ targetPos: t.targetPos, from, to, side: t.side })
+        .run()
+      if (!ok) {
+        // 兜底：无法并排成栏时按普通移动处理，避免「松手后什么都没发生」
+        const target = ed.state.doc.nodeAt(t.targetPos)
+        if (target) {
+          moveBlockRange(ed, from, to, t.side === 'left' ? t.targetPos : t.targetPos + target.nodeSize)
+        }
+      }
+      return
+    }
+    const ok = ed
+      .chain()
       .focus()
       .moveBlocksToColumn({
         from,
         to,
-        targetColumnsPos: t.columnsPos,
-        mode: t.mode,
+        targetColumnsPos: t.columnsPos!,
+        mode: t.mode === 'into' ? 'into' : 'new',
         index: t.index,
         columnIndex: t.columnIndex,
       })
       .run()
+    if (!ok) {
+      const target = ed.state.doc.nodeAt(t.columnsPos!)
+      if (target) moveBlockRange(ed, from, to, t.columnsPos! + target.nodeSize)
+    }
     return
   }
 
@@ -2134,8 +2223,12 @@ function onDrop(e: DragEvent) {
   const to = dragTo.value!
   const target = dropPos
   resetDrag()
-  if (target >= from && target <= to) return
+  moveBlockRange(ed, from, to, target)
+}
 
+/** 普通重排：把 [from,to) 的顶层块移动到 target 处（target 为插入点） */
+function moveBlockRange(ed: NonNullable<typeof editor.value>, from: number, to: number, target: number) {
+  if (target >= from && target <= to) return
   let insert = target
   if (insert > to) insert -= to - from
   const slice = ed.state.doc.slice(from, to)
@@ -2316,7 +2409,7 @@ onBeforeUnmount(() => {
     <!-- 块手柄：普通块显示拖动手柄；标题显示隐性 H1/H2/H3 -->
     <div v-show="handle.visible" class="block-handle visible" :class="{ heading: handle.headingLevel > 0 }" :style="{ top: handle.top + 'px', left: handle.left + 'px' }" @mouseenter="cancelHide" @mouseleave="hideNow">
       <button v-if="handle.headingLevel" class="bh-level" v-tooltip="`拖动排序 / 打开菜单 · H${handle.headingLevel}`" draggable="true" @dragstart="onDragStart" @dragend="resetDrag" @click="openBlockMenu">H{{ handle.headingLevel }}</button>
-      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 打开菜单'" draggable="true" @dragstart="onDragStart" @dragend="resetDrag" @click="openBlockMenu">
+      <button v-else class="bh-grip" v-tooltip="'拖动排序 / 拖到某行中间可并排成栏 / 点击打开菜单'" draggable="true" @dragstart="onDragStart" @dragend="resetDrag" @click="openBlockMenu">
         <GripVertical :size="15" :stroke-width="2" />
       </button>
     </div>
@@ -2326,13 +2419,13 @@ onBeforeUnmount(() => {
     <!-- 拖拽指示线 -->
     <div v-if="dropLineY !== null" class="block-drop-line" :style="{ top: dropLineY + 'px' }"></div>
 
-    <!-- 拖入分栏：新建栏竖线指示 -->
+    <!-- 拖入分栏 / 普通行并排：新建栏竖线指示 -->
     <div
-      v-if="dropCol && dropCol.mode === 'new'"
+      v-if="dropCol && (dropCol.mode === 'new' || dropCol.mode === 'cols-with')"
       class="block-drop-col"
       :style="{ left: (dropCol.left ?? 0) + 'px', top: (dropCol.top ?? 0) + 'px', height: (dropCol.height ?? 0) + 'px' }"
     >
-      <span class="block-drop-col-badge">新建栏</span>
+      <span class="block-drop-col-badge">{{ dropCol.mode === 'cols-with' ? '并排成栏' : '新建栏' }}</span>
     </div>
 
     <!-- 文字格式浮条 -->
