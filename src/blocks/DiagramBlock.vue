@@ -16,6 +16,7 @@ import {
 import { renderMermaid } from './mermaid'
 import { diagramTemplates } from './diagramTemplates'
 import { afterThemeTransition, store } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps<{
   node: any
@@ -208,13 +209,10 @@ function onDraftKey(e: KeyboardEvent) {
 
 const copied = ref(false)
 async function copyCode() {
-  try {
-    await navigator.clipboard.writeText(code.value)
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1600)
-  } catch {
-    /* 忽略剪贴板权限问题 */
-  }
+  const ok = await copyText(code.value)
+  if (!ok) return
+  copied.value = true
+  window.setTimeout(() => (copied.value = false), 1600)
 }
 
 function removeSelf() {

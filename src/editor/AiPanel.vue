@@ -6,6 +6,7 @@ import { AI_ACTIONS, buildMessages, customPrompt, type AiMode } from './ai'
 import { streamChat } from '@/api/features'
 import { markdownToDoc } from './markdown'
 import { goProfile } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps<{
   editor: Editor
@@ -102,7 +103,8 @@ function insertBelow() {
 }
 
 async function copyOut() {
-  await navigator.clipboard.writeText(output.value)
+  const ok = await copyText(output.value)
+  if (!ok) return
   copied.value = true
   window.setTimeout(() => (copied.value = false), 1400)
 }

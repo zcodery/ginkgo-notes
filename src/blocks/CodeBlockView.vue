@@ -20,6 +20,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { NodeViewContent, NodeViewWrapper } from '@tiptap/vue-3'
 import { useEditorEditable } from '@/editor/editableContext'
+import { copyText } from '@/utils/clipboard'
 import {
   Check,
   ChevronDown,
@@ -190,13 +191,10 @@ function onDocKeydown(e: KeyboardEvent) {
 const copied = ref(false)
 
 async function copyCode() {
-  try {
-    await navigator.clipboard.writeText(code.value)
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1600)
-  } catch {
-    /* 忽略剪贴板权限问题 */
-  }
+  const ok = await copyText(code.value)
+  if (!ok) return
+  copied.value = true
+  window.setTimeout(() => (copied.value = false), 1600)
 }
 
 const formatting = ref(false)

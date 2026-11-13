@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { Check, Copy, KeyRound, Plus, RefreshCw, Send, Trash2, Webhook } from 'lucide-vue-next'
 import SettingsModal from './SettingsModal.vue'
+import { copyText } from '@/utils/clipboard'
 import GnSelect from '@/components/GnSelect.vue'
 import {
   createToken,
@@ -25,13 +26,13 @@ const mcpUrl = `${window.location.origin}/api/mcp`
 const copiedKey = ref('')
 
 async function copy(text: string, key: string) {
-  try {
-    await navigator.clipboard.writeText(text)
-    copiedKey.value = key
-    window.setTimeout(() => copiedKey.value === key && (copiedKey.value = ''), 1500)
-  } catch {
+  const ok = await copyText(text)
+  if (!ok) {
     emit('toast', 'err', '复制失败')
+    return
   }
+  copiedKey.value = key
+  window.setTimeout(() => copiedKey.value === key && (copiedKey.value = ''), 1500)
 }
 
 /* ---------------- 访问令牌 ---------------- */

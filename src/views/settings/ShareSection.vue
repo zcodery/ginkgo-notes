@@ -4,6 +4,7 @@ import { Copy, ExternalLink, Lock, Trash2 } from 'lucide-vue-next'
 import PageIcon from '@/components/PageIcon.vue'
 import { deleteShare, errorText, formatDateTime, listShares, shareUrl, type ShareInfo } from '@/api/features'
 import { goToPage, store } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 const emit = defineEmits<{ (e: 'toast', type: 'ok' | 'err', text: string): void }>()
 
@@ -22,12 +23,8 @@ async function load() {
 }
 
 async function copy(s: ShareInfo) {
-  try {
-    await navigator.clipboard.writeText(shareUrl(s.token))
-    emit('toast', 'ok', '链接已复制')
-  } catch {
-    emit('toast', 'err', '复制失败')
-  }
+  const ok = await copyText(shareUrl(s.token))
+  emit('toast', ok ? 'ok' : 'err', ok ? '链接已复制' : '复制失败')
 }
 
 async function revoke(s: ShareInfo) {

@@ -44,6 +44,7 @@ import FindReplaceBar from '@/components/FindReplaceBar.vue'
 import ImageExportModal from '@/components/ImageExportModal.vue'
 import CollapseTransition from '@/components/CollapseTransition.vue'
 import ChildPages from '@/components/ChildPages.vue'
+import { copyText } from '@/utils/clipboard'
 import {
   activePage,
   ancestorsOf,
@@ -621,12 +622,10 @@ async function copyLink() {
   const p = page.value
   if (!p) return
   const link = pageUrl(p.id)
-  try {
-    await navigator.clipboard.writeText(link)
+  const ok = await copyText(link)
+  if (ok) {
     copied.value = true
     setTimeout(() => (copied.value = false), 1600)
-  } catch {
-    /* ignore */
   }
   menuOpen.value = false
 }

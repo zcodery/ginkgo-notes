@@ -19,6 +19,7 @@ import {
   type ShareInfo,
 } from '@/api/features'
 import { store } from '@/store'
+import { copyText } from '@/utils/clipboard'
 
 const props = defineProps<{ pageId: string; pageTitle: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
@@ -29,6 +30,7 @@ const loading = ref(true)
 const busy = ref(false)
 const err = ref('')
 const copied = ref(false)
+const linkInput = ref<HTMLInputElement | null>(null)
 const isPublicSpace = computed(() => store.space === 'public')
 
 async function run(fn: () => Promise<void>) {
@@ -60,13 +62,16 @@ function togglePublish() {
 }
 
 async function copyLink() {
-  try {
-    await navigator.clipboard.writeText(link.value)
-    copied.value = true
-    window.setTimeout(() => (copied.value = false), 1500)
-  } catch {
+  const ok = await copyText(link.value)
+  if (!ok) {
     err.value = '复制失败，请手动选择链接'
+    // 退一步把链接选中，用户可以直接 Ctrl+C
+    linkInput.value?.select()
+    return
   }
+  err.value = ''
+  copied.value = true
+  window.setTimeout(() => (copied.value = false), 1500)
 }
 
 const expiryOptions = [
@@ -203,7 +208,7 @@ onMounted(async () => {
 
       <template v-if="share">
         <div class="pf-copy">
-          <input :value="link" readonly @focus="($event.target as HTMLInputElement).select()" />
+          <input ref="linkInput" :value="link" readonly @focus="($event.target as HTMLInputElement).select()" />
           <button type="button" class="pf-btn" @click="copyLink">
             <component :is="copied ? Check : Copy" :size="12" :stroke-width="2" />{{ copied ? '已复制' : '复制' }}
           </button>
