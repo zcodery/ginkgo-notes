@@ -1,17 +1,34 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import { authOf, findUserById, findUserByName } from './auth.ts'
+import { areFriends } from './acl.ts'
 import { PUBLIC_OWNER, db, getDoc, listDocs, putPage, type Doc } from './db.ts'
 import { HttpError, ID_RE, param } from './http.ts'
 import { notify } from './notify.ts'
 import { emitPageEvent } from './webhooks.ts'
 
 /**
- * 成员协作：把自己的某个页面（连同子页面）授权给其他用户。
+ * 成员协作：把自己的某个页面（连同子页面）授权给好友。
  * viewer 只读，editor 可修改标题与正文；页面始终归原作者所有。
+ *
+ * 数据源统一为 acl_entries；对外仍沿用原 /grants 协议，前端无需改动。
  */
 
 export type GrantRole = 'viewer' | 'editor'
+
+interface AclRow {
+  id: string
+  space_id: string
+  resource_type: string
+  resource_id: string
+  subject_type: string
+  subject_id: string
+  role: string
+  deny: number
+  inherit: number
+  created_by: string | null
+  created_at: number
+}
 
 interface GrantRow {
   id: string
@@ -27,6 +44,37 @@ export const membersRouter = Router()
 function userName(id: string): string {
   const u = findUserById(id)
   return u ? u.nickname || u.username : '已注销用户'
+}
+
+function toGrant(r: AclRow): GrantRow {
+  return {
+    id: r.id,
+    owner: r.space_id,
+    page_id: r.resource_id,
+    grantee_id: r.subject_id,
+    role: r.role === 'editor' ? 'editor' : 'viewer',
+    created_at: r.created_at,
+  }
+}
+
+function grantsOf(owner: string, pageId?: string): GrantRow[] {
+  const rows = (
+    pageId
+      ? db
+          .prepare(
+            `SELECT * FROM acl_entries
+             WHERE space_id = ? AND resource_type = 'page' AND resource_id = ? AND subject_type = 'user' AND deny = 0`,
+          )
+          .all(owner, pageId)
+      : db
+          .prepare(
+            `SELECT * FROM acl_entries
+             WHERE space_id = ? AND resource_type = 'page' AND subject_type = 'user' AND deny = 0
+             ORDER BY created_at DESC`,
+          )
+          .all(owner)
+  ) as unknown as AclRow[]
+  return rows.map(toGrant)
 }
 
 function subtree(pages: Doc[], rootId: string): Doc[] {
@@ -68,12 +116,7 @@ function publicGrant(g: GrantRow) {
 membersRouter.get('/grants', (req, res) => {
   const { owner } = authOf(res)
   const pageId = typeof req.query.pageId === 'string' ? req.query.pageId : null
-  const rows = (
-    pageId
-      ? db.prepare('SELECT * FROM page_grants WHERE owner = ? AND page_id = ? ORDER BY created_at').all(owner, pageId)
-      : db.prepare('SELECT * FROM page_grants WHERE owner = ? ORDER BY created_at DESC').all(owner)
-  ) as unknown as GrantRow[]
-  res.json(rows.map(publicGrant))
+  res.json(grantsOf(owner, pageId ?? undefined).map(publicGrant))
 })
 
 membersRouter.post('/grants', (req, res) => {
@@ -87,19 +130,65 @@ membersRouter.post('/grants', (req, res) => {
   const target = username ? findUserByName(username) : null
   if (!target) throw new HttpError(404, '找不到该用户名')
   if (target.id === user.id) throw new HttpError(400, '不能邀请自己')
+  if (!areFriends(user.id, target.id)) {
+    // 同团队但非好友也允许分享个人笔记
+    const sameTeam = db
+      .prepare(
+        `SELECT 1 FROM space_members m1
+         JOIN space_members m2 ON m2.space_id = m1.space_id
+         JOIN spaces s ON s.id = m1.space_id
+         WHERE m1.user_id = ? AND m2.user_id = ?
+           AND m1.status = 'active' AND m2.status = 'active' AND s.type = 'team'
+         LIMIT 1`,
+      )
+      .get(user.id, target.id)
+    if (!sameTeam) throw new HttpError(403, '只能分享给好友或同团队成员')
+  }
+
   const role: GrantRole = req.body?.role === 'editor' ? 'editor' : 'viewer'
-  const existing = db.prepare('SELECT * FROM page_grants WHERE page_id = ? AND grantee_id = ?').get(pageId, target.id) as
-    | GrantRow
-    | undefined
+  const existing = db
+    .prepare(
+      `SELECT * FROM acl_entries
+       WHERE resource_type = 'page' AND resource_id = ? AND subject_type = 'user' AND subject_id = ?`,
+    )
+    .get(pageId, target.id) as AclRow | undefined
+
   if (existing) {
-    db.prepare('UPDATE page_grants SET role = ? WHERE id = ?').run(role, existing.id)
-    res.json(publicGrant({ ...existing, role }))
+    db.prepare('UPDATE acl_entries SET role = ?, deny = 0 WHERE id = ?').run(role, existing.id)
+    res.json(publicGrant(toGrant({ ...existing, role, deny: 0 })))
     return
   }
-  const row: GrantRow = { id: randomUUID(), owner, page_id: pageId, grantee_id: target.id, role, created_at: Date.now() }
+
+  const row: AclRow = {
+    id: randomUUID(),
+    space_id: owner,
+    resource_type: 'page',
+    resource_id: pageId,
+    subject_type: 'user',
+    subject_id: target.id,
+    role,
+    deny: 0,
+    inherit: 1,
+    created_by: user.id,
+    created_at: Date.now(),
+  }
   db.prepare(
-    'INSERT INTO page_grants (id, owner, page_id, grantee_id, role, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-  ).run(row.id, owner, pageId, target.id, role, row.created_at)
+    `INSERT INTO acl_entries
+      (id, space_id, resource_type, resource_id, subject_type, subject_id, role, deny, inherit, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    row.id,
+    row.space_id,
+    row.resource_type,
+    row.resource_id,
+    row.subject_type,
+    row.subject_id,
+    row.role,
+    row.deny,
+    row.inherit,
+    row.created_by,
+    row.created_at,
+  )
   notify(
     target.id,
     'member',
@@ -107,31 +196,43 @@ membersRouter.post('/grants', (req, res) => {
     '可以在侧栏「与我共享」中找到它。',
     `/shared/${pageId}`,
   )
-  res.status(201).json(publicGrant(row))
+  res.status(201).json(publicGrant(toGrant(row)))
 })
 
 membersRouter.patch('/grants/:id', (req, res) => {
   const { owner } = authOf(res)
   const role: GrantRole = req.body?.role === 'editor' ? 'editor' : 'viewer'
-  const g = db.prepare('SELECT * FROM page_grants WHERE id = ? AND owner = ?').get(param(req, 'id'), owner) as
-    | GrantRow
+  const g = db.prepare('SELECT * FROM acl_entries WHERE id = ? AND space_id = ?').get(param(req, 'id'), owner) as
+    | AclRow
     | undefined
   if (!g) throw new HttpError(404, '授权不存在')
-  db.prepare('UPDATE page_grants SET role = ? WHERE id = ?').run(role, g.id)
-  res.json(publicGrant({ ...g, role }))
+  db.prepare('UPDATE acl_entries SET role = ? WHERE id = ?').run(role, g.id)
+  res.json(publicGrant(toGrant({ ...g, role })))
 })
 
 membersRouter.delete('/grants/:id', (req, res) => {
   const { owner, user } = authOf(res)
   // 作者可以撤销；被邀请的人也可以自己退出
-  db.prepare('DELETE FROM page_grants WHERE id = ? AND (owner = ? OR grantee_id = ?)').run(param(req, 'id'), owner, user.id)
+  db.prepare('DELETE FROM acl_entries WHERE id = ? AND (space_id = ? OR subject_id = ?)').run(
+    param(req, 'id'),
+    owner,
+    user.id,
+  )
   res.json({ ok: true })
 })
 
 /* ---------------- 成员：访问共享给我的页面 ---------------- */
 
 function myGrants(userId: string): GrantRow[] {
-  return db.prepare('SELECT * FROM page_grants WHERE grantee_id = ? ORDER BY created_at DESC').all(userId) as unknown as GrantRow[]
+  const rows = db
+    .prepare(
+      `SELECT a.* FROM acl_entries a JOIN spaces s ON s.id = a.space_id
+       WHERE a.subject_type = 'user' AND a.subject_id = ? AND a.resource_type = 'page'
+         AND a.deny = 0 AND s.type = 'personal'
+       ORDER BY a.created_at DESC`,
+    )
+    .all(userId) as unknown as AclRow[]
+  return rows.map(toGrant)
 }
 
 /** 找到授权覆盖该页面的那条授权（编辑权限优先） */
@@ -200,11 +301,15 @@ membersRouter.put('/shared/pages/:id', (req, res) => {
   res.json({ ok: true, updatedAt: next.updatedAt })
 })
 
-/** 两人之间存在任意方向的授权时，可以互相看到对方上传到共享页面里的图片 */
+/** 两人之间存在任意方向的有效授权时，可以互相看到对方上传到共享页面里的图片 */
 export function canSeeAssetsOf(viewerId: string, assetOwner: string): boolean {
   return !!db
     .prepare(
-      'SELECT 1 FROM page_grants WHERE (owner = ? AND grantee_id = ?) OR (owner = ? AND grantee_id = ?) LIMIT 1',
+      `SELECT 1 FROM acl_entries
+       WHERE resource_type = 'page' AND deny = 0
+         AND ((space_id = ? AND subject_type = 'user' AND subject_id = ?)
+           OR (space_id = ? AND subject_type = 'user' AND subject_id = ?))
+       LIMIT 1`,
     )
     .get(assetOwner, viewerId, viewerId, assetOwner)
 }

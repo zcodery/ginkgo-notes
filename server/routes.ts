@@ -34,11 +34,14 @@ import {
   getDocOwner,
   listDocs,
   listRowsOf,
+  pageVersion,
   putDatabase,
   putPage,
+  putPageVersioned,
   putRow,
   transaction,
 } from './db.ts'
+import { assertAccess, effectiveResourceRole } from './acl.ts'
 import { copyTemplatesToUser } from './templates.ts'
 import { HttpError, ID_RE, clientIp, param } from './http.ts'
 import { describeUa, notify } from './notify.ts'
@@ -231,30 +234,63 @@ api.patch('/auth/profile', requireSession, (req, res) => {
 /* ---------------- 页面 ---------------- */
 
 api.get('/pages', (_req, res) => {
-  res.json(listDocs('pages', authOf(res).owner))
+  const auth = authOf(res)
+  const all = listDocs<Doc>('pages', auth.owner)
+  if (auth.spaceType !== 'team') {
+    res.json(all)
+    return
+  }
+  // 团队空间按资源级 ACL 过滤（deny 优先，未授权页面不出现在列表里）
+  res.json(all.filter((p) => !!effectiveResourceRole(auth.user.id, auth.spaceId, 'page', String(p.id))))
 })
 
 api.get('/pages/:id', (req, res) => {
-  const page = getDoc('pages', param(req, 'id'), authOf(res).owner)
+  const auth = authOf(res)
+  const id = param(req, 'id')
+  const page = getDoc('pages', id, auth.owner)
   if (!page) throw new HttpError(404, '页面不存在')
+  assertAccess(auth, 'page', id, 'read')
   res.json(page)
 })
 
 api.put('/pages/:id', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const page = asDoc(req.body, param(req, 'id'))
+  const baseVersion = typeof req.body?.baseVersion === 'number' ? req.body.baseVersion : null
+  delete page.baseVersion
   assertWritable('pages', page.id, owner)
-  const before = getDoc('pages', page.id, owner)
-  putPage(owner, page)
+  assertAccess(auth, 'page', page.id, 'write')
+  const before = getDoc<Doc>('pages', page.id, owner)
+
+  // 带基础版本时走原子 CAS；冲突交给前端提示合并
+  if (baseVersion !== null && before) {
+    if (!putPageVersioned(owner, page, baseVersion)) {
+      res.status(409).json({
+        error: '文档已被他人修改',
+        code: 'version_conflict',
+        currentVersion: pageVersion(owner, page.id),
+        current: getDoc<Doc>('pages', page.id, owner),
+      })
+      return
+    }
+  } else {
+    putPage(owner, page)
+  }
   emitPageEvent(owner, pageEventOf(before, page), page)
-  res.json({ ok: true })
+  res.json({ ok: true, version: pageVersion(owner, page.id) })
 })
 
 api.post('/pages/batch', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const upsert = asDocList(req.body?.upsert)
   const remove = asIdList(req.body?.remove)
-  for (const p of upsert) assertWritable('pages', p.id, owner)
+  for (const p of upsert) {
+    assertWritable('pages', p.id, owner)
+    assertAccess(auth, 'page', p.id, 'write')
+  }
+  for (const id of remove) assertAccess(auth, 'page', id, 'write')
   const befores = new Map(upsert.map((p) => [p.id, getDoc<Doc>('pages', p.id, owner)]))
   const removed = remove.map((id) => getDoc('pages', id, owner)).filter((p): p is Doc => !!p)
   transaction(() => {
@@ -267,8 +303,10 @@ api.post('/pages/batch', (req, res) => {
 })
 
 api.delete('/pages/:id', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const id = param(req, 'id')
+  assertAccess(auth, 'page', id, 'write')
   const before = getDoc('pages', id, owner)
   deleteDoc('pages', id, owner)
   if (before) emitPageEvent(owner, 'page.deleted', before)
@@ -278,26 +316,39 @@ api.delete('/pages/:id', (req, res) => {
 /* ---------------- 多维表格 ---------------- */
 
 api.get('/databases', (_req, res) => {
-  res.json(listDocs('databases', authOf(res).owner))
+  const auth = authOf(res)
+  const all = listDocs<Doc>('databases', auth.owner)
+  if (auth.spaceType !== 'team') {
+    res.json(all)
+    return
+  }
+  res.json(all.filter((d) => !!effectiveResourceRole(auth.user.id, auth.spaceId, 'database', String(d.id))))
 })
 
 api.get('/databases/:id', (req, res) => {
-  const database = getDoc('databases', param(req, 'id'), authOf(res).owner)
+  const auth = authOf(res)
+  const id = param(req, 'id')
+  const database = getDoc('databases', id, auth.owner)
   if (!database) throw new HttpError(404, '多维表格不存在')
+  assertAccess(auth, 'database', id, 'read')
   res.json(database)
 })
 
 api.put('/databases/:id', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const database = asDoc(req.body, param(req, 'id'))
   assertWritable('databases', database.id, owner)
+  assertAccess(auth, 'database', database.id, 'write')
   putDatabase(owner, database)
   res.json({ ok: true })
 })
 
 api.delete('/databases/:id', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const id = param(req, 'id')
+  assertAccess(auth, 'database', id, 'write')
   transaction(() => {
     db.prepare('DELETE FROM db_rows WHERE db_id = ? AND owner = ?').run(id, owner)
     deleteDoc('databases', id, owner)
@@ -306,34 +357,48 @@ api.delete('/databases/:id', (req, res) => {
 })
 
 api.get('/databases/:id/rows', (req, res) => {
-  res.json(listRowsOf(param(req, 'id'), authOf(res).owner))
+  const auth = authOf(res)
+  const id = param(req, 'id')
+  assertAccess(auth, 'database', id, 'read')
+  res.json(listRowsOf(id, auth.owner))
 })
 
 /* ---------------- 多维表格行 ---------------- */
 
 api.get('/rows/:id', (req, res) => {
-  const row = getDoc('db_rows', param(req, 'id'), authOf(res).owner)
+  const auth = authOf(res)
+  const row = getDoc('db_rows', param(req, 'id'), auth.owner)
   if (!row) throw new HttpError(404, '行不存在')
+  assertAccess(auth, 'database', String(row.dbId), 'read')
   res.json(row)
 })
 
 api.put('/rows/:id', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const row = asDoc(req.body, param(req, 'id'))
   const dbId = assertDatabaseOwned(row.dbId, owner)
   assertWritable('db_rows', row.id, owner)
+  assertAccess(auth, 'database', dbId, 'write')
   putRow(owner, { ...row, dbId })
   res.json({ ok: true })
 })
 
 api.post('/rows/batch', (req, res) => {
-  const { owner } = authOf(res)
+  const auth = authOf(res)
+  const { owner } = auth
   const upsert = asDocList(req.body?.upsert)
   const remove = asIdList(req.body?.remove)
   const checked = upsert.map((r) => {
     assertWritable('db_rows', r.id, owner)
-    return { ...r, dbId: assertDatabaseOwned(r.dbId, owner) }
+    const dbId = assertDatabaseOwned(r.dbId, owner)
+    assertAccess(auth, 'database', dbId, 'write')
+    return { ...r, dbId }
   })
+  for (const id of remove) {
+    const row = getDoc('db_rows', id, owner)
+    if (row) assertAccess(auth, 'database', String(row.dbId), 'write')
+  }
   transaction(() => {
     for (const r of checked) putRow(owner, r)
     for (const id of remove) deleteDoc('db_rows', id, owner)
@@ -342,7 +407,10 @@ api.post('/rows/batch', (req, res) => {
 })
 
 api.delete('/rows/:id', (req, res) => {
-  deleteDoc('db_rows', param(req, 'id'), authOf(res).owner)
+  const auth = authOf(res)
+  const row = getDoc('db_rows', param(req, 'id'), auth.owner)
+  if (row) assertAccess(auth, 'database', String(row.dbId), 'write')
+  deleteDoc('db_rows', row?.id ?? param(req, 'id'), auth.owner)
   res.json({ ok: true })
 })
 
