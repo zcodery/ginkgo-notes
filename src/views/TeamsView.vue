@@ -264,7 +264,7 @@ onMounted(async () => {
                 <Users :size="14" /><span>组织架构</span>
                 <span class="tm-count">{{ nodes.length }}</span>
               </div>
-              <div class="tm-card-body">
+              <div class="tm-card-body tm-scroll">
                 <OrgTree
                   :space-id="current.id"
                   :nodes="nodes"
@@ -309,7 +309,7 @@ onMounted(async () => {
                 <span class="tm-count">{{ members.length }}</span>
               </div>
 
-              <div class="tm-card-body tm-people-body">
+              <div class="tm-card-body tm-people-body tm-scroll">
                 <div class="tm-member-list">
                   <div v-for="m in members" :key="m.id" class="tm-member">
                     <div class="tm-avatar">{{ (m.name || '?').slice(0, 1) }}</div>
@@ -410,6 +410,18 @@ onMounted(async () => {
   width: 100%;
   height: 100%;
   overflow-y: auto;
+}
+/* 卡片内部滚动：滚动条宽度归零（仍可滚动），避免再出现一条外框滚动条 */
+.tm-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.tm-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 .tm-shell {
   display: flex;
@@ -880,6 +892,43 @@ onMounted(async () => {
   margin: 10px 0 0;
   font-size: 12.5px;
   color: var(--gn-danger);
+}
+
+/* 宽屏：整页不滚动，左右卡片各自内部滚动（滚动条宽度 0） */
+@media (min-width: 1180px) {
+  .tm-page {
+    overflow: hidden;
+  }
+  .tm-shell {
+    height: 100%;
+    padding-bottom: 26px;
+  }
+  .tm-main {
+    display: flex;
+    flex-direction: column;
+    align-self: stretch;
+    min-height: 0;
+  }
+  .tm-cols {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: stretch;
+  }
+  .tm-card {
+    min-height: 0;
+  }
+  .tm-nav {
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+  .tm-nav::-webkit-scrollbar {
+    width: 0;
+  }
+  .tm-people-body {
+    max-height: none;
+  }
 }
 
 /* 窄屏（笔记本分屏、侧栏展开时）左导航改为顶部横排，把宽度让给卡片区 */
