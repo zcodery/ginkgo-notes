@@ -4,6 +4,7 @@ import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import {
   createOrgNode,
   deleteOrgNode,
+  moveOrgNode,
   updateOrgNode,
   type OrgNodeInfo,
 } from '@/api/features'
@@ -23,8 +24,6 @@ const busy = ref(false)
 
 const editingId = ref('')
 const editingName = ref('')
-const movingId = ref('')
-const moveTarget = ref('')
 const confirmingId = ref('')
 const addingParentId = ref<string | null | undefined>(undefined)
 const addingName = ref('')
@@ -81,25 +80,8 @@ const rows = computed<TreeRow[]>(() => {
   return out
 })
 
-const moveOptions = computed(() => {
-  const current = props.nodes.find((n) => n.id === movingId.value)
-  const blocked = new Set<string>()
-  if (current) {
-    for (const n of props.nodes) {
-      if (n.id === current.id || n.path.startsWith(current.path)) blocked.add(n.id)
-    }
-  }
-  return [
-    { value: '', label: '作为根节点' },
-    ...props.nodes
-      .filter((n) => !blocked.has(n.id))
-      .map((n) => ({ value: n.id, label: `${'　'.repeat(n.depth)}${n.name}` })),
-  ]
-})
-
 function resetInline() {
   editingId.value = ''
-  movingId.value = ''
   confirmingId.value = ''
   addingParentId.value = undefined
   addingName.value = ''
@@ -191,21 +173,159 @@ function onRenameBlur() {
   saveRename()
 }
 
-function startMove(node: OrgNodeInfo) {
-  resetInline()
-  movingId.value = node.id
-  moveTarget.value = node.parentId ?? ''
+/* ---------------- 拖拽调整层级 ---------------- */
+
+type DropZone = 'before' | 'after' | 'inside'
+
+const dragId = ref('')
+const dropHint = ref<{ id: string; zone: DropZone } | null>(null)
+const rootZone = ref(false)
+
+const nodeById = (id: string) => props.nodes.find((n) => n.id === id)
+
+/** 拖拽目标是「自己或自己的下级」时不允许作为落点（会把子树挂成自己的下级） */
+function blockedTarget(id: string): boolean {
+  const src = nodeById(dragId.value)
+  const dst = nodeById(id)
+  if (!src || !dst) return true
+  return dst.id === src.id || dst.path.startsWith(src.path)
 }
 
-function saveMove() {
-  if (!movingId.value) return
-  void apply(() =>
-    updateOrgNode(props.spaceId, movingId.value, { parentId: moveTarget.value || null }),
-  )
+function onRowDragStart(node: OrgNodeInfo, e: DragEvent) {
+  if (!props.canManage || busy.value || editingId.value === node.id) {
+    e.preventDefault()
+    return
+  }
+  dragId.value = node.id
+  dropHint.value = null
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', node.id)
+  }
+}
+
+function onRowDragOver(node: OrgNodeInfo, e: DragEvent) {
+  if (!dragId.value) return
+  if (blockedTarget(node.id)) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    if (dropHint.value?.id === node.id) dropHint.value = null
+    return
+  }
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  rootZone.value = false
+  const el = e.currentTarget as HTMLElement
+  const r = el.getBoundingClientRect()
+  const edge = Math.min(10, r.height * 0.3)
+  const y = e.clientY - r.top
+  const zone: DropZone = y < edge ? 'before' : y > r.height - edge ? 'after' : 'inside'
+  dropHint.value = { id: node.id, zone }
+}
+
+function onRowDragLeave(node: OrgNodeInfo, e: DragEvent) {
+  const to = e.relatedTarget as Node | null
+  if (to && (e.currentTarget as HTMLElement).contains(to)) return
+  if (dropHint.value?.id === node.id) dropHint.value = null
+}
+
+function resetDrag() {
+  dragId.value = ''
+  dropHint.value = null
+  rootZone.value = false
+}
+
+function onRowDrop(node: OrgNodeInfo, e: DragEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  const hint = dropHint.value
+  const moving = dragId.value
+  resetDrag()
+  if (!moving || !hint) return
+  if (hint.zone === 'inside') {
+    void doMove(moving, node.id, null)
+    return
+  }
+  // 上下换位：保持同一父节点，插到目标之前 / 目标的下一个兄弟之前
+  if (hint.zone === 'before') {
+    void doMove(moving, node.parentId, node.id)
+    return
+  }
+  const siblings = props.nodes
+    .filter((n) => (n.parentId ?? '') === (node.parentId ?? ''))
+    .sort((a, b) => a.sort - b.sort)
+  const next = siblings[siblings.findIndex((s) => s.id === node.id) + 1] ?? null
+  void doMove(moving, node.parentId, next ? next.id : null)
+}
+
+function onRootDragOver(e: DragEvent) {
+  if (!dragId.value) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  dropHint.value = null
+  rootZone.value = true
+}
+
+function onRootDrop(e: DragEvent) {
+  e.preventDefault()
+  const moving = dragId.value
+  resetDrag()
+  if (moving) void doMove(moving, null, null)
+}
+
+/** 落到新上级后自动展开，避免「拖进去了却看不见」 */
+async function doMove(nodeId: string, parentId: string | null, beforeId: string | null) {
+  const src = nodeById(nodeId)
+  if (!src) return
+  const sameParent = (src.parentId ?? '') === (parentId ?? '')
+  if (sameParent) {
+    if (beforeId === nodeId) return
+    if (!beforeId) {
+      const last = props.nodes
+        .filter((n) => (n.parentId ?? '') === (parentId ?? ''))
+        .sort((a, b) => a.sort - b.sort)
+        .at(-1)
+      if (last?.id === nodeId) return
+    }
+  }
+  await apply(() => moveOrgNode(props.spaceId, nodeId, { parentId, beforeId }))
+  if (parentId) collapsed.value = collapsed.value.filter((x) => x !== parentId)
 }
 
 function doDelete(id: string) {
   void apply(() => deleteOrgNode(props.spaceId, id))
+}
+
+/* ---------------- 行出现/消失的高度动画 ---------------- */
+// TransitionGroup 只能过渡有具体数值的属性，进入/离开时先把高度定死再改成 0，
+// 这样收起最外层时整段下级是「滑上去」而不是瞬间消失。
+function onRowBeforeEnter(el: Element) {
+  const e = el as HTMLElement
+  e.style.height = '0px'
+  e.style.opacity = '0'
+}
+
+function onRowEnter(el: Element) {
+  const e = el as HTMLElement
+  const h = e.scrollHeight
+  requestAnimationFrame(() => {
+    e.style.height = h + 'px'
+    e.style.opacity = '1'
+  })
+}
+
+function onRowAfterEnter(el: Element) {
+  const e = el as HTMLElement
+  e.style.height = ''
+  e.style.opacity = ''
+}
+
+function onRowLeave(el: Element) {
+  const e = el as HTMLElement
+  e.style.height = e.getBoundingClientRect().height + 'px'
+  requestAnimationFrame(() => {
+    e.style.height = '0px'
+    e.style.opacity = '0'
+  })
 }
 </script>
 
@@ -218,8 +338,17 @@ function doDelete(id: string) {
       </button>
     </div>
 
-    <div class="ot-list">
-      <template v-for="row in rows" :key="row.key">
+    <TransitionGroup
+      tag="div"
+      class="ot-list"
+      :class="{ 'is-dragging': !!dragId }"
+      name="otk"
+      @before-enter="onRowBeforeEnter"
+      @enter="onRowEnter"
+      @after-enter="onRowAfterEnter"
+      @leave="onRowLeave"
+    >
+      <div v-for="row in rows" :key="row.key" class="ot-slot">
         <!-- 新建下级：长在父节点下面、缩进一格 -->
         <div
           v-if="row.kind === 'add'"
@@ -246,8 +375,20 @@ function doDelete(id: string) {
         <div v-else class="ot-item">
           <div
             class="ot-row"
-            :class="{ editing: editingId === row.node.id }"
+            :draggable="canManage && editingId !== row.node.id"
+            :class="{
+              editing: editingId === row.node.id,
+              dragging: dragId === row.node.id,
+              'drop-before': dropHint?.id === row.node.id && dropHint.zone === 'before',
+              'drop-after': dropHint?.id === row.node.id && dropHint.zone === 'after',
+              'drop-inside': dropHint?.id === row.node.id && dropHint.zone === 'inside',
+            }"
             :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }"
+            @dragstart="onRowDragStart(row.node, $event)"
+            @dragover="onRowDragOver(row.node, $event)"
+            @dragleave="onRowDragLeave(row.node, $event)"
+            @drop="onRowDrop(row.node, $event)"
+            @dragend="resetDrag"
           >
             <button
               type="button"
@@ -287,7 +428,6 @@ function doDelete(id: string) {
 
             <template v-else>
               <span class="ot-name">{{ row.node.name }}</span>
-              <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
               <span class="ot-count">{{ row.node.memberCount }} 人</span>
               <div v-if="canManage" class="ot-actions">
                 <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
@@ -308,19 +448,25 @@ function doDelete(id: string) {
             </template>
           </div>
 
-          <div v-if="movingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
-            <GnSelect v-model="moveTarget" :options="moveOptions" :min-width="150" />
-            <button type="button" class="ot-btn primary" :disabled="busy" @click="saveMove">移动</button>
-            <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
-          </div>
-
           <div v-if="confirmingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
             <span class="ot-warn">删除「{{ row.node.name }}」？成员与授权会迁移到上级节点。</span>
             <button type="button" class="ot-btn danger" :disabled="busy" @click="doDelete(row.node.id)">确认删除</button>
             <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
           </div>
         </div>
-      </template>
+      </div>
+    </TransitionGroup>
+
+    <!-- 移到最外层：拖任意节点到这里即变成根节点 -->
+    <div
+      v-if="canManage"
+      class="ot-root-drop"
+      :class="{ live: !!dragId, on: rootZone }"
+      @dragover="onRootDragOver"
+      @dragleave="rootZone = false"
+      @drop="onRootDrop"
+    >
+      {{ dragId ? '松手 → 移到最外层（根节点）' : '按住节点可拖动调整层级' }}
     </div>
 
     <p v-if="err" class="ot-err">{{ err }}</p>
@@ -363,12 +509,26 @@ function doDelete(id: string) {
   flex-direction: column;
   gap: 2px;
 }
+/* 每行外面套一层，交给 TransitionGroup 做高度动画 */
+.ot-slot {
+  overflow: hidden;
+}
+.otk-enter-active,
+.otk-leave-active {
+  transition:
+    height 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 0.16s ease;
+}
+.otk-move {
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
 .ot-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .ot-row {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -378,6 +538,67 @@ function doDelete(id: string) {
 }
 .ot-row:hover {
   background: var(--gn-bg-soft);
+}
+/* ---------- 拖拽调整层级 ---------- */
+.ot-list.is-dragging {
+  user-select: none;
+}
+.ot-row[draggable='true'] {
+  cursor: grab;
+}
+.ot-row.dragging {
+  opacity: 0.45;
+}
+.ot-row.drop-inside {
+  outline: 2px dashed var(--gn-accent);
+  outline-offset: -2px;
+  background: var(--gn-accent-soft);
+}
+.ot-row.drop-inside:hover {
+  background: var(--gn-accent-soft);
+}
+.ot-row.drop-before::before,
+.ot-row.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--gn-accent);
+  pointer-events: none;
+}
+.ot-row.drop-before::before {
+  top: -1px;
+}
+.ot-row.drop-after::after {
+  bottom: -1px;
+}
+/* 落在最外层：把插入线画成一段更醒目的「放到根级」提示 */
+.ot-root-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  margin-top: 6px;
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  color: var(--gn-text-muted);
+  font-size: 11.5px;
+  transition:
+    height 0.16s ease,
+    margin 0.16s ease,
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+.ot-root-drop.live {
+  border-color: var(--gn-border-strong);
+  border-style: dashed;
+}
+.ot-root-drop.on {
+  border-color: var(--gn-accent);
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
 }
 /* 新建下级的行：缩进与子节点名称对齐，前面画一段「└」虚线，明确它属于上一级 */
 .ot-add-row,
@@ -457,7 +678,6 @@ function doDelete(id: string) {
   /* 编辑态不跟着悬停一起淡出 */
   opacity: 1;
 }
-.ot-type,
 .ot-count {
   font-size: 11px;
   color: var(--gn-text-muted);

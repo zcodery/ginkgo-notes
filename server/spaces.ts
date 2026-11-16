@@ -340,6 +340,73 @@ spacesRouter.patch('/spaces/:id/org/nodes/:nodeId', (req, res) => {
   res.json({ ok: true })
 })
 
+/**
+ * 拖拽移动节点：改上级 + 决定在同级里的插入位置。
+ * 只传 parentId 会排到末尾；传 beforeId 则插到那个兄弟节点之前（同级的上下换位也走这里）。
+ */
+spacesRouter.post('/spaces/:id/org/nodes/:nodeId/move', (req, res) => {
+  const { user } = authOf(res)
+  const space = requireSpace(param(req, 'id'))
+  requireAdmin(space.id, user.id)
+  const node = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(
+    param(req, 'nodeId'),
+    space.id,
+  ) as OrgNodeRow | undefined
+  if (!node) throw new HttpError(404, '组织节点不存在')
+
+  const nextParent =
+    typeof req.body?.parentId === 'string' && req.body.parentId ? String(req.body.parentId) : null
+  if (nextParent) {
+    const target = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(nextParent, space.id) as
+      | OrgNodeRow
+      | undefined
+    if (!target) throw new HttpError(404, '目标节点不存在')
+    // 不能挂到自己或自己的下级上
+    if (target.path.startsWith(node.path)) throw new HttpError(400, '不能移动到自身或下级节点')
+  }
+  const beforeId =
+    typeof req.body?.beforeId === 'string' && req.body.beforeId ? String(req.body.beforeId) : null
+  if (beforeId === node.id) throw new HttpError(400, '不能移动到自身位置')
+
+  const { path, depth } = nodePath(nextParent, node.id)
+
+  transaction(() => {
+    if (nextParent !== node.parent_id) {
+      db.prepare('UPDATE org_nodes SET parent_id = ?, path = ?, depth = ? WHERE id = ?').run(
+        nextParent,
+        path,
+        depth,
+        node.id,
+      )
+      const descendants = db
+        .prepare('SELECT id, path, depth FROM org_nodes WHERE space_id = ? AND path LIKE ? AND id != ?')
+        .all(space.id, `${node.path}%`, node.id) as { id: string; path: string; depth: number }[]
+      for (const d of descendants) {
+        db.prepare('UPDATE org_nodes SET path = ?, depth = ? WHERE id = ?').run(
+          path + d.path.slice(node.path.length),
+          depth + (d.depth - node.depth),
+          d.id,
+        )
+      }
+    }
+
+    // 目标父节点下的兄弟（不含自己），按当前顺序重排后整体写回 sort
+    const siblings = db
+      .prepare('SELECT id FROM org_nodes WHERE space_id = ? AND parent_id IS ? AND id != ? ORDER BY sort, created_at')
+      .all(space.id, nextParent, node.id) as { id: string }[]
+    let index = siblings.length
+    if (beforeId) {
+      const at = siblings.findIndex((s) => s.id === beforeId)
+      if (at >= 0) index = at
+    }
+    siblings.splice(index, 0, { id: node.id })
+    siblings.forEach((s, i) => {
+      db.prepare('UPDATE org_nodes SET sort = ? WHERE id = ?').run(i + 1, s.id)
+    })
+  })
+  res.json({ ok: true })
+})
+
 spacesRouter.delete('/spaces/:id/org/nodes/:nodeId', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))

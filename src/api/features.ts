@@ -423,6 +423,12 @@ export const updateOrgNode = (
 ) => api('PATCH', `/spaces/${spaceId}/org/nodes/${nodeId}`, body)
 export const deleteOrgNode = (spaceId: string, nodeId: string) =>
   api('DELETE', `/spaces/${spaceId}/org/nodes/${nodeId}`)
+/** 拖拽移动：换上级 + 指定插到哪个兄弟节点之前（不传 beforeId 表示排到末尾） */
+export const moveOrgNode = (
+  spaceId: string,
+  nodeId: string,
+  body: { parentId: string | null; beforeId?: string | null },
+) => api('POST', `/spaces/${spaceId}/org/nodes/${nodeId}/move`, body)
 export const addSpaceMember = (spaceId: string, body: { username: string; role: string; orgNodeId?: string }) =>
   api('POST', `/spaces/${spaceId}/members`, body)
 export const updateSpaceMember = (
