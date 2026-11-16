@@ -118,7 +118,8 @@ ginkgoNotes/
 │   │   ├── IconPicker.vue      # 页面图标（emoji / Lucide / 上传 / 外链）
 │   │   ├── CoverPicker.vue     # 页面封面（渐变预设 / 图库 / 上传 / Unsplash / AI）
 │   │   ├── PinLock.vue         # PIN 锁屏层
-│   │   └── GnSelect.vue        # 项目自定义下拉（空间不足自动上翻）
+│   │   ├── GnSelect.vue        # 项目自定义下拉（空间不足自动上翻）
+│   │   └── GnCascader.vue      # 项目自定义级联下拉（多列选树形层级，贴边自动向左/向上长）
 │   ├── views/           # 路由级页面
 │   │   ├── NoteView.vue        # 主笔记页（最重文件，布局偏好 50-90%、字号、字体、疏密）
 │   │   ├── HomeView.vue        # 首页仪表盘
@@ -231,6 +232,8 @@ ginkgoNotes/
 | 77 | 成员拖到节点改归属 / 代注册成员 / 下拉反色修复 | ✅ | ①**拖拽分配部门**：右侧成员行可拖（`draggable`，左侧常驻 10px ⠿ 手柄、悬停显形；`dataTransfer` 用私有 MIME `application/x-ginkgo-member`，与节点排序的 `text/plain` 隔离），组织树每一行都能接落点——命中行实线描边 + 主色文字、底部条带提示「松手 → 把成员挂到该节点下」，松手调 `PATCH /spaces/:id/members/:userId` 改 `org_node_id` 并刷新（树上人数 + 分组同步）；落到成员已所在节点直接跳过，拖拽源在右侧所以高亮由 document 的 `dragend/drop` 兜底清理。②**代注册成员**：邀请区改为「邀请加入 / 新建成员」两个 tab，新建只需手机号（11 位校验）+ 姓名（可选）+ 角色 + 部门，接口 `POST /spaces/:id/members/register` 建号（账号=手机号、初始密码=手机号）并直接入组，手机号已有账号时不重复建号而是直接加入（返回 `created: false`），成功后底部胶囊提示「初始密码为手机号」；选中某个部门后再切 tab 会自动预填目标节点。③**下拉反色**：`GnSelect` 的「上翻」布尔量原来叫 `invert`，正好撞上 Tailwind 的 `.invert{filter:invert(100%)}`，面板在视口底部上翻时整块反色（亮色主题下变成纯黑底 + 淡紫字），改名 `dropUp` / `.is-up`。④顺手修掉两处底层问题：`select()` 内部再调 `run()` 会撞上 busy 保护直接返回，导致改角色/邀请/导入后列表不刷新（拆出 `load()` 供 run 内部调用）；`--gn-bg-soft` 从未定义过，行悬停与内嵌面板一直取到透明，补上亮/暗两套值 |
 | 78 | 邀请候选剔除已在团队的人 | ✅ | `PeoplePicker` 新增 `exclude?: string[]`：命中的用户名在「好友」「团队」两个 tab 里都不再列出，tab 上的计数一并扣掉（数据仍保留在缓存里，`exclude` 变小会自动复活，不依赖重新请求）；候选全被过滤时空态改说「这些人已在团队里，新人请用「新建成员」」，而不是「暂无成员」。`TeamsView` 把当前成员用户名传进去，`load()` 时顺带把已入队的名字从 `inviteDraft.usernames` 里清掉——原来选完点邀请才逐个报「已是团队成员」，来回一趟才知道 |
 | 79 | 部门负责人（管理一个部门及整棵子树） | ✅ | `org_nodes.lead_user_id` 从「有列没用」变成真权限：成员行加皇冠按钮任命/撤销，组织树在节点名字后面显示负责人。后端新增 `PUT /spaces/:id/org/nodes/:nodeId/lead`（`{ userId }`，null 撤销；只能任命本部门或上级部门的人），并抽出 `manageScope()` 统一判定——owner/admin 管全空间，负责人凭节点 `path` 前缀管自己那棵子树：**成员**增删改 / 邀请 / 代注册 / **下级部门**增删改名移动都放行，但角色封顶 `editor`（不能自己造管理员）、不能把人调出部门、不能建根级节点、不能删自己负责的部门；**文档**侧在 `effectiveResourceRole` 里把负责的节点并进用户上下文，授权给本部门（或本部门成员）的文档直接给 `admin`——可改正文也能改授权，撤销后立刻回落到空间基线。一致性：成员调离原部门或移出团队时自动清空 `lead_user_id`；一个节点只有一个负责人，换人时提示会替代谁 |
+
+| 80 | 级联部门选择（公用组件 `GnCascader`） | ✅ | 邀请/建号里的「部门」原来是 `GnSelect` 平铺列表，层级靠全角空格 `'　'.repeat(depth)` 缩进假装树形——层数一深就整行飘到右边、还看不出谁是谁的下级。新增系统公用组件 `src/components/GnCascader.vue`（与 `GnSelect` 同套视觉与定位逻辑）：①**多列级联**，第一列顶层，悬停/键盘 → 展开右侧子列（子列从「当前高亮项」的 `children` 派生，父项带 `ChevronRight` 提示可展开），叶子点一下即选中并关闭，父项也能直接选中（部门中间层是常用落点）；②选项**完全不缩进**，层级只由列表达，列宽 152px、单列超长自己滚动；③触发器显示路径尾两段（`… / 公共事务部 / 法务组`），层数 ≤2 时显示全路径，避免长路径被省略号吃掉名字，完整路径写进 `aria-label`；④贴边与稳定性（这版踩过两个坑）：面板 `Teleport to="body"` + `fixed`，**几何全部在打开那一刻算定**——列宽按「整棵树最深几层」一次算好（不够宽才往下压，下限 96px），上翻时顶边 `anchorTop` 定死只往下长，右边放不下整棵树时改为**向左长列**（面板右边缘贴触发器右边缘、列按深度反序渲染，浅层始终贴着触发器）。不这么做的后果是：悬停展开子列时面板宽/高变化 → 整体横竖各挪一次 → 鼠标下的选项被挤走、`mouseenter` 重入，表现为「列表自己乱跳、越悬停越乱」；⑤键盘 ↑↓ 换行、→ 进子级、← 退一级、Enter 选中、Esc 关闭，触发器保持焦点（选项 `mousedown.prevent`），高亮项自动 `scrollIntoView`；⑥对外只认 `{ value, label, children? }`，与具体业务无关，后续任何树形选择直接复用。`TeamsView` 把 `orgOptions`（带缩进的扁平列表）换成 `orgCascade`：按 `parent_id` 建树（**不能按 `depth` 顺序堆栈**，`GET /org` 是 `ORDER BY depth, sort` 的层序而非先序），父节点不在可见集合里的自动升为根——负责人只看到自己负责的那棵子树，「不指定节点」仅管理员可见 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -443,10 +446,11 @@ ginkgoNotes/
 | 73 | `1764642` | feat(team) | 成员可拖到组织节点改归属 + 按手机号代注册成员 |
 | 74 | `8771b34` | feat(team) | 邀请候选自动剔除已在团队的人 |
 | 75 | `45fb712` | feat(team) | 部门负责人：管本部门及整棵子树的人员、下级部门与部门文档 |
+| 76 | `e3fb71c` | feat(ui) | 公用级联下拉 `GnCascader`，部门选择改多列级联不再缩进 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `45fb712` — feat(team): 部门负责人 —— 任命某人管一个部门及整棵子树
+**HEAD**: `e3fb71c` — feat(ui): 级联下拉组件 GnCascader，部门选择改为多列级联且不再缩进
 
 ---
 
@@ -552,7 +556,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 26. **ACL 计算顺序不能改**：deny 优先短路 → 资源显式 → 组织节点继承（用 `org_nodes.path` 前缀判断祖先）→ 空间基线；`owner/admin` 不会被降级成 editor。新增资源类型时必须同时接入 `assertAccess`，否则团队 viewer 可以绕过接口写入。
 27. **页面写入只有带 `baseVersion` 才走 CAS**：不传时仍走 `putPage`（版本递增但属于后写覆盖）；前端 `savePage/saveContent` 传 `cur.version`，冲突会抛 `VersionConflictError`，`NoteView` 捕获后转只读。不要在服务端把 409 吞成 200。
 28. **presence 按空间隔离**：SSE `/presence/page/:id/stream` 用当前 `X-Space` 校验；`/shared` 个人笔记共享页不在该空间上下文，所以暂时没有在线头像。编辑占用由 `doc_locks` 维护，心跳同时续租，30s 定时清理过期锁。
-29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、确认用行内二次确认而非 `window.confirm`、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
+29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、**树形层级选择一律 `GnCascader`**（多列级联，别再拿缩进拼树）、确认用行内二次确认而非 `window.confirm`、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
 30. **祖先 `overflow: hidden` 会裁掉绝对定位下拉**：团队页为了圆角给 `.tm-card` 加了 `overflow: hidden`，结果 `PeoplePicker` 的 `.pp-panel`（`position: absolute`）整块被裁掉，点开只看到 tab 栏一行、列表消失。弹层/下拉的祖先链上不能有 `overflow: hidden`；圆角改由内部区块自己写 `border-radius: 0 0 11px 11px` 实现。
 31. **「容器 click 开合 + 内部 input focus 开合」会双切换**：点输入框时先触发 `focus` 打开，紧接着 click 冒泡到容器又关掉，表现为「点了没反应」。容器的 click 处理必须先 `if (e.target.closest('input, .pp-chip')) return`，只让 focus 负责打开。
 32. **`flex-direction: column` 时 `align-items: flex-start` 会让子项缩成内容宽度**：团队页窄屏断点切成纵向堆叠后，卡片只剩约 490px 宽、右侧大片空白。切纵向必须同时把 `align-items` 改成 `stretch`。另外 `PeoplePicker` 根节点带 `flex: 1 1 220px`（为横向排布设计），放进纵向容器会被撑成 220px 高，需要在容器里 `:deep(.pp) { flex: 0 0 auto }` 收掉。
@@ -570,6 +574,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 44. **「部门负责人」不等于「空间管理员」**：负责人只在 `path` 前缀覆盖的子树里管事，角色封顶 `editor`——否则一个部门负责人能手把自己提成 admin，再反过来管整个空间。判断范围一律用节点 path 前缀（`substr(n.path,1,length(led.path)) = led.path`），不要用 parent_id 递归，移动子树后 path 会整体重写，前缀匹配天然跟着走。
 45. **授权给「部门」的文档要给负责人 `admin`，不是 `editor`**：`editor` 只能改正文，改共享设置需要 `admin`（`aclRouter.put` 卡的是 `roleRank >= admin`）。所以 `effectiveResourceRole` 里对「授权主体落在负责范围内」的资源直接返回 `admin`，同时保留显式 deny 优先。
 46. **负责人会随人走**：成员调离原部门（`org_node_id` 变了）或移出团队时必须清 `lead_user_id`，否则树上一直挂着离职负责人，而且这个人重新加入后会凭旧身份又拿到整个部门。清理条件写成「新节点 path 不以旧负责节点的 path 开头」即可，原地不动/平级调动不会误清。
+47. **用全角空格假装缩进的下拉，层数一深就废**：`'　'.repeat(depth)` 拼出来的「树形」选项，深层项会整行右移、跟父项对不上号，而且缩进占的是显示宽度、鼠标可点区域也跟着缩。层级信息要用结构表达（级联多列 / 真实的树），不要用空白字符。把组织节点树化时还有两个坑：①`GET /org` 是 `ORDER BY depth, sort` 的**层序**（同深度排在一起），用「读一个压栈、depth 变小就弹栈」的先序算法会把不同父节点的子节点拼到一棵树上，必须按 `parent_id` 建 map 再递归；②做权限过滤后父节点可能不在可见集合里，这类节点要升为根（负责人视角下「我负责的部门」就是顶层），不能因为它们没有父而整支丢失。
+48. **会「长个子」的浮层不能每次变化都重算定位**：级联下拉展开子列时列数、面板宽高都在变，如果 `place()` 每次按新尺寸重新夹进视口，面板就会横竖各挪一次——鼠标下的选项被挤到别处，`mouseenter` 立刻重入，表现为「菜单自己上跳、越悬停越乱」（`locator.hover` 会直接报 `intercepts pointer events`）。规则：**几何在打开那一刻定死**——列宽按整棵树深度一次算定、上翻固定顶边只往下长、右侧放不下就改成向左长列（`right` 锚定 + 列反序渲染），后续只允许「宽/高变大」，绝不允许锚点移动。同理适用于任何悬停展开、内容异步填充的弹层。
 
 ---
 
