@@ -506,6 +506,51 @@ spacesRouter.delete('/spaces/:id/org/nodes/:nodeId', (req, res) => {
 })
 
 /**
+ * 换负责人之后通知部门里的人。
+ *
+ * 只给新负责人发一条是不够的：部门成员真正需要知道的是「以后这个部门找谁」。
+ * 收件人取该节点整棵子树里所有在职成员（含下级部门），上级部门的人不打扰。
+ */
+function notifyLeadChanged(
+  spaceId: string,
+  node: OrgNodeRow,
+  leadUserId: string,
+  prevLeadId: string | null,
+  actor: { nickname?: string | null; username: string },
+) {
+  const lead = findUserById(leadUserId)
+  const leadName = lead ? lead.nickname || lead.username : '新的负责人'
+  const rows = db
+    .prepare(
+      `SELECT m.user_id AS userId FROM space_members m
+         JOIN org_nodes n ON n.id = m.org_node_id
+        WHERE m.space_id = ? AND m.status = 'active'
+          AND substr(n.path, 1, length(?)) = ?`,
+    )
+    .all(spaceId, node.path, node.path) as { userId: string }[]
+  for (const row of rows) {
+    if (row.userId === leadUserId) continue
+    notify(
+      row.userId,
+      'member',
+      `${leadName} 成为「${node.name}」负责人`,
+      '该部门及下级部门的人员与文档由 TA 管理',
+      '/teams',
+    )
+  }
+  // 被替换的人也要知道，否则他还以为自己在管
+  if (prevLeadId && prevLeadId !== leadUserId) {
+    notify(
+      prevLeadId,
+      'member',
+      `你不再是「${node.name}」的负责人`,
+      `${actor.nickname || actor.username} 已把该部门交给 ${leadName}`,
+      '/teams',
+    )
+  }
+}
+
+/**
  * 任命 / 撤销部门负责人。
  *
  * 负责人拿到该节点及整棵子树的管理权：成员增删改、下级部门增删改，
@@ -525,7 +570,17 @@ spacesRouter.put('/spaces/:id/org/nodes/:nodeId/lead', (req, res) => {
   const raw = req.body?.userId
   const nextId = typeof raw === 'string' && raw ? raw : ''
   if (!nextId) {
+    const prevLeadId = node.lead_user_id
     db.prepare('UPDATE org_nodes SET lead_user_id = NULL WHERE id = ?').run(node.id)
+    if (prevLeadId) {
+      notify(
+        prevLeadId,
+        'member',
+        `你不再是「${node.name}」的负责人`,
+        `${user.nickname || user.username} 撤销了你的任命`,
+        '/teams',
+      )
+    }
     res.json({ ok: true, leadUserId: null, leadName: null })
     return
   }
@@ -551,9 +606,12 @@ spacesRouter.put('/spaces/:id/org/nodes/:nodeId/lead', (req, res) => {
     throw new HttpError(403, '只能任命自己负责范围内的成员')
   }
 
+  const prevLeadId = node.lead_user_id
   db.prepare('UPDATE org_nodes SET lead_user_id = ? WHERE id = ?').run(nextId, node.id)
   promoteLeadRole(space.id, nextId)
   notify(nextId, 'member', `你成为「${node.name}」的负责人`, `可以管理该部门及下级的人员与文档`, '/teams')
+  // 部门里的人（含下级）也要知道现在找谁，被替换的负责人还要收到「你不再负责」
+  notifyLeadChanged(space.id, node, nextId, prevLeadId, user)
   res.json({ ok: true, leadUserId: nextId, leadName: target.nickname || target.username })
 })
 

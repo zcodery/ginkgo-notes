@@ -17,6 +17,7 @@ import {
 } from 'lucide-vue-next'
 import GnSelect from '@/components/GnSelect.vue'
 import GnCascader, { type GnCascadeOption } from '@/components/GnCascader.vue'
+import GnConfirm from '@/components/GnConfirm.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
 import {
@@ -59,7 +60,6 @@ const inviteDraft = ref({ usernames: [] as string[], role: 'viewer', orgNodeId: 
 /** 添加成员：邀请已有账号 / 代注册新账号 */
 const inviteMode = ref<'pick' | 'create'>('pick')
 const createDraft = ref({ phone: '', name: '', role: 'viewer', orgNodeId: '' })
-const confirmingMember = ref('')
 
 /** 一次性提示（移动成员、建号成功等），2.6s 自动消失 */
 const notice = ref('')
@@ -242,9 +242,17 @@ function invite() {
   })
 }
 
-/** 任命 / 撤销部门负责人：作用范围是该成员所在节点及整棵子树 */
-function toggleLead(member: SpaceMemberInfo) {
-  if (!current.value || !member.orgNodeId) return
+/**
+ * 二次确认弹窗。任命 / 撤销负责人、移出团队都是不可逆动作，
+ * 统一走弹窗（行内二次确认太容易被右键、滚动带跑，也容易连点）。
+ */
+type ConfirmKind = 'lead' | 'unlead' | 'remove'
+const confirmAsk = ref<{ kind: ConfirmKind; member: SpaceMemberInfo; nodeName: string; leadName: string } | null>(
+  null,
+)
+
+function askLead(member: SpaceMemberInfo) {
+  if (!member.orgNodeId) return
   const node = nodeById.value.get(member.orgNodeId)
   if (!node) return
   // 单人民部门的负责人是规则给的，撤销了也还是他，直接拦掉
@@ -252,14 +260,101 @@ function toggleLead(member: SpaceMemberInfo) {
     flash(`「${node.name}」只有 1 人，负责人由系统自动指定`)
     return
   }
+  confirmAsk.value = {
+    kind: isDeptLead(member) ? 'unlead' : 'lead',
+    member,
+    nodeName: node.name,
+    leadName: currentLeadName(member),
+  }
+}
+
+function askRemove(member: SpaceMemberInfo) {
+  if (!current.value) return
+  const node = member.orgNodeId ? nodeById.value.get(member.orgNodeId) : undefined
+  confirmAsk.value = { kind: 'remove', member, nodeName: node?.name ?? '', leadName: '' }
+}
+
+function closeConfirmAsk() {
+  confirmAsk.value = null
+}
+
+const confirmDialog = computed(() => {
+  const ask = confirmAsk.value
+  if (!ask) {
+    return {
+      open: false,
+      title: '',
+      message: '',
+      detail: '',
+      confirmText: '确认',
+      tone: 'primary' as 'primary' | 'danger',
+    }
+  }
+  const name = ask.member.name || ask.member.username
+  if (ask.kind === 'remove') {
+    return {
+      open: true,
+      title: `将 ${name} 移出团队？`,
+      message: `移出后 TA 会立刻失去「${current.value?.name ?? '该团队'}」内的全部文档与协作权限，需要重新邀请才能回来。`,
+      detail: isDeptLead(ask.member)
+        ? `TA 正在负责「${ask.nodeName}」，移出后该部门的负责人会按规则重新指定。`
+        : '已共享给 TA 的文档访问权限会一并失效。',
+      confirmText: '移出团队',
+      tone: 'danger' as const,
+    }
+  }
+  if (ask.kind === 'unlead') {
+    return {
+      open: true,
+      title: `撤销 ${name} 的「${ask.nodeName}」负责人？`,
+      message: '撤销后 TA 不再拥有该部门及下级部门的人员管理权，部门文档也会退回团队默认角色。',
+      detail: '之后可以随时在右键菜单里重新任命。',
+      confirmText: '撤销负责人',
+      tone: 'danger' as const,
+    }
+  }
+  // 部门已经有负责人：换人前必须明确提醒会顶掉谁
+  if (ask.leadName) {
+    return {
+      open: true,
+      title: `「${ask.nodeName}」已经有负责人了`,
+      message: `现任负责人是 ${ask.leadName}。确认后改为 ${name}，${ask.leadName} 会立刻失去该部门及下级部门的人员管理权与文档完全控制。`,
+      detail: '一个部门同一时间只有一位负责人；下级部门各自的负责人不受影响。',
+      confirmText: '替换负责人',
+      tone: 'danger' as const,
+    }
+  }
+  return {
+    open: true,
+    title: `将 ${name} 设为「${ask.nodeName}」负责人？`,
+    message: 'TA 将获得该部门及所有下级部门的人员管理权，以及这些部门文档的完全控制权限。',
+    detail: '部门内成员会收到一条通知；团队所有者与管理员不受影响。',
+    confirmText: '设为负责人',
+    tone: 'primary' as const,
+  }
+})
+
+/** 确认之后真正执行 */
+function submitConfirm() {
+  const ask = confirmAsk.value
+  closeConfirmAsk()
+  if (!ask) return
+  if (ask.kind === 'remove') return removeMember(ask.member)
+  return applyLead(ask.member, ask.kind === 'lead')
+}
+
+/** 任命 / 撤销部门负责人：作用范围是该成员所在节点及整棵子树 */
+function applyLead(member: SpaceMemberInfo, on: boolean) {
+  if (!current.value || !member.orgNodeId) return
+  const node = nodeById.value.get(member.orgNodeId)
+  if (!node) return
   const spaceId = current.value.id
   const nodeId = member.orgNodeId
-  const next = isDeptLead(member) ? null : member.id
   return run(async () => {
-    await setNodeLead(spaceId, nodeId, next)
+    await setNodeLead(spaceId, nodeId, on ? member.id : null)
     await load(current.value!)
     flash(
-      next
+      on
         ? `已将 ${member.name} 设为「${node.name}」负责人`
         : `已撤销 ${member.name} 的「${node.name}」负责人`,
     )
@@ -355,7 +450,6 @@ function createMember() {
 
 function removeMember(member: SpaceMemberInfo) {
   if (!current.value) return
-  confirmingMember.value = ''
   return run(async () => {
     await removeSpaceMember(current.value!.id, member.id)
     await load(current.value!)
@@ -415,13 +509,13 @@ function addFriendFromMenu(member: SpaceMemberInfo) {
 
 function leadFromMenu(member: SpaceMemberInfo) {
   closeMemberMenu()
-  return toggleLead(member)
+  askLead(member)
 }
 
-/** 移出仍然走行内的二次确认，避免右键一滑就把人踢了 */
+/** 移出是危险操作：右键点了也只是弹确认窗，不会当场执行 */
 function removeFromMenu(member: SpaceMemberInfo) {
   closeMemberMenu()
-  confirmingMember.value = member.id
+  askRemove(member)
 }
 
 function onMenuDocDown(e: MouseEvent) {
@@ -740,6 +834,7 @@ onBeforeUnmount(() => {
                 <span v-if="scopeNode && visibleMembers.length !== members.length" class="tm-head-of">
                   共 {{ members.length }} 人
                 </span>
+                <span v-if="canManagePeople" class="tm-head-tip">右键成员可管理</span>
               </div>
 
               <!-- 跟随左侧组织：显示当前选中节点 + 是否加载下级 -->
@@ -833,38 +928,7 @@ onBeforeUnmount(() => {
                       <ShieldCheck :size="11" />完全控制
                     </span>
                     <span v-else class="tm-tag">{{ roleLabel(m.role) }}</span>
-                    <button
-                      v-if="m.orgNodeId && m.role !== 'owner' && canManageMember(m)"
-                      type="button"
-                      class="tm-icon tm-lead-btn"
-                      :class="{ on: isDeptLead(m), solo: isSoloLead(m) }"
-                      v-tooltip="
-                        isSoloLead(m)
-                          ? '部门只有 1 人，系统自动指定为负责人'
-                          : isDeptLead(m)
-                            ? '取消该部门负责人'
-                            : currentLeadName(m)
-                              ? `设为所在部门负责人（会替代现任负责人 ${currentLeadName(m)}）`
-                              : '设为所在部门负责人：可管理该部门及下级的人员与文档'
-                      "
-                      @click="toggleLead(m)"
-                    >
-                      <Crown :size="13" />
-                    </button>
-                    <template v-if="confirmingMember === m.id">
-                      <span class="tm-tag">确认移出？</span>
-                      <button type="button" class="tm-btn" :disabled="busy" @click="removeMember(m)">确认</button>
-                      <button type="button" class="tm-btn" :disabled="busy" @click="confirmingMember = ''">取消</button>
-                    </template>
-                    <button
-                      v-else-if="canManageMember(m)"
-                      type="button"
-                      class="tm-icon"
-                      v-tooltip="'移出成员'"
-                      @click="confirmingMember = m.id"
-                    >
-                      <X :size="13" />
-                    </button>
+                    <!-- 任命 / 移出这类不可逆操作只在右键菜单里给，行内不放按钮，避免误点 -->
                   </div>
                 </section>
 
@@ -1051,19 +1115,33 @@ onBeforeUnmount(() => {
 
       <template v-if="canManageMember(menuMember)">
         <div class="tm-menu-sep" />
-        <button
-          v-if="menuMember.orgNodeId && menuMember.role !== 'owner'"
-          type="button"
-          @click="leadFromMenu(menuMember)"
-        >
-          <Crown :size="14" :stroke-width="1.8" />
-          <span>{{ isDeptLead(menuMember) ? '取消部门负责人' : '设为部门负责人' }}</span>
-        </button>
+        <template v-if="menuMember.orgNodeId && menuMember.role !== 'owner'">
+          <button v-if="isSoloLead(menuMember)" type="button" class="is-muted" disabled>
+            <Crown :size="14" :stroke-width="1.8" />
+            <span>负责人（自动指定）</span>
+          </button>
+          <button v-else type="button" @click="leadFromMenu(menuMember)">
+            <Crown :size="14" :stroke-width="1.8" />
+            <span>{{ isDeptLead(menuMember) ? '取消部门负责人' : '设为部门负责人' }}</span>
+          </button>
+        </template>
         <button type="button" class="danger" @click="removeFromMenu(menuMember)">
           <X :size="14" :stroke-width="1.8" /><span>移出团队</span>
         </button>
       </template>
     </div>
+
+    <GnConfirm
+      :open="confirmDialog.open"
+      :title="confirmDialog.title"
+      :message="confirmDialog.message"
+      :detail="confirmDialog.detail"
+      :confirm-text="confirmDialog.confirmText"
+      :tone="confirmDialog.tone"
+      :icon="confirmAsk?.kind === 'remove' ? 'trash' : 'alert'"
+      @cancel="closeConfirmAsk"
+      @confirm="submitConfirm"
+    />
   </section>
 </template>
 
@@ -1535,7 +1613,7 @@ onBeforeUnmount(() => {
 .tm-member.is-draggable {
   cursor: grab;
 }
-/* 部门负责人：名字后面的小徽标 + 行尾的皇冠按钮 */
+/* 部门负责人：名字后面的小徽标（任命操作在右键菜单里，行内不再放按钮） */
 .tm-lead-tag {
   display: inline-flex;
   align-items: center;
@@ -1552,20 +1630,6 @@ onBeforeUnmount(() => {
   line-height: 1;
   vertical-align: 1px;
   white-space: nowrap;
-}
-.tm-lead-btn {
-  color: var(--gn-text-muted);
-}
-.tm-lead-btn:hover {
-  color: var(--gn-accent);
-}
-.tm-lead-btn.on {
-  background: var(--gn-accent-soft);
-  color: var(--gn-accent);
-}
-/* 单人民部门：负责人是规则给的，按钮只作提示，视觉上别抢眼 */
-.tm-lead-btn.solo {
-  cursor: default;
 }
 .tm-member.is-lead {
   background: var(--gn-bg-soft);
@@ -1650,21 +1714,21 @@ onBeforeUnmount(() => {
   font-size: 11.5px;
   white-space: nowrap;
 }
-.tm-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
+/* 表头提示：管理操作都在右键菜单里，给一句引导 */
+.tm-head-tip {
+  margin-left: auto;
+  padding: 1px 6px;
+  border: 1px solid var(--gn-border);
+  border-radius: 99px;
+  background: var(--gn-bg-soft);
+  font-size: 10.5px;
+  font-weight: 400;
   color: var(--gn-text-muted);
-  cursor: pointer;
-}
-.tm-icon:hover {
-  background: var(--gn-bg-hover);
-  color: var(--gn-text);
+  white-space: nowrap;
+  /* 列变窄时让位给人数，而不是把表头撑出去 */
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tm-pending {
   margin-top: 4px;

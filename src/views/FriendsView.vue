@@ -30,6 +30,8 @@ const err = ref('')
 const confirming = ref<{ id: string; kind: 'remove' | 'block' } | null>(null)
 
 const incomingCount = computed(() => incoming.value.length)
+/** 右侧栏只在有待处理 / 已发出申请时才占位，否则好友列表铺满整行 */
+const hasSide = computed(() => incomingCount.value > 0 || outgoing.value.length > 0)
 
 async function refresh() {
   const [f, i, o] = await Promise.all([listFriends(), listFriendRequests(), listSentFriendRequests()])
@@ -180,7 +182,7 @@ onMounted(async () => {
         </div>
       </header>
 
-      <div class="fr-cols">
+      <div class="fr-cols" :class="{ 'has-side': hasSide }">
         <div class="fr-main-col">
           <section v-if="results.length || (searched && !loading)" class="fr-card">
             <div class="fr-card-head">
@@ -265,7 +267,7 @@ onMounted(async () => {
           </section>
         </div>
 
-        <aside class="fr-side-col">
+        <aside v-if="hasSide" class="fr-side-col">
           <!-- 没有待处理申请就整块不出现，避免右侧常驻一张空卡 -->
           <section v-if="incomingCount" class="fr-card">
             <div class="fr-card-head">
@@ -419,11 +421,16 @@ onMounted(async () => {
 }
 
 /* ---------- 两列 ---------- */
+/* 右侧没有内容时第二列收成 0 宽、间距归零，好友列表顺势铺满整行；
+   第二列始终存在于轨道定义里，收起 / 展开才能过渡而不是跳变 */
 .fr-cols {
   display: grid;
-  gap: 16px;
+  gap: 0;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
+  transition:
+    grid-template-columns 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+    gap 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .fr-main-col,
 .fr-side-col {
@@ -432,8 +439,17 @@ onMounted(async () => {
   gap: 16px;
   min-width: 0;
 }
+.fr-side-col {
+  /* 0 宽轨道里内容仍会画出来，必须裁掉 */
+  overflow: hidden;
+}
 @media (min-width: 900px) {
   .fr-cols {
+    /* 两端都用定长（330px / 0px）才能插值；minmax(0,0px) 在 Chrome 里不可过渡，会中途跳一下 */
+    grid-template-columns: minmax(0, 1fr) 0px;
+  }
+  .fr-cols.has-side {
+    gap: 16px;
     grid-template-columns: minmax(0, 1fr) 330px;
   }
   .fr-side-col {
