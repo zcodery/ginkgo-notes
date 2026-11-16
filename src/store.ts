@@ -1,6 +1,7 @@
 import { reactive, computed, nextTick } from 'vue'
 import { buildTree, listPages, getMeta, setMeta, whenWritesIdle } from '@/db/repo'
 import { api, getToken, onUnauthorized, setApiSpace, setToken, type Space } from '@/api/client'
+import { listSpaces, type SpaceInfo } from '@/api/features'
 import { clearAssetCache } from '@/editor/assets'
 import type { Page } from '@/types'
 
@@ -21,7 +22,7 @@ export interface User {
 }
 
 /** publicShare：/s/:token 公开分享页（pageId 存 token）；shared：/shared/:id 别人共享给我的页面 */
-export type ViewKind = 'note' | 'empty' | 'trash' | 'profile' | 'publicShare' | 'shared'
+export type ViewKind = 'note' | 'empty' | 'trash' | 'profile' | 'publicShare' | 'shared' | 'friends' | 'teams'
 /** 笔记正文宽度：auto 铺满可用区域；fixed 按比例限制 max-width */
 export type NoteWidthMode = 'auto' | 'fixed'
 export type NoteWidthRatio = 50 | 60 | 70 | 80 | 90
@@ -110,8 +111,10 @@ interface State {
   user: User | null
   /** 启动时是否已完成登录态恢复（之前不渲染任何界面，避免闪一下登录页） */
   authReady: boolean
-  /** me：自己的笔记；public：管理员正在编辑公共原稿 */
+  /** me：自己的笔记；public：管理员正在编辑公共原稿；sp_xxx：团队空间 */
   space: Space
+  /** 我可进入的空间（个人 + 团队） */
+  spaces: SpaceInfo[]
   /** 正文宽度模式 */
   noteWidthMode: NoteWidthMode
   /** 固定模式下占内容区的百分比 */
@@ -143,6 +146,7 @@ export const store = reactive<State>({
   user: null,
   authReady: false,
   space: 'me',
+  spaces: [],
   noteWidthMode: 'fixed',
   noteWidthRatio: 70,
   noteFontSize: 16,
@@ -207,6 +211,15 @@ export async function reloadPages() {
   store.pages = await listPages()
 }
 
+/** 拉取我可进入的空间列表（个人空间 + 已加入团队） */
+export async function reloadSpaces() {
+  try {
+    store.spaces = await listSpaces()
+  } catch {
+    store.spaces = []
+  }
+}
+
 /* ---------------- 账号 ---------------- */
 
 export const isAdmin = computed(() => store.user?.role === 'admin')
@@ -218,6 +231,7 @@ interface AuthResponse {
 
 function resetSession() {
   store.pages = []
+  store.spaces = []
   store.loaded = false
   store.space = 'me'
   setApiSpace('me')
@@ -228,7 +242,7 @@ async function enter(res: AuthResponse) {
   setToken(res.token)
   resetSession()
   store.user = res.user
-  await reloadPages()
+  await Promise.all([reloadPages(), reloadSpaces()])
   store.loaded = true
 }
 
@@ -295,7 +309,7 @@ export async function restoreSession() {
     if (!getToken()) return
     const { user } = await api<{ user: User }>('GET', '/auth/me')
     store.user = user
-    await reloadPages()
+    await Promise.all([reloadPages(), reloadSpaces()])
     store.loaded = true
   } catch {
     store.user = null
@@ -569,7 +583,7 @@ export function setGutterTuning(on: boolean) {
 
 /* ---------------- History 路由（/、/trash、/:pageId） ---------------- */
 
-const RESERVED_PATHS = new Set(['trash', 'profile', 's', 'shared'])
+const RESERVED_PATHS = new Set(['trash', 'profile', 's', 'shared', 'friends', 'teams'])
 
 /** 旧版 `#/p/:id`、`#/trash` 一次性迁到 pathname，避免书签失效 */
 export function migrateLegacyHash() {
@@ -597,6 +611,8 @@ export function parseRoute(): { view: ViewKind; pageId: string | null } {
   if (path === '/') return { view: 'empty', pageId: null }
   if (path === '/trash') return { view: 'trash', pageId: null }
   if (path === '/profile') return { view: 'profile', pageId: null }
+  if (path === '/friends') return { view: 'friends', pageId: null }
+  if (path === '/teams') return { view: 'teams', pageId: null }
   const share = /^\/s\/([A-Za-z0-9_-]+)$/.exec(path)
   if (share) return { view: 'publicShare', pageId: share[1]! }
   const shared = /^\/shared\/([A-Za-z0-9_-]+)$/.exec(path)
@@ -641,6 +657,14 @@ export function goTrash() {
 
 export function goShared(id: string) {
   pushPath(`/shared/${id}`)
+}
+
+export function goFriends() {
+  pushPath('/friends')
+}
+
+export function goTeams() {
+  pushPath('/teams')
 }
 
 /** 站内链接（通知里的 /xxx）走前端路由，外部链接新窗口打开 */

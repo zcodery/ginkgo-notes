@@ -31,6 +31,8 @@ import {
   goHome,
   goProfile,
   goShared,
+  goFriends,
+  goTeams,
   toggleTheme,
   isAdmin,
   logout,
@@ -76,7 +78,17 @@ async function checkLegacy() {
   legacyCount.value = isAdmin.value && !legacyAlreadyImported() ? await countLegacyPages() : 0
 }
 
-async function toSpace(space: 'me' | 'public') {
+const teamSpaces = computed(() => store.spaces.filter((s) => s.type === 'team'))
+
+/** 侧栏顶部显示当前空间名：个人空间用设置里的名字，团队用团队名 */
+const workspaceName = computed(() => {
+  if (store.space !== 'me' && store.space !== 'public') {
+    return store.spaces.find((s) => s.id === store.space)?.name || t('app.name')
+  }
+  return userState.space.name || t('app.name')
+})
+
+async function toSpace(space: string) {
   userMenuOpen.value = false
   await switchSpace(space)
 }
@@ -127,7 +139,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
     <div class="sb-head">
       <button class="sb-workspace" @click="goHome">
         <span class="sb-logo"><PageIcon :icon="userState.space.icon || '🍃'" :size="16" /></span>
-        <span class="sb-name">{{ userState.space.name || t('app.name') }}</span>
+        <span class="sb-name">{{ workspaceName }}</span>
       </button>
       <NotificationBell />
       <button class="gn-icon-btn" v-tooltip="t('sidebar.collapse')" @click="store.sidebarOpen = false">
@@ -187,7 +199,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
 
       <PageTree ref="treeRef" />
 
-      <template v-if="sharedItems.length && store.space === 'me'">
+      <template v-if="sharedItems.length && store.space !== 'public'">
         <div class="sb-section-title">
           <Users :size="12" :stroke-width="2" />
           <span>{{ tr('与我共享') }}</span>
@@ -237,6 +249,24 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
         >
           <UserRound :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.profile') }}</span>
         </button>
+        <div class="sb-menu-sep"></div>
+        <button @click="userMenuOpen = false; goFriends()">
+          <Users :size="14" :stroke-width="1.8" /><span>好友</span>
+        </button>
+        <button @click="userMenuOpen = false; goTeams()">
+          <Users :size="14" :stroke-width="1.8" /><span>团队</span>
+        </button>
+        <template v-if="teamSpaces.length">
+          <div class="sb-menu-sep"></div>
+          <button
+            v-for="s in teamSpaces"
+            :key="s.id"
+            :class="{ on: store.space === s.id }"
+            @click="toSpace(s.id)"
+          >
+            <Users :size="14" :stroke-width="1.8" /><span>{{ s.name }}</span>
+          </button>
+        </template>
         <template v-if="isAdmin">
           <div class="sb-menu-sep"></div>
           <button :class="{ on: store.space === 'me' }" @click="toSpace('me')">
