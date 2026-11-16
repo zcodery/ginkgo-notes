@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   ArrowRight,
   ChevronRight,
+  Crown,
   FolderTree,
   GripVertical,
   Plus,
@@ -24,6 +25,7 @@ import {
   listSpaceInvites,
   registerSpaceMember,
   removeSpaceMember,
+  setNodeLead,
   updateSpaceMember,
   type BackendRole,
   type OrgImportResult,
@@ -31,7 +33,7 @@ import {
   type SpaceInfo,
   type SpaceMemberInfo,
 } from '@/api/features'
-import { goHome, reloadPages, reloadSpaces, switchSpace } from '@/store'
+import { goHome, reloadPages, reloadSpaces, store, switchSpace } from '@/store'
 
 const spaces = ref<SpaceInfo[]>([])
 const current = ref<SpaceInfo | null>(null)
@@ -68,12 +70,64 @@ const importResult = ref<OrgImportResult | null>(null)
 
 const ROLE_RANK: Record<string, number> = { guest: 1, viewer: 2, editor: 3, admin: 4, owner: 5 }
 const roleRank = (role: string | undefined) => (role && ROLE_RANK[role]) || 0
+/** 空间级管理员：能管整个团队 */
 const canManage = computed(() => roleRank(current.value?.role) >= 4)
+
+/* ---------------- 部门负责人（作用范围 = 自己负责的节点及整棵子树） ---------------- */
+
+const myId = computed(() => store.user?.id ?? '')
+const nodeById = computed(() => new Map(nodes.value.map((n) => [n.id, n])))
+/** 我负责的节点 */
+const myLeadNodes = computed(() => nodes.value.filter((n) => n.leadUserId && n.leadUserId === myId.value))
+const leadPaths = computed(() => myLeadNodes.value.map((n) => n.path))
+/** 节点是否落在我的负责范围里（含自身、含所有下级） */
+function inMyScope(nodeId: string | null | undefined): boolean {
+  if (!nodeId) return false
+  const path = nodeById.value.get(nodeId)?.path
+  return !!path && leadPaths.value.some((led) => path.startsWith(led))
+}
+/** 我能不能动这个节点（管理员全能动，负责人只动自己子树） */
+function canManageNode(nodeId: string): boolean {
+  return canManage.value || inMyScope(nodeId)
+}
+/** 我能不能管这个成员 */
+function canManageMember(m: SpaceMemberInfo): boolean {
+  return canManage.value || inMyScope(m.orgNodeId)
+}
+/** 他是不是所在部门的负责人 */
+function isDeptLead(m: SpaceMemberInfo): boolean {
+  return !!m.orgNodeId && nodeById.value.get(m.orgNodeId)?.leadUserId === m.id
+}
+/** 所在部门现任负责人姓名（换人时提示会替代谁） */
+function currentLeadName(m: SpaceMemberInfo): string {
+  const node = m.orgNodeId ? nodeById.value.get(m.orgNodeId) : undefined
+  return node?.leadUserId && node.leadUserId !== m.id ? node.leadName ?? '其他人' : ''
+}
+/** 有没有任何管理范围：空间管理员，或至少负责一个部门 */
+const canManagePeople = computed(() => canManage.value || myLeadNodes.value.length > 0)
+/** 交给组织树的管理范围：管理员不用传（canManage 已经放开） */
+const manageNodeIds = computed(() =>
+  canManage.value ? [] : nodes.value.filter((n) => inMyScope(n.id)).map((n) => n.id),
+)
+/** 负责人最多授到 editor，不能自己造管理员 */
+const assignableRoles = computed(() =>
+  canManage.value ? roleOptions : roleOptions.filter((r) => roleRank(r.value) < 4),
+)
+
 
 /** 供人员选择器做横向团队 tab */
 const teamSpaces = computed(() =>
   spaces.value.filter((s) => s.type === 'team').map((s) => ({ id: s.id, name: s.name })),
 )
+
+const ROLE_LABEL: Record<string, string> = {
+  owner: '所有者',
+  admin: '管理员',
+  editor: '可编辑',
+  viewer: '可查看',
+  guest: '访客',
+}
+const roleLabel = (role: string) => ROLE_LABEL[role] ?? role
 
 const roleOptions: { value: BackendRole; label: string }[] = [
   { value: 'viewer', label: '可查看' },
@@ -114,8 +168,14 @@ async function load(space: SpaceInfo) {
   if (inviteDraft.value.usernames.some((u) => inTeam.has(u))) {
     inviteDraft.value.usernames = inviteDraft.value.usernames.filter((u) => !inTeam.has(u))
   }
-  pending.value = canManage.value ? await listSpaceInvites(space.id) : []
+  pending.value = canManagePeople.value ? await listSpaceInvites(space.id) : []
   resolveScope()
+  // 负责人没有「空间根」这个选项：草稿里的节点不在自己范围内就落到自己负责的节点
+  if (!canManage.value && myLeadNodes.value.length) {
+    const fallback = myLeadNodes.value[0]!.id
+    if (!inMyScope(inviteDraft.value.orgNodeId)) inviteDraft.value.orgNodeId = fallback
+    if (!inMyScope(createDraft.value.orgNodeId)) createDraft.value.orgNodeId = fallback
+  }
 }
 
 async function select(space: SpaceInfo) {
@@ -159,6 +219,25 @@ function invite() {
     inviteDraft.value.usernames = []
     await load(current.value!)
     if (errors.length) err.value = errors.join('；')
+  })
+}
+
+/** 任命 / 撤销部门负责人：作用范围是该成员所在节点及整棵子树 */
+function toggleLead(member: SpaceMemberInfo) {
+  if (!current.value || !member.orgNodeId) return
+  const node = nodeById.value.get(member.orgNodeId)
+  if (!node) return
+  const spaceId = current.value.id
+  const nodeId = member.orgNodeId
+  const next = isDeptLead(member) ? null : member.id
+  return run(async () => {
+    await setNodeLead(spaceId, nodeId, next)
+    await load(current.value!)
+    flash(
+      next
+        ? `已将 ${member.name} 设为「${node.name}」负责人`
+        : `已撤销 ${member.name} 的「${node.name}」负责人`,
+    )
   })
 }
 
@@ -217,6 +296,15 @@ function setInviteMode(mode: 'pick' | 'create') {
   if (mode === 'create' && scopeId.value && !createDraft.value.orgNodeId) {
     createDraft.value.orgNodeId = scopeId.value
   }
+  // 负责人：没选节点时落到自己负责的部门
+  if (!canManage.value && myLeadNodes.value.length) {
+    if (mode === 'create' && !inMyScope(createDraft.value.orgNodeId)) {
+      createDraft.value.orgNodeId = myLeadNodes.value[0]!.id
+    }
+    if (mode === 'pick' && !inMyScope(inviteDraft.value.orgNodeId)) {
+      inviteDraft.value.orgNodeId = myLeadNodes.value[0]!.id
+    }
+  }
 }
 
 function createMember() {
@@ -256,10 +344,12 @@ async function enterTeam() {
   goHome()
 }
 
-const orgOptions = computed(() => [
-  { value: '', label: '不指定节点' },
-  ...nodes.value.map((n) => ({ value: n.id, label: `${'　'.repeat(n.depth)}${n.name}` })),
-])
+const orgOptions = computed(() => {
+  const list = canManage.value ? nodes.value : nodes.value.filter((n) => inMyScope(n.id))
+  const rows = list.map((n) => ({ value: n.id, label: `${'　'.repeat(n.depth)}${n.name}` }))
+  // 「不指定节点」等于挂到空间根上，只有管理员能这么放
+  return canManage.value ? [{ value: '', label: '不指定节点' }, ...rows] : rows
+})
 const formatOptions = [
   { value: 'csv', label: 'CSV' },
   { value: 'json', label: 'JSON' },
@@ -474,6 +564,7 @@ onBeforeUnmount(() => {
                   :space-id="current.id"
                   :nodes="nodes"
                   :can-manage="canManage"
+                  :manage-node-ids="manageNodeIds"
                   :selected-id="scopeId"
                   @select="selectNode"
                   @changed="reloadOrg"
@@ -564,15 +655,16 @@ onBeforeUnmount(() => {
                     class="tm-member"
                     :class="{
                       'is-grouped': g.segs.length,
-                      'is-draggable': canManage,
+                      'is-draggable': canManageMember(m),
                       'is-dragging': draggingMemberId === m.id,
+                      'is-lead': isDeptLead(m),
                     }"
-                    :draggable="canManage"
+                    :draggable="canManageMember(m)"
                     @dragstart="onMemberDragStart(m, $event)"
                     @dragend="onMemberDragEnd"
                   >
                     <span
-                      v-if="canManage"
+                      v-if="canManageMember(m)"
                       class="tm-grip"
                       aria-hidden="true"
                       v-tooltip="'拖到左侧组织节点上即可改归属'"
@@ -581,25 +673,50 @@ onBeforeUnmount(() => {
                     </span>
                     <div class="tm-avatar">{{ (m.name || '?').slice(0, 1) }}</div>
                     <div class="tm-member-main">
-                      <div class="tm-member-name">{{ m.name }}</div>
+                      <div class="tm-member-name">
+                        <span class="tm-name-text">{{ m.name }}</span>
+                        <span
+                          v-if="isDeptLead(m) && m.role !== 'owner'"
+                          class="tm-lead-tag"
+                          v-tooltip="'部门负责人：可管理该部门及下级的人员与文档'"
+                        >
+                          <Crown :size="10" />负责人
+                        </span>
+                      </div>
                       <div class="tm-member-sub">@{{ m.username }}</div>
                     </div>
                     <GnSelect
-                      v-if="canManage"
+                      v-if="canManageMember(m)"
                       :model-value="m.role"
-                      :options="roleOptions"
+                      :options="canManage ? roleOptions : assignableRoles"
                       :min-width="92"
                       v-tooltip="'成员角色：可管理 / 可编辑 / 可查看'"
                       @update:model-value="changeRole(m, $event)"
                     />
-                    <span v-else class="tm-tag">{{ m.role }}</span>
+                    <span v-else class="tm-tag">{{ roleLabel(m.role) }}</span>
+                    <button
+                      v-if="m.orgNodeId && m.role !== 'owner' && canManageMember(m)"
+                      type="button"
+                      class="tm-icon tm-lead-btn"
+                      :class="{ on: isDeptLead(m) }"
+                      v-tooltip="
+                        isDeptLead(m)
+                          ? '取消该部门负责人'
+                          : currentLeadName(m)
+                            ? `设为所在部门负责人（会替代现任负责人 ${currentLeadName(m)}）`
+                            : '设为所在部门负责人：可管理该部门及下级的人员与文档'
+                      "
+                      @click="toggleLead(m)"
+                    >
+                      <Crown :size="13" />
+                    </button>
                     <template v-if="confirmingMember === m.id">
                       <span class="tm-tag">确认移出？</span>
                       <button type="button" class="tm-btn" :disabled="busy" @click="removeMember(m)">确认</button>
                       <button type="button" class="tm-btn" :disabled="busy" @click="confirmingMember = ''">取消</button>
                     </template>
                     <button
-                      v-else-if="canManage"
+                      v-else-if="canManageMember(m)"
                       type="button"
                       class="tm-icon"
                       v-tooltip="'移出成员'"
@@ -626,7 +743,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div v-if="canManage" class="tm-invite">
+              <div v-if="canManagePeople" class="tm-invite">
                 <div class="tm-invite-head">
                   <div class="tm-tabs">
                     <button
@@ -661,7 +778,7 @@ onBeforeUnmount(() => {
                   <div class="tm-inline tm-wrap">
                     <GnSelect
                       v-model="inviteDraft.role"
-                      :options="roleOptions"
+                      :options="assignableRoles"
                       :min-width="92"
                       v-tooltip="'邀请后授予的角色'"
                     />
@@ -703,7 +820,7 @@ onBeforeUnmount(() => {
                   <div class="tm-inline tm-wrap">
                     <GnSelect
                       v-model="createDraft.role"
-                      :options="roleOptions"
+                      :options="assignableRoles"
                       :min-width="78"
                       v-tooltip="'新成员的角色'"
                     />
@@ -1170,6 +1287,37 @@ onBeforeUnmount(() => {
 .tm-member.is-draggable {
   cursor: grab;
 }
+/* 部门负责人：名字后面的小徽标 + 行尾的皇冠按钮 */
+.tm-lead-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  margin-left: 4px;
+  padding: 0 5px;
+  height: 16px;
+  border-radius: 99px;
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+.tm-lead-btn {
+  color: var(--gn-text-muted);
+}
+.tm-lead-btn:hover {
+  color: var(--gn-accent);
+}
+.tm-lead-btn.on {
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
+.tm-member.is-lead {
+  background: var(--gn-bg-soft);
+}
 .tm-member.is-dragging {
   opacity: 0.45;
 }
@@ -1202,8 +1350,14 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .tm-member-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
   font-size: 13px;
   color: var(--gn-text);
+}
+.tm-name-text {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

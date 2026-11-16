@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import { authOf, createUser, findUserById, findUserByName, updateUserProfile, type SpaceRole } from './auth.ts'
-import { effectiveSpaceRole, roleRank } from './acl.ts'
+import { effectiveSpaceRole, leadCoversNode, roleRank } from './acl.ts'
 import { db, getSpace, listSpacesFor, transaction, type SpaceRow } from './db.ts'
 import { HttpError, param, str } from './http.ts'
 import { notify } from './notify.ts'
@@ -89,6 +89,31 @@ function requireAdmin(spaceId: string, userId: string): SpaceRole {
   if (!role) throw new HttpError(404, '空间不存在或无权访问')
   if (roleRank(role) < roleRank('admin')) throw new HttpError(403, '需要团队管理权限')
   return role
+}
+
+interface ManageScope {
+  /** owner / admin：管整个空间 */
+  spaceAdmin: boolean
+  /** 自己在空间里的身份 */
+  role: SpaceRole
+  /** 最多能授出的角色；部门负责人封顶 editor，防止自己造管理员 */
+  cap: SpaceRole
+}
+
+/**
+ * 管理权限判定。
+ *
+ * - owner / admin 管整个空间；
+ * - 部门负责人（org_nodes.lead_user_id）只在这个节点及整棵子树里管事，
+ *   子树的判定用节点 path 前缀，所以给上级部门设负责人等于把下级一起交出去。
+ */
+function manageScope(spaceId: string, userId: string, nodeIds: (string | null | undefined)[]): ManageScope {
+  const role = effectiveSpaceRole(userId, spaceId)
+  if (!role) throw new HttpError(404, '空间不存在或无权访问')
+  if (roleRank(role) >= roleRank('admin')) return { spaceAdmin: true, role, cap: role }
+  const covered = nodeIds.length > 0 && nodeIds.every((id) => (id ? leadCoversNode(userId, spaceId, id) : false))
+  if (covered) return { spaceAdmin: false, role, cap: 'editor' }
+  throw new HttpError(403, '需要团队管理权限，或成为该部门的负责人')
 }
 
 function requireMember(spaceId: string, userId: string): SpaceRole {
@@ -240,6 +265,7 @@ spacesRouter.get('/spaces/:id/org', (req, res) => {
       depth: n.depth,
       sort: n.sort,
       leadUserId: n.lead_user_id,
+      leadName: n.lead_user_id ? publicUser(n.lead_user_id).name : null,
       memberCount: counts.get(n.id) ?? 0,
     })),
     members: members.map((m) => ({
@@ -264,7 +290,6 @@ function nodePath(parentId: string | null, nodeId: string): { path: string; dept
 spacesRouter.post('/spaces/:id/org/nodes', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  requireAdmin(space.id, user.id)
   const name = str(req.body?.name, '节点名称', 40)
   if (!name) throw new HttpError(400, '请填写节点名称')
   const parentId = typeof req.body?.parentId === 'string' && req.body.parentId ? req.body.parentId : null
@@ -274,6 +299,8 @@ spacesRouter.post('/spaces/:id/org/nodes', (req, res) => {
       | undefined
     if (!parent || parent.space_id !== space.id) throw new HttpError(404, '上级节点不存在')
   }
+  // 根级节点只有团队管理员能建；下级节点，所属部门的负责人也可以建
+  manageScope(space.id, user.id, [parentId])
   const id = randomUUID()
   const { path, depth } = nodePath(parentId, id)
   const sort = (
@@ -292,7 +319,6 @@ spacesRouter.post('/spaces/:id/org/nodes', (req, res) => {
 spacesRouter.patch('/spaces/:id/org/nodes/:nodeId', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  requireAdmin(space.id, user.id)
   const node = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(
     param(req, 'nodeId'),
     space.id,
@@ -313,6 +339,8 @@ spacesRouter.patch('/spaces/:id/org/nodes/:nodeId', (req, res) => {
   }
   const name = req.body?.name !== undefined ? str(req.body.name, '节点名称', 40) : node.name
   if (!name) throw new HttpError(400, '请填写节点名称')
+  // 改自己和目标上级都要在权限范围内，负责人不能把子部门挪到别人的部门下
+  manageScope(space.id, user.id, [node.id, nextParent])
 
   if (nextParent !== node.parent_id) {
     const { path, depth } = nodePath(nextParent, node.id)
@@ -348,7 +376,6 @@ spacesRouter.patch('/spaces/:id/org/nodes/:nodeId', (req, res) => {
 spacesRouter.post('/spaces/:id/org/nodes/:nodeId/move', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  requireAdmin(space.id, user.id)
   const node = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(
     param(req, 'nodeId'),
     space.id,
@@ -368,6 +395,7 @@ spacesRouter.post('/spaces/:id/org/nodes/:nodeId/move', (req, res) => {
   const beforeId =
     typeof req.body?.beforeId === 'string' && req.body.beforeId ? String(req.body.beforeId) : null
   if (beforeId === node.id) throw new HttpError(400, '不能移动到自身位置')
+  manageScope(space.id, user.id, [node.id, nextParent])
 
   const { path, depth } = nodePath(nextParent, node.id)
 
@@ -411,12 +439,15 @@ spacesRouter.post('/spaces/:id/org/nodes/:nodeId/move', (req, res) => {
 spacesRouter.delete('/spaces/:id/org/nodes/:nodeId', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  requireAdmin(space.id, user.id)
   const node = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(
     param(req, 'nodeId'),
     space.id,
   ) as OrgNodeRow | undefined
   if (!node) throw new HttpError(404, '组织节点不存在')
+  const scope = manageScope(space.id, user.id, [node.id])
+  if (!scope.spaceAdmin && node.lead_user_id === user.id) {
+    throw new HttpError(403, '负责人不能删除自己负责的部门，请交给团队管理员处理')
+  }
   const child = db.prepare('SELECT 1 FROM org_nodes WHERE space_id = ? AND parent_id = ? LIMIT 1').get(
     space.id,
     node.id,
@@ -437,6 +468,57 @@ spacesRouter.delete('/spaces/:id/org/nodes/:nodeId', (req, res) => {
     db.prepare('DELETE FROM org_nodes WHERE id = ?').run(node.id)
   })
   res.json({ ok: true })
+})
+
+/**
+ * 任命 / 撤销部门负责人。
+ *
+ * 负责人拿到该节点及整棵子树的管理权：成员增删改、下级部门增删改，
+ * 以及「授权给本部门的文档」的完全控制（见 acl.effectiveResourceRole）。
+ * 只能任命挂在本科室及下级里的成员；团队管理员也可以直接指派。
+ */
+spacesRouter.put('/spaces/:id/org/nodes/:nodeId/lead', (req, res) => {
+  const { user } = authOf(res)
+  const space = requireSpace(param(req, 'id'))
+  const node = db.prepare('SELECT * FROM org_nodes WHERE id = ? AND space_id = ?').get(
+    param(req, 'nodeId'),
+    space.id,
+  ) as OrgNodeRow | undefined
+  if (!node) throw new HttpError(404, '组织节点不存在')
+  const scope = manageScope(space.id, user.id, [node.id])
+
+  const raw = req.body?.userId
+  const nextId = typeof raw === 'string' && raw ? raw : ''
+  if (!nextId) {
+    db.prepare('UPDATE org_nodes SET lead_user_id = NULL WHERE id = ?').run(node.id)
+    res.json({ ok: true, leadUserId: null, leadName: null })
+    return
+  }
+
+  const target = findUserById(nextId)
+  if (!target) throw new HttpError(404, '用户不存在')
+  const member = db
+    .prepare("SELECT org_node_id FROM space_members WHERE space_id = ? AND user_id = ? AND status = 'active'")
+    .get(space.id, nextId) as { org_node_id: string } | undefined
+  if (!member) throw new HttpError(400, '对方不是团队成员')
+  const memberNode = member.org_node_id
+    ? (db.prepare('SELECT path FROM org_nodes WHERE id = ?').get(member.org_node_id) as { path: string } | undefined)
+    : undefined
+  // 本部门及下级的人当然可以；上级部门的人来兼管一个新设的下级部门也允许，
+  // 但不允许跨部门抓人（否则负责人会挂在自己不属的部门上）
+  const inside = !!memberNode && memberNode.path.startsWith(node.path)
+  const fromAncestor = !!memberNode && node.path.startsWith(memberNode.path)
+  if (!inside && !fromAncestor) {
+    throw new HttpError(400, '只能任命本部门或上级部门的人为负责人')
+  }
+  // 部门负责人只能在自己管的范围里挑人，不能去别的部门挖
+  if (!scope.spaceAdmin && !leadCoversNode(user.id, space.id, member.org_node_id)) {
+    throw new HttpError(403, '只能任命自己负责范围内的成员')
+  }
+
+  db.prepare('UPDATE org_nodes SET lead_user_id = ? WHERE id = ?').run(nextId, node.id)
+  notify(nextId, 'member', `你成为「${node.name}」的负责人`, `可以管理该部门及下级的人员与文档`, '/teams')
+  res.json({ ok: true, leadUserId: nextId, leadName: target.nickname || target.username })
 })
 
 /* ---------------- 组织架构批量导入 ---------------- */
@@ -689,13 +771,14 @@ function orgNodeOf(spaceId: string, value: unknown): string {
 spacesRouter.post('/spaces/:id/members', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  const actor = requireAdmin(space.id, user.id)
   const username = str(req.body?.username, '用户名', 120)
   const target = findUserByName(username)
   if (!target) throw new HttpError(404, '找不到该用户')
   if (target.id === space.owner_user_id) throw new HttpError(409, '对方已是团队所有者')
-  const role = assertAssignable(actor, req.body?.role)
   const orgNodeId = orgNodeOf(space.id, req.body?.orgNodeId)
+  // 负责人只能往自己的部门里加人，且最多给到 editor
+  const scope = manageScope(space.id, user.id, [orgNodeId])
+  const role = assertAssignable(scope.cap, req.body?.role)
   db.prepare(
     `INSERT INTO space_members (space_id, user_id, org_node_id, role, status, joined_at)
      VALUES (?, ?, ?, ?, 'active', ?)
@@ -714,12 +797,12 @@ spacesRouter.post('/spaces/:id/members', (req, res) => {
 spacesRouter.post('/spaces/:id/members/register', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  const actor = requireAdmin(space.id, user.id)
   const phone = str(req.body?.phone, '手机号', 20).replace(/[\s-]/g, '')
   if (!/^1[3-9]\d{9}$/.test(phone)) throw new HttpError(400, '请填写 11 位手机号')
   const name = req.body?.name === undefined ? '' : str(req.body.name, '姓名', 24)
-  const role = assertAssignable(actor, req.body?.role)
   const orgNodeId = orgNodeOf(space.id, req.body?.orgNodeId)
+  const scope = manageScope(space.id, user.id, [orgNodeId])
+  const role = assertAssignable(scope.cap, req.body?.role)
 
   let target = findUserByName(phone)
   let created = false
@@ -748,20 +831,24 @@ spacesRouter.post('/spaces/:id/members/register', (req, res) => {
 spacesRouter.patch('/spaces/:id/members/:userId', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  const actor = requireAdmin(space.id, user.id)
   const targetId = param(req, 'userId')
   if (targetId === space.owner_user_id) throw new HttpError(400, '不能修改团队所有者')
   const existing = db
     .prepare('SELECT * FROM space_members WHERE space_id = ? AND user_id = ?')
     .get(space.id, targetId) as MemberRow | undefined
   if (!existing) throw new HttpError(404, '成员不存在')
+  const orgNodeId =
+    req.body?.orgNodeId !== undefined ? orgNodeOf(space.id, req.body.orgNodeId) : undefined
+  // 现在的部门与要去的部门都得在权限范围内：负责人不能把人挖出自己部门
+  const scope = manageScope(space.id, user.id, [existing.org_node_id, orgNodeId ?? existing.org_node_id])
+  if (!scope.spaceAdmin && roleRank(existing.role) >= roleRank('admin')) {
+    throw new HttpError(403, '不能修改空间管理员的角色')
+  }
   // 只改部门时保留原角色，避免误降级
   const role =
     req.body?.role === undefined
       ? (existing.role as SpaceRole)
-      : assertAssignable(actor, req.body.role)
-  const orgNodeId =
-    req.body?.orgNodeId !== undefined ? orgNodeOf(space.id, req.body.orgNodeId) : undefined
+      : assertAssignable(scope.cap, req.body.role)
   if (orgNodeId !== undefined && orgNodeId !== existing.org_node_id) {
     db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').run(space.id, targetId)
     db.prepare(
@@ -770,20 +857,48 @@ spacesRouter.patch('/spaces/:id/members/:userId', (req, res) => {
   } else {
     db.prepare('UPDATE space_members SET role = ? WHERE space_id = ? AND user_id = ?').run(role, space.id, targetId)
   }
+
+  // 人调走之后就不再是原部门的负责人了；还留在原地则保留
+  if (orgNodeId !== undefined && orgNodeId !== existing.org_node_id) {
+    const next =
+      (orgNodeId
+        ? (db.prepare('SELECT path FROM org_nodes WHERE id = ?').get(orgNodeId) as { path: string } | undefined)
+        : undefined) ?? null
+    const led = db
+      .prepare('SELECT id, path FROM org_nodes WHERE space_id = ? AND lead_user_id = ?')
+      .all(space.id, targetId) as { id: string; path: string }[]
+    for (const n of led) {
+      if (!next || !next.path.startsWith(n.path)) {
+        db.prepare('UPDATE org_nodes SET lead_user_id = NULL WHERE id = ?').run(n.id)
+      }
+    }
+  }
   res.json({ ok: true, role })
 })
 
 spacesRouter.delete('/spaces/:id/members/:userId', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  const actor = requireAdmin(space.id, user.id)
   const targetId = param(req, 'userId')
   if (targetId === space.owner_user_id) throw new HttpError(400, '不能移除团队所有者')
-  if (targetId === user.id && roleRank(actor) < roleRank('owner')) {
+  const targetRow = db
+    .prepare("SELECT * FROM space_members WHERE space_id = ? AND user_id = ? AND status = 'active'")
+    .get(space.id, targetId) as MemberRow | undefined
+  if (!targetRow) throw new HttpError(404, '成员不存在')
+  const scope = manageScope(space.id, user.id, [targetRow.org_node_id])
+  if (!scope.spaceAdmin && roleRank(targetRow.role) >= roleRank('admin')) {
+    throw new HttpError(403, '不能移除空间管理员')
+  }
+  if (targetId === user.id && roleRank(scope.role) < roleRank('owner')) {
     throw new HttpError(400, '请让团队所有者移除你')
   }
   transaction(() => {
     db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').run(space.id, targetId)
+    // 人走了，他负责的部门要空出来，否则树上一直挂着离职负责人
+    db.prepare('UPDATE org_nodes SET lead_user_id = NULL WHERE space_id = ? AND lead_user_id = ?').run(
+      space.id,
+      targetId,
+    )
     db.prepare('DELETE FROM acl_entries WHERE space_id = ? AND subject_type = ? AND subject_id = ?').run(
       space.id,
       'user',
@@ -802,10 +917,15 @@ spacesRouter.delete('/spaces/:id/members/:userId', (req, res) => {
 spacesRouter.get('/spaces/:id/invites', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  requireAdmin(space.id, user.id)
-  const rows = db
+  const role = requireMember(space.id, user.id)
+  const all = db
     .prepare("SELECT * FROM invites WHERE space_id = ? AND status = 'pending' ORDER BY created_at DESC")
     .all(space.id) as unknown as InviteRow[]
+  // 部门负责人只看自己范围内的邀请，免得看到别的部门的待办
+  const rows =
+    roleRank(role) >= roleRank('admin')
+      ? all
+      : all.filter((i) => i.org_node_id && leadCoversNode(user.id, space.id, i.org_node_id))
   res.json(
     rows.map((i) => ({
       id: i.id,
@@ -821,7 +941,6 @@ spacesRouter.get('/spaces/:id/invites', (req, res) => {
 spacesRouter.post('/spaces/:id/invites', (req, res) => {
   const { user } = authOf(res)
   const space = requireSpace(param(req, 'id'))
-  const actor = requireAdmin(space.id, user.id)
   const username = str(req.body?.username, '用户名', 120)
   const target = findUserByName(username)
   if (!target) throw new HttpError(404, '找不到该用户')
@@ -829,8 +948,9 @@ spacesRouter.post('/spaces/:id/invites', (req, res) => {
     .prepare("SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ? AND status = 'active'")
     .get(space.id, target.id)
   if (member) throw new HttpError(409, '对方已是团队成员')
-  const role = assertAssignable(actor, req.body?.role)
   const orgNodeId = orgNodeOf(space.id, req.body?.orgNodeId)
+  const scope = manageScope(space.id, user.id, [orgNodeId])
+  const role = assertAssignable(scope.cap, req.body?.role)
   const existing = db
     .prepare("SELECT * FROM invites WHERE space_id = ? AND invitee_id = ? AND status = 'pending'")
     .get(space.id, target.id) as InviteRow | undefined

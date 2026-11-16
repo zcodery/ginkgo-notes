@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-vue-next'
+import { ChevronRight, Crown, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import {
   createOrgNode,
   deleteOrgNode,
@@ -13,6 +13,8 @@ const props = defineProps<{
   spaceId: string
   nodes: OrgNodeInfo[]
   canManage: boolean
+  /** 部门负责人能动的节点 id（canManage 为 true 时可忽略） */
+  manageNodeIds?: string[]
   /** 当前选中的节点，右侧成员列表按它过滤 */
   selectedId?: string
 }>()
@@ -38,6 +40,11 @@ const addingParentId = ref<string | null | undefined>(undefined)
 const addingName = ref('')
 
 const isCollapsed = (id: string) => collapsed.value.includes(id)
+
+/** 这个节点能不能改：空间管理员全能动，部门负责人只动自己那棵子树 */
+function canManageNode(id: string): boolean {
+  return props.canManage || (props.manageNodeIds ?? []).includes(id)
+}
 
 function toggle(id: string) {
   collapsed.value = isCollapsed(id)
@@ -213,7 +220,7 @@ function blockedTarget(id: string): boolean {
 }
 
 function onRowDragStart(node: OrgNodeInfo, e: DragEvent) {
-  if (!props.canManage || busy.value || editingId.value === node.id) {
+  if (!canManageNode(node.id) || busy.value || editingId.value === node.id) {
     e.preventDefault()
     return
   }
@@ -228,7 +235,7 @@ function onRowDragStart(node: OrgNodeInfo, e: DragEvent) {
 function onRowDragOver(node: OrgNodeInfo, e: DragEvent) {
   // 拖的是右侧成员：整行都是落点，直接把成员挂到该节点
   if (isMemberDrag(e)) {
-    if (!props.canManage) return
+    if (!canManageNode(node.id)) return
     e.preventDefault()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
     dropHint.value = null
@@ -427,7 +434,7 @@ function onRowLeave(el: Element) {
         <div v-else class="ot-item">
           <div
             class="ot-row"
-            :draggable="canManage && editingId !== row.node.id"
+            :draggable="canManageNode(row.node.id) && editingId !== row.node.id"
             :class="{
               editing: editingId === row.node.id,
               on: selectedId === row.node.id,
@@ -483,8 +490,11 @@ function onRowLeave(el: Element) {
 
             <template v-else>
               <span class="ot-name">{{ row.node.name }}</span>
+              <span v-if="row.node.leadName" class="ot-lead">
+                <Crown :size="10" />{{ row.node.leadName }}
+              </span>
               <span class="ot-count">{{ row.node.memberCount }} 人</span>
-              <div v-if="canManage" class="ot-actions">
+              <div v-if="canManageNode(row.node.id)" class="ot-actions">
                 <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
                   <Plus :size="12" />
                 </button>
@@ -492,7 +502,7 @@ function onRowLeave(el: Element) {
                   <Pencil :size="12" />
                 </button>
                 <button
-                  v-if="row.node.parentId"
+                  v-if="row.node.parentId && (canManage || !row.node.leadUserId)"
                   type="button"
                   v-tooltip="'删除节点（成员与授权会迁移到上级）'"
                   @click="confirmingId = row.node.id"
@@ -768,6 +778,24 @@ function onRowLeave(el: Element) {
 }
 .ot-count {
   margin-left: auto;
+}
+/* 部门负责人：树上一眼看出这层归谁管 */
+.ot-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  max-width: 96px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+  font-size: 10.5px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ot-actions {
   display: inline-flex;

@@ -63,6 +63,47 @@ export function effectiveSpaceRole(userId: string, spaceId: string): SpaceRole |
   return best
 }
 
+/** 用户在该空间负责的节点路径（lead_user_id = user） */
+export function leadPathsOf(userId: string, spaceId: string): string[] {
+  const rows = db
+    .prepare('SELECT path FROM org_nodes WHERE space_id = ? AND lead_user_id = ?')
+    .all(spaceId, userId) as { path: string }[]
+  return rows.map((r) => r.path)
+}
+
+/** 节点是否落在某个节点的子树里（含自身） */
+function within(ancestorPath: string, nodePath: string): boolean {
+  return nodePath.startsWith(ancestorPath)
+}
+
+/** 该用户是不是这个节点（或它的某个上级）的负责人 */
+export function leadCoversNode(userId: string, spaceId: string, nodeId: string): boolean {
+  if (!nodeId) return false
+  return !!db
+    .prepare(
+      `SELECT 1 FROM org_nodes n
+       JOIN org_nodes led ON led.space_id = n.space_id AND led.lead_user_id = ?
+       WHERE n.id = ? AND n.space_id = ?
+         AND substr(n.path, 1, length(led.path)) = led.path
+       LIMIT 1`,
+    )
+    .get(userId, nodeId, spaceId)
+}
+
+/** 成员是否在该用户负责的部门里（按成员挂载的节点判断） */
+export function leadCoversMember(userId: string, spaceId: string, memberUserId: string): boolean {
+  return !!db
+    .prepare(
+      `SELECT 1 FROM space_members m
+       JOIN org_nodes n ON n.id = m.org_node_id AND n.space_id = m.space_id
+       JOIN org_nodes led ON led.space_id = m.space_id AND led.lead_user_id = ?
+       WHERE m.space_id = ? AND m.user_id = ? AND m.status = 'active'
+         AND substr(n.path, 1, length(led.path)) = led.path
+       LIMIT 1`,
+    )
+    .get(userId, spaceId, memberUserId)
+}
+
 interface OrgContext {
   ids: Set<string>
   paths: string[]
@@ -110,6 +151,44 @@ function pageChain(spaceId: string, pageId: string): string[] {
   return out
 }
 
+/**
+ * 这份文档是不是「本部门的文档」：授权给了负责范围里的某个部门，或某个部门成员。
+ * 只认非 deny 的显式授权——没被授权过的文档还是按空间基线走。
+ */
+function resourceInLeadScope(
+  spaceId: string,
+  resourceType: ResourceType,
+  resourceId: string,
+  ledPaths: string[],
+): boolean {
+  const chain = resourceType === 'page' ? pageChain(spaceId, resourceId) : [resourceId]
+  for (const rid of chain) {
+    const entries = db
+      .prepare(
+        'SELECT subject_type, subject_id FROM acl_entries WHERE space_id = ? AND resource_type = ? AND resource_id = ? AND deny = 0',
+      )
+      .all(spaceId, resourceType, rid) as { subject_type: string; subject_id: string }[]
+    for (const e of entries) {
+      if (e.subject_type === 'org_node') {
+        const node = db.prepare('SELECT path FROM org_nodes WHERE id = ? AND space_id = ?').get(e.subject_id, spaceId) as
+          | { path: string }
+          | undefined
+        if (node && ledPaths.some((p) => within(p, node.path))) return true
+      } else if (e.subject_type === 'user') {
+        const member = db
+          .prepare(
+            `SELECT n.path FROM space_members m
+             JOIN org_nodes n ON n.id = m.org_node_id AND n.space_id = m.space_id
+             WHERE m.space_id = ? AND m.user_id = ? AND m.status = 'active'`,
+          )
+          .get(spaceId, e.subject_id) as { path: string } | undefined
+        if (member && ledPaths.some((p) => within(p, member.path))) return true
+      }
+    }
+  }
+  return false
+}
+
 export function effectiveResourceRole(
   userId: string,
   spaceId: string,
@@ -127,6 +206,9 @@ export function effectiveResourceRole(
   }
   const ctx: OrgContext =
     space.type === 'team' ? userOrgContext(userId, spaceId) : { ids: new Set(), paths: [] }
+  // 负责人视同挂在自己负责的节点上：该节点（及其上级）的授权同样覆盖到他
+  const ledPaths = space.type === 'team' ? leadPathsOf(userId, spaceId) : []
+  if (ledPaths.length) ctx.paths.push(...ledPaths)
 
   const chain = resourceType === 'page' ? pageChain(spaceId, resourceId) : [resourceId]
   let best: SpaceRole | null = null
@@ -145,6 +227,11 @@ export function effectiveResourceRole(
       if (e.deny) return null
       if (!best || roleRank(e.role) > roleRank(best)) best = e.role as SpaceRole
     }
+  }
+
+  // 授权给「我负责的部门」的文档：负责人拥有完全控制（可编辑、可改授权）
+  if (base && base !== 'guest' && ledPaths.length && resourceInLeadScope(spaceId, resourceType, resourceId, ledPaths)) {
+    return 'admin'
   }
 
   if (best) return best

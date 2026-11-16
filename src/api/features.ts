@@ -383,6 +383,8 @@ export interface OrgNodeInfo {
   depth: number
   sort: number
   leadUserId: string | null
+  /** 负责人姓名，后端直接给，省得前端再对一遍成员表 */
+  leadName?: string | null
   memberCount: number
 }
 
@@ -423,6 +425,13 @@ export const updateOrgNode = (
 export const deleteOrgNode = (spaceId: string, nodeId: string) =>
   api('DELETE', `/spaces/${spaceId}/org/nodes/${nodeId}`)
 /** 拖拽移动：换上级 + 指定插到哪个兄弟节点之前（不传 beforeId 表示排到末尾） */
+/** 任命 / 撤销部门负责人（null 表示撤销） */
+export const setNodeLead = (spaceId: string, nodeId: string, userId: string | null) =>
+  api<{ ok: boolean; leadUserId: string | null; leadName: string | null }>(
+    'PUT',
+    `/spaces/${spaceId}/org/nodes/${nodeId}/lead`,
+    { userId },
+  )
 export const moveOrgNode = (
   spaceId: string,
   nodeId: string,
