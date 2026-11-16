@@ -228,6 +228,7 @@ ginkgoNotes/
 
 | 74 | 组织节点去掉「部门 / 团队」类型 | ✅ | 组织树只有一种节点，不再分部门/团队：新增行删掉右侧类型下拉（只剩 输入 + 确定 + 取消，三者 26px 等高）、按钮改「+ 根级节点」、占位改「根级/下级名称」；前端 `OrgNodeInfo` 去掉 `type`，`createOrgNode` body 只传 `{ name, parentId }`，`TeamsView` 邀请区文案改「不指定节点」、CSV 示例改「节点路径」。后端 `org_nodes` 建表不再带 `type` 列，老库启动时 `ALTER TABLE org_nodes DROP COLUMN type` 幂等删除（数据保留）；创建/导入/列表全部不再读写该列，导入 JSON 里遗留的 `type` 键被忽略而不是报错 |
 | 75 | 团队页一屏布局 + 卡片内部滚动 | ✅ | 团队页不再出现整页竖向滚动条：宽屏（≥1180px）下 `.tm-page` 直接 `overflow: hidden`，`.tm-main` 变成 `display:flex; flex-direction:column; min-height:0`，`.tm-cols` 用 `grid-template-rows: minmax(0,1fr)` 吃掉剩余高度，左右两张卡各自 `min-height:0` 后由 body 内部滚动；两个 body 统一挂 `.tm-scroll`（`overflow-y:auto` + `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`），滚动条宽度实测 `offsetWidth === clientWidth`；成员卡的「添加成员」区固定在卡片底部不随列表滚动，`max-height:min(52vh,520px)` 在宽屏下取消改由 flex 高度决定；左侧空间导航 `max-height:100%` 后同样内部滚动且隐藏滚动条。窄屏（<1180px）仍保留整页滚动，避免上下堆叠时把两张卡压扁 |
+| 76 | 成员跟随组织节点筛选 + 分组 | ✅ | 团队页右侧成员列表改为跟随左侧组织架构：点组织节点即选中（行高亮 + 左侧主色竖条），成员卡顶部显示从根到该节点的路径 chip（点 × 清除）与「包含下级」开关；关掉时只列该节点**直属**成员（平铺），打开时把整个子树的成员按节点分组，分组标题是「全员 › 两点十分动漫 › 部门 › 设计中心」这样的完整路径（末级加粗）+ 该组人数，按树的深度优先顺序排列，滚长列表时标题吸顶（每组包一层 `.tm-group`，吸顶只在组内生效，避免多个标题叠在一起）；成员卡头同时显示筛选后人数与「共 N 人」；没挂节点的成员算「全员」（根节点）成员——`GET /spaces/:id/org` 的 `memberCount` 也按这个口径统计，否则树上永远 0 人但列表里有人；选中节点被删/换空间时自动回落到全部成员，同空间内的改角色、邀请等刷新不会丢掉已选节点 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -433,10 +434,11 @@ ginkgoNotes/
 | 68 | `fd6ba66` | fix(ui) | 下拉面板 teleport 到 body，修分享成员权限下拉被列表裁切 |
 | 69 | `3826d4a` | refactor(org) | 组织节点去掉部门/团队类型字段（含表列与导入兼容） |
 | 70 | `d03fa75` | fix(ui) | 团队页改为一屏布局，卡片各自内部滚动且滚动条宽度为 0 |
+| 71 | `f701678` | feat(team) | 成员列表跟随组织节点筛选，支持包含下级并按组织路径分组 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `d03fa75` — fix(ui): 团队页改为一屏布局，卡片各自内部滚动且滚动条宽度为 0
+**HEAD**: `f701678` — feat(team): 成员列表跟随组织节点筛选，支持包含下级并按组织路径分组
 
 ---
 
@@ -553,6 +555,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 37. **`overflow-y: auto` 的列表会同时「裁掉」和「撑开」绝对定位下拉**：`.pf-list` 这类滚动容器里放 `position: absolute` 的浮层，面板超出底部会被裁掉（只露出一条边），而且它计入 scrollable overflow，哪怕只有一行成员也会冒出滚动条、把行宽压掉十几像素，表现为「下拉框和滚动条挤在一起」。下拉/菜单一律 `Teleport to="body"` + `position: fixed`，坐标由触发器 `getBoundingClientRect()` 算（下方不够就上翻、右对齐后夹进视口）。两个连带问题：①判断「点击在面板外」必须把 teleport 出去的 panel 也纳入判断，否则 mousedown 先关面板、click 落不到选项上；②滚动/窗口缩放要重算位置，否则浮层会与触发器脱开。
 38. **删字段只改建表语句是不够的**：`CREATE TABLE IF NOT EXISTS` 对已存在的表直接跳过，老库照样留着旧列，于是「代码里已经不读、库里还在」。删列必须在建表之后补一条幂等迁移：`ALTER TABLE org_nodes DROP COLUMN type` 放在 try/catch 里（列不存在、或 SQLite < 3.35 不支持 DROP COLUMN 时静默跳过），实测 node:sqlite 可以正常删列且保留数据。另外导入类的接口要能容忍旧数据里的多余键（如 JSON 节点上的 `type`），只取认识的字段，别因为多一个键就整体报错。
 39. **「不要外部滚动条、改内部滚动」不是加一条 `overflow: auto` 就行**：滚动容器的祖先必须有一条**确定高度**的链，否则内部滚动会把父级撑高、外部滚动条照旧出现。可行写法是 `.page{height:100%;overflow:hidden}` → `.main{display:flex;flex-direction:column;min-height:0}` → `.cols{flex:1 1 auto;min-height:0;grid-template-rows:minmax(0,1fr)}` → `.card{min-height:0}` → `.body{overflow-y:auto}`，每一层都要 `min-height:0`（flex/grid 子项默认 `min-height:auto`，不加就永远不收缩）。顺便：`grid-template-rows` 默认的 auto 行会被内容撑到 max-content，必须显式写 `minmax(0,1fr)` 才能让卡片高度受容器约束。隐藏滚动条用 `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`，实测 `offsetWidth === clientWidth`；再补 `overscroll-behavior:contain`，滚到底不会把滚动传给外层。窄屏上下堆叠时不要套这套高度链，否则两张卡会被压扁，用 `@media (min-width: 1180px)` 限定即可。
+40. **`position: sticky` 的多个兄弟元素会一起粘在同一个位置**：给一组卡片都写 `sticky; top:0`，滚动时几个表头会叠成一坨（后一个盖前一个）。正确做法是把每个分组包一层容器（`.tm-group`），表头粘在各自容器内——容器底边到了，表头就被推走，这才是「分组吸顶」。另外滚动容器自身的 `padding-top` 会让吸顶元素停在 padding 内侧，露出 8px 的正文细条（视觉上像被切了一半的行），顶部留白要改挂到第一个分组上（`.tm-group:first-child{padding-top:8px}`），并把 body 的 `padding-top` 归零。
+41. **「没归属」的数据要在计数和筛选里用同一套口径**：`space_members.org_node_id` 可以是空串（邀请时没指定节点），如果 `memberCount` 按空串分组、前端筛选又按「空串 = 根节点」处理，就会出现树上 0 人、点开却有人。两端统一成「空 = 全员（根节点）」后，数字和列表才对得上。
 
 ---
 
