@@ -119,7 +119,8 @@ ginkgoNotes/
 │   │   ├── CoverPicker.vue     # 页面封面（渐变预设 / 图库 / 上传 / Unsplash / AI）
 │   │   ├── PinLock.vue         # PIN 锁屏层
 │   │   ├── GnSelect.vue        # 项目自定义下拉（空间不足自动上翻）
-│   │   └── GnCascader.vue      # 项目自定义级联下拉（多列选树形层级，贴边自动向左/向上长）
+│   │   ├── GnCascader.vue      # 项目自定义级联下拉（多列选树形层级，贴边自动向左/向上长）
+│   │   └── GnConfirm.vue       # 项目自定义二次确认弹窗（danger 默认聚焦取消）
 │   ├── views/           # 路由级页面
 │   │   ├── NoteView.vue        # 主笔记页（最重文件，布局偏好 50-90%、字号、字体、疏密）
 │   │   ├── HomeView.vue        # 首页仪表盘
@@ -127,7 +128,7 @@ ginkgoNotes/
 │   │   ├── AuthView.vue        # 登录/注册/2FA/GitHub OAuth
 │   │   ├── ProfileView.vue     # 个人中心
 │   │   ├── SharedNoteView.vue  # 共享给我（只读/可编辑按角色）
-│   │   ├── FriendsView.vue     # 好友中心（搜索 / 申请 / 好友列表 / 行内确认）
+│   │   ├── FriendsView.vue     # 好友中心（搜索 / 申请 / 好友列表 / 右侧栏按需占位）
 │   │   ├── TeamsView.vue       # 团队空间（左侧竖向空间导航 + 组织树 + 成员）
 │   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录、只读代码块工具栏）
 │   │   └── settings/           # 10 个设置子组件
@@ -242,6 +243,10 @@ ginkgoNotes/
 | 87 | 再点一次选中的节点 = 取消选择 | ✅ | `onRowClick` 改成 `emit('select', props.selectedId === node.id ? '' : node.id)`，团队页 `scopeId = ''` 后回到「未选节点」态：成员卡整块收起（第 83 项的过渡）、标题回到团队总人数。原先只有范围 chip 上的 × 能清除，用户习惯「点一下选中、再点一下取消」 |
 | 88 | 好友页无待处理申请时不显示申请卡 | ✅ | 右侧「好友申请」原来常驻，没有申请时只剩一张写着「暂无待处理申请。」的空卡占着 330px。「已发出的申请」早就是 `v-if` 判断长度的，这里补齐：`v-if="incomingCount"`，连标题和徽标一起收掉；有申请时行为不变 |
 | 89 | 成员行右键菜单（含「添加好友」并判断好友状态） | ✅ | 成员行挂 `@contextmenu.prevent` 弹 `position: fixed` 的 `.tm-menu`（复用 `.gn-pop` 淡入 + `--gn-shadow-lg`），菜单头显示姓名 + `@用户名`。条目：①**添加好友** —— 依据 `listFriends()` / `listFriendsRequests(sent)` 的集合判定四种状态：`none` 可点、`friend` 显示「已是好友」（Check 图标、灰色不可点）、`pending` 显示「已发送好友申请」（Clock）、自己显示「这是你自己」；发送成功后本地同时更新集合并 flash 提示，再右键就是「已发送」。②**设为 / 取消部门负责人**（`canManageMember` 且非 owner 且挂了节点）。③**移出团队**（红色）—— 不直接执行，而是展开行内二次确认，避免右键一滑就把人踢了。菜单位置按 186×210 估算夹进视口，`mousedown`（`.tm-menu` 外）/ `scroll` / `resize` / `Esc` 均关闭 |
+| 90 | 好友页右侧栏按需占位，好友卡铺满整行 | ✅ | 右侧「好友申请 / 已发出的申请」两卡都是空的时候，`aside` 仍旧占着 330px，好友卡被压到 670px、右侧一片空白。改成 `hasSide = incoming.length || outgoing.length`：`<aside v-if="hasSide">` 直接不渲染，`.fr-cols` 第二列在「330px ↔ 0px」之间过渡、`gap` 同步从 16px 归零，好友卡随之长到 1016px（实测采样 670/330 → 763/240 → 938/74 → 1015/0.8 → 1016/0，是真在插值）。窄屏（<900px）本来就是上下堆叠，`aside` 直接排到下面 |
+| 91 | 任命 / 移出只保留右键入口 | ✅ | 成员行右侧原来并排着「皇冠（任命负责人）」和「×（移出）」两个图标，鼠标扫过很容易误点，而且这两个操作都不可逆。现在行内一个按钮都不留（只保留角色下拉 / 完全控制徽标 / 负责人徽标），两个动作全部收进右键菜单。为了让入口能被发现，成员卡表头右侧加了一枚 `右键成员可管理` 的小胶囊提示（窄列时自动省略号让位给人数）。单人民部门的负责人项在菜单里是灰的「负责人（自动指定）」，不给点 |
+| 92 | 二次确认改为统一弹窗 `GnConfirm` | ✅ | 原先移出走行内「确认移出？/ 确认 / 取消」，右键一滑、列表一滚就把二次确认带跑了，而且确认按钮离鼠标落点太近。新增系统公用组件 `src/components/GnConfirm.vue`：`{ open, title, message, detail, confirmText, cancelText, tone, icon }`，Teleport 到 body 的居中弹窗 + 遮罩，`Esc` / 点遮罩即取消，`tone=danger` 时**默认聚焦「取消」**（误按回车不会执行）。三种文案：①普通任命（primary）；②负责人已存在（danger，标题直接写「XX 已经有负责人了」，说明会顶掉谁）；③移出团队 / 撤销负责人（danger，列出会失去什么）。移出时若本人是负责人，还会补一句「该部门负责人会按规则重新指定」 |
+| 93 | 换负责人后把消息推给部门成员 | ✅ | 原来只 `notify` 新负责人一条。部门成员真正需要知道的是「以后这个部门找谁」，所以 `notifyLeadChanged()` 按 `path` 前缀取出该节点**整棵子树**的在职成员（含下级部门、不含上级），逐个推「X 成为「部门」负责人」，被替换的人另收一条「你不再是「部门」负责人」。撤销任命（`userId: null`）也会通知原负责人。实测：前端组、市场部在同一棵树下，只通知子树内的人 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -344,7 +349,7 @@ ginkgoNotes/
 | POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
 | GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
 | POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin |
-| PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销）；部门只剩 1 人时由服务端自动任命 | 空间 admin 或该节点负责人 |
+| PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销）；部门只剩 1 人时由服务端自动任命；变更后把通知推给该节点整棵子树的成员，被替换者另收一条 | 空间 admin 或该节点负责人 |
 | PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出 | 空间 admin |
 | GET / POST | `/spaces/:id/invites` | 邀请列表 / 发起邀请 | 空间 admin |
 | GET | `/spaces/invites` | 我收到的团队邀请 | 会话/令牌 |
@@ -459,10 +464,11 @@ ginkgoNotes/
 | 78 | `2da5d72` | feat(team) | 单人民部门自动出负责人；负责人行显示完全控制而非角色下拉 |
 | 79 | `fa856f2` | feat(ui) | 未选部门收起成员卡（列宽过渡）、组织树人数对齐、人员选择器改组织层级联 |
 | 80 | `4b222c2` | feat(ui) | 组织树操作按钮前置、再点取消选中、好友申请空态隐藏、成员右键菜单（添加好友） |
+| 81 | `22a8bc0` | feat(ui) | 好友页右侧栏按需占位、任命/移出收敛到右键+弹窗确认、换负责人通知部门成员 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `4b222c2` — feat(ui): 组织树操作按钮前置、再点取消选中、好友申请空态隐藏、成员右键菜单
+**HEAD**: `22a8bc0` — feat(ui): 好友页按需让位、任命/移出收敛到右键+弹窗确认，换负责人通知部门成员
 
 ---
 
@@ -568,7 +574,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 26. **ACL 计算顺序不能改**：deny 优先短路 → 资源显式 → 组织节点继承（用 `org_nodes.path` 前缀判断祖先）→ 空间基线；`owner/admin` 不会被降级成 editor。新增资源类型时必须同时接入 `assertAccess`，否则团队 viewer 可以绕过接口写入。
 27. **页面写入只有带 `baseVersion` 才走 CAS**：不传时仍走 `putPage`（版本递增但属于后写覆盖）；前端 `savePage/saveContent` 传 `cur.version`，冲突会抛 `VersionConflictError`，`NoteView` 捕获后转只读。不要在服务端把 409 吞成 200。
 28. **presence 按空间隔离**：SSE `/presence/page/:id/stream` 用当前 `X-Space` 校验；`/shared` 个人笔记共享页不在该空间上下文，所以暂时没有在线头像。编辑占用由 `doc_locks` 维护，心跳同时续租，30s 定时清理过期锁。
-29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、**树形层级选择一律 `GnCascader`**（多列级联，别再拿缩进拼树）、确认用行内二次确认而非 `window.confirm`、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
+29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、**树形层级选择一律 `GnCascader`**（多列级联，别再拿缩进拼树）、危险操作走 `GnConfirm` 弹窗（别用 `window.confirm`，也别塞行内确认）、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
 30. **祖先 `overflow: hidden` 会裁掉绝对定位下拉**：团队页为了圆角给 `.tm-card` 加了 `overflow: hidden`，结果 `PeoplePicker` 的 `.pp-panel`（`position: absolute`）整块被裁掉，点开只看到 tab 栏一行、列表消失。弹层/下拉的祖先链上不能有 `overflow: hidden`；圆角改由内部区块自己写 `border-radius: 0 0 11px 11px` 实现。
 31. **「容器 click 开合 + 内部 input focus 开合」会双切换**：点输入框时先触发 `focus` 打开，紧接着 click 冒泡到容器又关掉，表现为「点了没反应」。容器的 click 处理必须先 `if (e.target.closest('input, .pp-chip')) return`，只让 focus 负责打开。
 32. **`flex-direction: column` 时 `align-items: flex-start` 会让子项缩成内容宽度**：团队页窄屏断点切成纵向堆叠后，卡片只剩约 490px 宽、右侧大片空白。切纵向必须同时把 `align-items` 改成 `stretch`。另外 `PeoplePicker` 根节点带 `flex: 1 1 220px`（为横向排布设计），放进纵向容器会被撑成 220px 高，需要在容器里 `:deep(.pp) { flex: 0 0 auto }` 收掉。
@@ -600,6 +606,10 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 56. **行内操作放在哪，决定鼠标要跑多远**：树/表的操作按钮习惯性钉在最右侧，行一宽（组织树这张卡能到 800px）就变成「看一眼左边、点一下右边」的往返运动，上下扫十几行尤其累。把按钮排到**主文本后面**、用 `justify-content: flex-start` 靠左对齐，鼠标基本不用横移。配套两条：固定宽度常驻占位（`flex: 0 0 68px` + `opacity: 0`）保证悬停时名称不跳；主文本要给 `min-width: 0 + text-overflow: ellipsis`，否则长名称会把固定宽度的占位挤出去，反而更乱。别把按钮放到名称「左边」——缩进已经承担了层级表达，左侧再插 68px 会让每个名字都像被缩进了一级。
 57. **「选中」要有两个出口**：只给一个「清除筛选」的小 × 按钮是不够的，用户的第一反应是再点一下刚才那一行。点击处理写成 `emit('select', selectedId === id ? '' : id)`，让「空 id」成为合法的取消信号，父组件把它翻译成「回到未选态」即可（这里正好复用了成员卡收起的过渡）。注意不要在按钮/输入框上触发这个切换——`closest('button, input, a, textarea')` 的判断要在切换逻辑之前。
 58. **右键菜单本身不能把行挡住，也别在自己身上触发新的 actionability 检查**：菜单用 `position: fixed` + 估算尺寸夹进视口（`Math.min(clientX, innerWidth - W - 8)`），否则贴右下角右键会溢出屏幕。关闭时机一共四个：`mousedown` 落在 `.tm-menu` 之外、`scroll`（捕获阶段，成员列表自己滚也要关）、`resize`、`Esc`。「添加好友」这类不可重复的动作，先用 `listFriends()` / `listFriendsRequests(sent)` 的集合判成 `friend / pending / none` 再渲染，比事后报 409 体验好得多；危险项（移出团队）不要就地执行，转交给行内二次确认。
+
+59. **`minmax(0, 0px)` 不是可插值的长度**：做「右侧栏收起、左边铺满」的过渡时，`grid-template-columns` 从 `minmax(0,1fr) 330px` 变到 `minmax(0,1fr) minmax(0,0px)`，Chrome 只把 `gap` 插值了，第二列会中途一次性跳到 0（采样能看到 674/330 → 1013/0 的断档）。两端都写成定长（`330px` ↔ `0px`）才会真正逐帧插值。另外 0 宽轨道里的内容照旧会画出来，`overflow: hidden` 不能省。
+60. **不可逆的操作，行内一个按钮都别留**：并排的小图标（皇冠、×）看着方便，但鼠标扫过、触摸板误触都能点到，而且它们和「拖拽句柄」挤在同一行。把入口收进右键菜单 + 中心弹窗确认，误触概率能从「偶尔发生」降到「几乎为零」。代价是发现性：必须配一句显式提示（表头的小胶囊），否则用户根本不知道有右键菜单。弹窗里 `tone=danger` 时把焦点放在「取消」上，回车不会替你确认。
+61. **通知要按「谁真的关心」发，不要按「谁在团队里」发**：换部门负责人给全团队 47 人各推一条，等于制造 47 条噪音；只给新负责人推一条，部门成员又不知道以后找谁。判据是 `substr(n.path, 1, length(?)) = ?`（path 前缀），取该节点整棵子树的在职成员；被替换的人额外补一条「你不再是负责人」，否则他还以为自己在管。
 
 
 ---
