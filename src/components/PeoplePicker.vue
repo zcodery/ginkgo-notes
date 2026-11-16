@@ -21,8 +21,17 @@ const props = withDefaults(
     spaces?: { id: string; name: string }[]
     placeholder?: string
     disabled?: boolean
+    /** 已在团队里、不能再选的人（用户名）；命中的不列表也不计数 */
+    exclude?: string[]
   }>(),
-  { source: 'both', spaceId: '', spaces: () => [], placeholder: '选择成员', disabled: false },
+  {
+    source: 'both',
+    spaceId: '',
+    spaces: () => [],
+    placeholder: '选择成员',
+    disabled: false,
+    exclude: () => [],
+  },
 )
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: string[]): void }>()
@@ -50,6 +59,9 @@ const activeTab = ref(FRIENDS_TAB)
 
 const selected = computed(() => props.modelValue ?? [])
 
+/** 已在团队里的成员：列表里直接不出现，避免选了才报「已是团队成员」 */
+const excludeSet = computed(() => new Set(props.exclude ?? []))
+
 /** 参与 tab 的团队空间；未显式传入 spaces 时退化为「当前团队」单 tab */
 const teamSpaces = computed<{ id: string; name: string }[]>(() =>
   props.spaces.length
@@ -59,14 +71,16 @@ const teamSpaces = computed<{ id: string; name: string }[]>(() =>
       : [],
 )
 
+const visible = (rows: Person[]) => rows.filter((p) => !excludeSet.value.has(p.username))
+
 const tabs = computed(() => {
   const out: { key: string; label: string; count: number }[] = []
   if (props.source !== 'team') {
-    out.push({ key: FRIENDS_TAB, label: '好友', count: friends.value.length })
+    out.push({ key: FRIENDS_TAB, label: '好友', count: visible(friends.value).length })
   }
   if (props.source !== 'friends') {
     for (const s of teamSpaces.value) {
-      out.push({ key: s.id, label: s.name, count: membersBySpace.value[s.id]?.length ?? 0 })
+      out.push({ key: s.id, label: s.name, count: visible(membersBySpace.value[s.id] ?? []).length })
     }
   }
   return out
@@ -87,21 +101,27 @@ function matches(p: Person): boolean {
 }
 
 /** 只渲染当前 tab 的成员，团队再多也不用来回滚动 */
-const currentList = computed<Person[]>(() => {
-  const rows =
-    activeTab.value === FRIENDS_TAB ? friends.value : (membersBySpace.value[activeTab.value] ?? [])
-  return rows.filter(matches)
-})
+const currentRows = computed<Person[]>(() =>
+  activeTab.value === FRIENDS_TAB ? friends.value : (membersBySpace.value[activeTab.value] ?? []),
+)
+
+const currentList = computed<Person[]>(() => visible(currentRows.value).filter(matches))
+
+/** 候选池里全是已有成员：提示去「新建成员」，而不是说「暂无成员」 */
+const allAlreadyIn = computed(
+  () => currentRows.value.length > 0 && !visible(currentRows.value).length,
+)
 
 const currentTabLabel = computed(
   () => tabs.value.find((t) => t.key === activeTab.value)?.label ?? '成员',
 )
 
-const emptyText = computed(() =>
-  activeTab.value === FRIENDS_TAB
+const emptyText = computed(() => {
+  if (allAlreadyIn.value) return '这些人已在团队里，新人请用「新建成员」'
+  return activeTab.value === FRIENDS_TAB
     ? '还没有好友，可前往「好友」页添加'
-    : `「${currentTabLabel.value}」暂无成员`,
-)
+    : `「${currentTabLabel.value}」暂无成员`
+})
 
 function toPerson(v: FriendInfo | SpaceMemberInfo): Person {
   return { id: v.id, username: v.username, name: v.name, avatar: v.avatar }

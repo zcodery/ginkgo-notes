@@ -38,6 +38,8 @@ const current = ref<SpaceInfo | null>(null)
 const nodes = ref<OrgNodeInfo[]>([])
 const members = ref<SpaceMemberInfo[]>([])
 const pending = ref<{ id: string; invitee: SpaceMemberInfo | null; role: string; orgNodeId: string }[]>([])
+/** 邀请候选里要排除的人：已经在团队里的成员 */
+const memberUsernames = computed(() => members.value.map((m) => m.username))
 const loading = ref(true)
 const busy = ref(false)
 const err = ref('')
@@ -107,6 +109,11 @@ async function load(space: SpaceInfo) {
   const org = await getSpaceOrg(space.id)
   nodes.value = org.nodes
   members.value = org.members
+  // 已在团队里的人不能再「邀请加入」，候选里直接剔掉，顺手清掉已选中的
+  const inTeam = new Set(org.members.map((m) => m.username))
+  if (inviteDraft.value.usernames.some((u) => inTeam.has(u))) {
+    inviteDraft.value.usernames = inviteDraft.value.usernames.filter((u) => !inTeam.has(u))
+  }
   pending.value = canManage.value ? await listSpaceInvites(space.id) : []
   resolveScope()
 }
@@ -638,7 +645,7 @@ onBeforeUnmount(() => {
                     </button>
                   </div>
                   <span class="tm-invite-tip">
-                    {{ inviteMode === 'create' ? '账号与初始密码都是手机号' : '从好友或团队成员里选' }}
+                    {{ inviteMode === 'create' ? '账号与初始密码都是手机号' : '已在团队的人不会出现在候选里' }}
                   </span>
                 </div>
 
@@ -648,6 +655,7 @@ onBeforeUnmount(() => {
                     source="both"
                     :space-id="current.id"
                     :spaces="teamSpaces"
+                    :exclude="memberUsernames"
                     placeholder="选择好友或团队成员"
                   />
                   <div class="tm-inline tm-wrap">
