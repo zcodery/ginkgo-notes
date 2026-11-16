@@ -43,11 +43,13 @@ function toggle(id: string) {
     : [...collapsed.value, id]
 }
 
-interface TreeRow {
-  node: OrgNodeInfo
-  depth: number
-  hasChildren: boolean
-}
+/**
+ * 扁平化的可见行。除了真实节点，还会在「正在新建下级」的父节点后面
+ * 插一条 add 行——这样输入框就长在那一行的下面、缩进一格，一眼看出是谁的下级。
+ */
+type TreeRow =
+  | { kind: 'node'; key: string; node: OrgNodeInfo; depth: number; hasChildren: boolean }
+  | { kind: 'add'; key: string; depth: number; parentId: string | null }
 
 const rows = computed<TreeRow[]>(() => {
   const byParent = new Map<string, OrgNodeInfo[]>()
@@ -63,11 +65,19 @@ const rows = computed<TreeRow[]>(() => {
   const walk = (parentId: string, depth: number) => {
     for (const n of byParent.get(parentId) ?? []) {
       const children = byParent.get(n.id) ?? []
-      out.push({ node: n, depth, hasChildren: children.length > 0 })
+      out.push({ kind: 'node', key: n.id, node: n, depth, hasChildren: children.length > 0 })
+      // 新建下级：紧跟在父节点下面，缩进一格
+      if (addingParentId.value === n.id) {
+        out.push({ kind: 'add', key: `add-${n.id}`, depth: depth + 1, parentId: n.id })
+      }
       if (!isCollapsed(n.id)) walk(n.id, depth + 1)
     }
   }
   walk('', 0)
+  // 根级新增：贴在整棵树末尾，不缩进
+  if (addingParentId.value === null) {
+    out.push({ kind: 'add', key: 'add-root', depth: 0, parentId: null })
+  }
   return out
 })
 
@@ -115,7 +125,20 @@ function startAdd(parentId: string | null) {
   addingParentId.value = parentId
   addingName.value = ''
   addingType.value = 'department'
+  // 父节点收着的话先展开，否则新行会挂在一个看不见的层级下
+  if (parentId) collapsed.value = collapsed.value.filter((x) => x !== parentId)
 }
+
+// 新建行出现时自动聚焦
+const addInput = ref<HTMLInputElement | null>(null)
+function setAddInput(el: unknown) {
+  addInput.value = (el as HTMLInputElement) ?? null
+}
+watch(addingParentId, async (v) => {
+  if (v === undefined) return
+  await nextTick()
+  addInput.value?.focus()
+})
 
 function saveAdd() {
   const name = addingName.value.trim()
@@ -195,91 +218,103 @@ function doDelete(id: string) {
       </button>
     </div>
 
-    <div v-if="addingParentId !== undefined" class="ot-inline ot-add">
-      <input
-        v-model="addingName"
-        :placeholder="addingParentId ? '下级部门 / 团队名称' : '根级部门名称'"
-        @keydown.enter="saveAdd"
-      />
-      <GnSelect v-model="addingType" :options="typeOptions" :min-width="78" />
-      <button type="button" class="ot-btn primary" :disabled="busy || !addingName.trim()" @click="saveAdd">
-        确定
-      </button>
-      <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
-    </div>
-
     <div class="ot-list">
-      <div v-for="row in rows" :key="row.node.id" class="ot-item">
+      <template v-for="row in rows" :key="row.key">
+        <!-- 新建下级：长在父节点下面、缩进一格 -->
         <div
-          class="ot-row"
-          :class="{ editing: editingId === row.node.id }"
+          v-if="row.kind === 'add'"
+          class="ot-row ot-add-row"
           :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }"
         >
-          <button
-            type="button"
-            class="ot-toggle"
-            :class="{ ghost: !row.hasChildren }"
-            :disabled="!row.hasChildren"
-            @click="toggle(row.node.id)"
-          >
-            <ChevronRight :size="13" :class="{ open: row.hasChildren && !isCollapsed(row.node.id) }" />
+          <span class="ot-branch" :class="{ plain: !row.parentId }" aria-hidden="true" />
+          <input
+            :ref="setAddInput"
+            v-model="addingName"
+            class="ot-add-input"
+            :placeholder="row.parentId ? '下级部门 / 团队名称' : '根级部门名称'"
+            :disabled="busy"
+            @keydown.enter.prevent="saveAdd"
+            @keydown.esc.prevent="resetInline"
+          />
+          <GnSelect v-model="addingType" :options="typeOptions" :min-width="68" />
+          <button type="button" class="ot-btn primary sm" :disabled="busy || !addingName.trim()" @click="saveAdd">
+            确定
           </button>
+          <button type="button" class="ot-btn sm" :disabled="busy" @click="resetInline">取消</button>
+        </div>
 
-          <!-- 重命名：标题就地变成输入框，不再在下方多占一行 -->
-          <template v-if="editingId === row.node.id">
-            <input
-              :ref="setRenameInput"
-              v-model="editingName"
-              class="ot-name-input"
-              :disabled="busy"
-              @keydown.enter.prevent="saveRename"
-              @keydown.esc.prevent="resetInline"
-              @blur="onRenameBlur"
-            />
+        <div v-else class="ot-item">
+          <div
+            class="ot-row"
+            :class="{ editing: editingId === row.node.id }"
+            :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }"
+          >
             <button
               type="button"
-              class="ot-btn primary sm"
-              :disabled="busy || !editingName.trim()"
-              @mousedown.prevent
-              @click="saveRename"
+              class="ot-toggle"
+              :class="{ ghost: !row.hasChildren }"
+              :disabled="!row.hasChildren"
+              @click="toggle(row.node.id)"
             >
-              保存
+              <ChevronRight :size="13" :class="{ open: row.hasChildren && !isCollapsed(row.node.id) }" />
             </button>
-            <button type="button" class="ot-btn sm" :disabled="busy" @mousedown.prevent @click="resetInline">
-              取消
-            </button>
-          </template>
 
-          <template v-else>
-            <span class="ot-name">{{ row.node.name }}</span>
-            <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
-            <span class="ot-count">{{ row.node.memberCount }} 人</span>
-            <div v-if="canManage" class="ot-actions">
-              <button type="button" title="新增下级" @click="startAdd(row.node.id)">
-                <Plus :size="12" />
+            <!-- 重命名：标题就地变成输入框，不再在下方多占一行 -->
+            <template v-if="editingId === row.node.id">
+              <input
+                :ref="setRenameInput"
+                v-model="editingName"
+                class="ot-name-input"
+                :disabled="busy"
+                @keydown.enter.prevent="saveRename"
+                @keydown.esc.prevent="resetInline"
+                @blur="onRenameBlur"
+              />
+              <button
+                type="button"
+                class="ot-btn primary sm"
+                :disabled="busy || !editingName.trim()"
+                @mousedown.prevent
+                @click="saveRename"
+              >
+                保存
               </button>
-              <button type="button" title="重命名" @click="startRename(row.node)">
-                <Pencil :size="12" />
+              <button type="button" class="ot-btn sm" :disabled="busy" @mousedown.prevent @click="resetInline">
+                取消
               </button>
-              <button v-if="row.node.parentId" type="button" title="删除" @click="confirmingId = row.node.id">
-                <Trash2 :size="12" />
-              </button>
-            </div>
-          </template>
-        </div>
+            </template>
 
-        <div v-if="movingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
-          <GnSelect v-model="moveTarget" :options="moveOptions" :min-width="150" />
-          <button type="button" class="ot-btn primary" :disabled="busy" @click="saveMove">移动</button>
-          <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
-        </div>
+            <template v-else>
+              <span class="ot-name">{{ row.node.name }}</span>
+              <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
+              <span class="ot-count">{{ row.node.memberCount }} 人</span>
+              <div v-if="canManage" class="ot-actions">
+                <button type="button" title="新增下级" @click="startAdd(row.node.id)">
+                  <Plus :size="12" />
+                </button>
+                <button type="button" title="重命名" @click="startRename(row.node)">
+                  <Pencil :size="12" />
+                </button>
+                <button v-if="row.node.parentId" type="button" title="删除" @click="confirmingId = row.node.id">
+                  <Trash2 :size="12" />
+                </button>
+              </div>
+            </template>
+          </div>
 
-        <div v-if="confirmingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
-          <span class="ot-warn">删除「{{ row.node.name }}」？成员与授权会迁移到上级节点。</span>
-          <button type="button" class="ot-btn danger" :disabled="busy" @click="doDelete(row.node.id)">确认删除</button>
-          <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
+          <div v-if="movingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
+            <GnSelect v-model="moveTarget" :options="moveOptions" :min-width="150" />
+            <button type="button" class="ot-btn primary" :disabled="busy" @click="saveMove">移动</button>
+            <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
+          </div>
+
+          <div v-if="confirmingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
+            <span class="ot-warn">删除「{{ row.node.name }}」？成员与授权会迁移到上级节点。</span>
+            <button type="button" class="ot-btn danger" :disabled="busy" @click="doDelete(row.node.id)">确认删除</button>
+            <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
+          </div>
         </div>
-      </div>
+      </template>
     </div>
 
     <p v-if="err" class="ot-err">{{ err }}</p>
@@ -337,6 +372,37 @@ function doDelete(id: string) {
 }
 .ot-row:hover {
   background: var(--gn-bg-soft);
+}
+/* 新建下级的行：缩进与子节点名称对齐，前面画一段「└」虚线，明确它属于上一级 */
+.ot-add-row,
+.ot-add-row:hover {
+  background: var(--gn-bg-soft);
+}
+.ot-branch {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 22px;
+  border-left: 1px dashed var(--gn-border-strong);
+  border-bottom: 1px dashed var(--gn-border-strong);
+  border-bottom-left-radius: 7px;
+}
+/* 根级新增没有上级，只留占位对齐 */
+.ot-branch.plain {
+  border-color: transparent;
+}
+.ot-add-input {
+  flex: 1 1 auto;
+  min-width: 88px;
+  max-width: 230px;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--gn-accent);
+  border-radius: 5px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
 }
 .ot-toggle {
   display: inline-flex;
