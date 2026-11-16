@@ -229,7 +229,7 @@ ginkgoNotes/
 | 74 | 组织节点去掉「部门 / 团队」类型 | ✅ | 组织树只有一种节点，不再分部门/团队：新增行删掉右侧类型下拉（只剩 输入 + 确定 + 取消，三者 26px 等高）、按钮改「+ 根级节点」、占位改「根级/下级名称」；前端 `OrgNodeInfo` 去掉 `type`，`createOrgNode` body 只传 `{ name, parentId }`，`TeamsView` 邀请区文案改「不指定节点」、CSV 示例改「节点路径」。后端 `org_nodes` 建表不再带 `type` 列，老库启动时 `ALTER TABLE org_nodes DROP COLUMN type` 幂等删除（数据保留）；创建/导入/列表全部不再读写该列，导入 JSON 里遗留的 `type` 键被忽略而不是报错 |
 | 75 | 团队页一屏布局 + 卡片内部滚动 | ✅ | 团队页不再出现整页竖向滚动条：宽屏（≥1180px）下 `.tm-page` 直接 `overflow: hidden`，`.tm-main` 变成 `display:flex; flex-direction:column; min-height:0`，`.tm-cols` 用 `grid-template-rows: minmax(0,1fr)` 吃掉剩余高度，左右两张卡各自 `min-height:0` 后由 body 内部滚动；两个 body 统一挂 `.tm-scroll`（`overflow-y:auto` + `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`），滚动条宽度实测 `offsetWidth === clientWidth`；成员卡的「添加成员」区固定在卡片底部不随列表滚动，`max-height:min(52vh,520px)` 在宽屏下取消改由 flex 高度决定；左侧空间导航 `max-height:100%` 后同样内部滚动且隐藏滚动条。窄屏（<1180px）仍保留整页滚动，避免上下堆叠时把两张卡压扁 |
 | 77 | 成员拖到节点改归属 / 代注册成员 / 下拉反色修复 | ✅ | ①**拖拽分配部门**：右侧成员行可拖（`draggable`，左侧常驻 10px ⠿ 手柄、悬停显形；`dataTransfer` 用私有 MIME `application/x-ginkgo-member`，与节点排序的 `text/plain` 隔离），组织树每一行都能接落点——命中行实线描边 + 主色文字、底部条带提示「松手 → 把成员挂到该节点下」，松手调 `PATCH /spaces/:id/members/:userId` 改 `org_node_id` 并刷新（树上人数 + 分组同步）；落到成员已所在节点直接跳过，拖拽源在右侧所以高亮由 document 的 `dragend/drop` 兜底清理。②**代注册成员**：邀请区改为「邀请加入 / 新建成员」两个 tab，新建只需手机号（11 位校验）+ 姓名（可选）+ 角色 + 部门，接口 `POST /spaces/:id/members/register` 建号（账号=手机号、初始密码=手机号）并直接入组，手机号已有账号时不重复建号而是直接加入（返回 `created: false`），成功后底部胶囊提示「初始密码为手机号」；选中某个部门后再切 tab 会自动预填目标节点。③**下拉反色**：`GnSelect` 的「上翻」布尔量原来叫 `invert`，正好撞上 Tailwind 的 `.invert{filter:invert(100%)}`，面板在视口底部上翻时整块反色（亮色主题下变成纯黑底 + 淡紫字），改名 `dropUp` / `.is-up`。④顺手修掉两处底层问题：`select()` 内部再调 `run()` 会撞上 busy 保护直接返回，导致改角色/邀请/导入后列表不刷新（拆出 `load()` 供 run 内部调用）；`--gn-bg-soft` 从未定义过，行悬停与内嵌面板一直取到透明，补上亮/暗两套值 |
-
+| 78 | 邀请候选剔除已在团队的人 | ✅ | `PeoplePicker` 新增 `exclude?: string[]`：命中的用户名在「好友」「团队」两个 tab 里都不再列出，tab 上的计数一并扣掉（数据仍保留在缓存里，`exclude` 变小会自动复活，不依赖重新请求）；候选全被过滤时空态改说「这些人已在团队里，新人请用「新建成员」」，而不是「暂无成员」。`TeamsView` 把当前成员用户名传进去，`load()` 时顺带把已入队的名字从 `inviteDraft.usernames` 里清掉——原来选完点邀请才逐个报「已是团队成员」，来回一趟才知道 |
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
@@ -438,10 +438,11 @@ ginkgoNotes/
 | 71 | `f701678` | feat(team) | 成员列表跟随组织节点筛选，支持包含下级并按组织路径分组 |
 | 72 | `0d3247e` | fix(ui) | 下拉上翻时不带 invert 类名，避免被 Tailwind 工具类整块反色 |
 | 73 | `1764642` | feat(team) | 成员可拖到组织节点改归属 + 按手机号代注册成员 |
+| 74 | `8771b34` | feat(team) | 邀请候选自动剔除已在团队的人 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `1764642` — feat(team): 成员可拖到组织节点改归属，支持按手机号代注册成员
+**HEAD**: `8771b34` — feat(team): 邀请候选自动剔除已在团队的人
 
 ---
 
