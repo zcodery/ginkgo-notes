@@ -162,6 +162,102 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_grants_grantee ON page_grants(grantee_id);
   CREATE INDEX IF NOT EXISTS idx_grants_owner ON page_grants(owner);
+
+  -- ============ 空间与协作域 ============
+  -- 空间：personal（id 复用用户 id）/ team / public
+  CREATE TABLE IF NOT EXISTS spaces (
+    id            TEXT PRIMARY KEY,
+    type          TEXT NOT NULL DEFAULT 'team',
+    name          TEXT NOT NULL,
+    owner_user_id TEXT,
+    created_at    INTEGER NOT NULL
+  );
+
+  -- 组织节点：部门 / 团队，path 为物化路径，便于子树查询
+  CREATE TABLE IF NOT EXISTS org_nodes (
+    id           TEXT PRIMARY KEY,
+    space_id     TEXT NOT NULL,
+    parent_id    TEXT,
+    type         TEXT NOT NULL DEFAULT 'department',
+    name         TEXT NOT NULL,
+    path         TEXT NOT NULL,
+    depth        INTEGER NOT NULL DEFAULT 0,
+    sort         INTEGER NOT NULL DEFAULT 0,
+    lead_user_id TEXT,
+    created_at   INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_org_space ON org_nodes(space_id, parent_id);
+  CREATE INDEX IF NOT EXISTS idx_org_path ON org_nodes(space_id, path);
+
+  -- 空间成员：一个用户可挂多个节点，有效角色取最高
+  CREATE TABLE IF NOT EXISTS space_members (
+    space_id    TEXT NOT NULL,
+    user_id     TEXT NOT NULL,
+    org_node_id TEXT NOT NULL DEFAULT '',
+    role        TEXT NOT NULL DEFAULT 'viewer',
+    status      TEXT NOT NULL DEFAULT 'active',
+    joined_at   INTEGER NOT NULL,
+    PRIMARY KEY (space_id, user_id, org_node_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_members_user ON space_members(user_id, status);
+
+  -- 统一 ACL：resource_type + resource_id，主体可为 user / org_node / space
+  CREATE TABLE IF NOT EXISTS acl_entries (
+    id            TEXT PRIMARY KEY,
+    space_id      TEXT NOT NULL,
+    resource_type TEXT NOT NULL,
+    resource_id   TEXT NOT NULL,
+    subject_type  TEXT NOT NULL,
+    subject_id    TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'viewer',
+    deny          INTEGER NOT NULL DEFAULT 0,
+    inherit       INTEGER NOT NULL DEFAULT 1,
+    created_by    TEXT,
+    created_at    INTEGER NOT NULL,
+    UNIQUE (resource_type, resource_id, subject_type, subject_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_acl_resource ON acl_entries(resource_type, resource_id);
+  CREATE INDEX IF NOT EXISTS idx_acl_subject ON acl_entries(subject_type, subject_id);
+
+  -- 好友：low/high 归一化，避免双向重复
+  CREATE TABLE IF NOT EXISTS friendships (
+    id           TEXT PRIMARY KEY,
+    user_low     TEXT NOT NULL,
+    user_high    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    requested_by TEXT NOT NULL,
+    message      TEXT,
+    created_at   INTEGER NOT NULL,
+    updated_at   INTEGER NOT NULL,
+    UNIQUE (user_low, user_high)
+  );
+  CREATE INDEX IF NOT EXISTS idx_friend_low ON friendships(user_low, status);
+  CREATE INDEX IF NOT EXISTS idx_friend_high ON friendships(user_high, status);
+
+  -- 空间邀请
+  CREATE TABLE IF NOT EXISTS invites (
+    id          TEXT PRIMARY KEY,
+    space_id    TEXT NOT NULL,
+    org_node_id TEXT NOT NULL DEFAULT '',
+    role        TEXT NOT NULL DEFAULT 'viewer',
+    invitee_id  TEXT,
+    token       TEXT UNIQUE,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    expires_at  INTEGER,
+    created_by  TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_invites_space ON invites(space_id, status);
+  CREATE INDEX IF NOT EXISTS idx_invites_user ON invites(invitee_id, status);
+
+  -- 编辑占用（soft lock）
+  CREATE TABLE IF NOT EXISTS doc_locks (
+    page_id    TEXT PRIMARY KEY,
+    space_id   TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
 `)
 
 // 旧库补列：昵称、头像、联系方式、PIN、两步验证、第三方账号
@@ -182,6 +278,27 @@ for (const col of [
     /* 列已存在 */
   }
 }
+
+// 乐观锁版本：物理表存 JSON，版本必须独立成列才能做原子 CAS
+try {
+  db.exec('ALTER TABLE pages ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
+} catch {
+  /* 列已存在 */
+}
+
+/* ---------------- 协作域存量迁移（幂等） ---------------- */
+
+db.exec(`
+  INSERT OR IGNORE INTO spaces (id, type, name, owner_user_id, created_at)
+  SELECT id, 'personal', COALESCE(NULLIF(nickname, ''), username), id, created_at FROM users;
+
+  INSERT OR IGNORE INTO acl_entries
+    (id, space_id, resource_type, resource_id, subject_type, subject_id, role, deny, inherit, created_by, created_at)
+  SELECT id, owner, 'page', page_id, 'user', grantee_id,
+         CASE role WHEN 'editor' THEN 'editor' ELSE 'viewer' END,
+         0, 1, owner, created_at
+  FROM page_grants;
+`)
 
 let txDepth = 0
 
@@ -248,6 +365,13 @@ export type DocTable = 'pages' | 'databases' | 'db_rows'
 export type Doc = { id: string; [k: string]: unknown }
 
 export function listDocs<T = Doc>(table: DocTable, owner: string): T[] {
+  if (table === 'pages') {
+    const rows = db.prepare('SELECT data, version FROM pages WHERE owner = ?').all(owner) as {
+      data: string
+      version: number
+    }[]
+    return rows.map((r) => ({ ...(JSON.parse(r.data) as Doc), version: r.version }) as T)
+  }
   const rows = db.prepare(`SELECT data FROM ${table} WHERE owner = ?`).all(owner) as {
     data: string
   }[]
@@ -262,6 +386,12 @@ export function getDocOwner(table: DocTable, id: string): string | null {
 }
 
 export function getDoc<T = Doc>(table: DocTable, id: string, owner: string): T | null {
+  if (table === 'pages') {
+    const row = db.prepare('SELECT data, version FROM pages WHERE id = ? AND owner = ?').get(id, owner) as
+      | { data: string; version: number }
+      | undefined
+    return row ? ({ ...(JSON.parse(row.data) as Doc), version: row.version } as T) : null
+  }
   const row = db.prepare(`SELECT data FROM ${table} WHERE id = ? AND owner = ?`).get(id, owner) as
     | { data: string }
     | undefined
@@ -272,11 +402,36 @@ function updatedAtOf(doc: Doc): number {
   return typeof doc.updatedAt === 'number' ? doc.updatedAt : Date.now()
 }
 
-export function putPage(owner: string, page: Doc, sourceId: string | null = null): void {
+export function putPage(owner: string, page: Doc, sourceId: string | null = null): number {
+  const current = db.prepare('SELECT version FROM pages WHERE id = ?').get(page.id) as
+    | { version: number }
+    | undefined
+  const version = (current?.version ?? 0) + 1
+  const data = JSON.stringify({ ...page, version })
   db.prepare(
-    `INSERT INTO pages (id, owner, source_id, data, updated_at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`,
-  ).run(page.id, owner, sourceId, JSON.stringify(page), updatedAtOf(page))
+    `INSERT INTO pages (id, owner, source_id, data, updated_at, version) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at, version = excluded.version`,
+  ).run(page.id, owner, sourceId, data, updatedAtOf(page), version)
+  return version
+}
+
+/** 带基础版本的原子写入；版本不匹配返回 false（应转 409） */
+export function putPageVersioned(owner: string, page: Doc, baseVersion: number): boolean {
+  const nextData = JSON.stringify({ ...page, version: baseVersion + 1 })
+  const info = db
+    .prepare(
+      `UPDATE pages SET data = ?, updated_at = ?, version = version + 1
+       WHERE id = ? AND owner = ? AND version = ?`,
+    )
+    .run(nextData, updatedAtOf(page), page.id, owner, baseVersion)
+  return Number(info.changes) > 0
+}
+
+export function pageVersion(owner: string, id: string): number | null {
+  const row = db.prepare('SELECT version FROM pages WHERE id = ? AND owner = ?').get(id, owner) as
+    | { version: number }
+    | undefined
+  return row?.version ?? null
 }
 
 export function putDatabase(owner: string, database: Doc): void {
@@ -302,4 +457,56 @@ export function listRowsOf(dbId: string, owner: string): Doc[] {
     .prepare('SELECT data FROM db_rows WHERE db_id = ? AND owner = ?')
     .all(dbId, owner) as { data: string }[]
   return rows.map((r) => JSON.parse(r.data) as Doc)
+}
+/* ---------------- 空间 ---------------- */
+
+export type SpaceType = 'personal' | 'team' | 'public'
+
+export interface SpaceRow {
+  id: string
+  type: SpaceType
+  name: string
+  owner_user_id: string | null
+  created_at: number
+}
+
+export function getSpace(id: string): SpaceRow | null {
+  return (
+    (db.prepare('SELECT * FROM spaces WHERE id = ?').get(id) as SpaceRow | undefined) ?? null
+  )
+}
+
+/** 个人空间 id 直接复用用户 id，保证存量数据 owner=user.id 天然落位 */
+export function ensurePersonalSpace(userId: string, name?: string): SpaceRow {
+  const existing = getSpace(userId)
+  if (existing) return existing
+  const row: SpaceRow = {
+    id: userId,
+    type: 'personal',
+    name: name && name.trim() ? name.trim().slice(0, 60) : '个人空间',
+    owner_user_id: userId,
+    created_at: Date.now(),
+  }
+  db.prepare('INSERT OR IGNORE INTO spaces (id, type, name, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    row.id,
+    row.type,
+    row.name,
+    row.owner_user_id,
+    row.created_at,
+  )
+  return getSpace(userId) ?? row
+}
+
+/** 当前用户可见的空间：个人空间 + 已加入的团队空间 */
+export function listSpacesFor(userId: string): SpaceRow[] {
+  ensurePersonalSpace(userId)
+  return db
+    .prepare(
+      `SELECT DISTINCT s.* FROM spaces s
+       LEFT JOIN space_members m ON m.space_id = s.id AND m.user_id = ? AND m.status = 'active'
+       WHERE s.type = 'personal' AND s.id = ?
+          OR (s.type = 'team' AND m.user_id IS NOT NULL)
+       ORDER BY s.type = 'personal' DESC, s.created_at`,
+    )
+    .all(userId, userId) as unknown as SpaceRow[]
 }

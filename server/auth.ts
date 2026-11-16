@@ -2,9 +2,12 @@ import { createHash, createHmac, randomBytes, randomUUID, scryptSync, timingSafe
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { NextFunction, Request, Response } from 'express'
-import { DATA_DIR, PUBLIC_OWNER, db } from './db.ts'
+import { DATA_DIR, PUBLIC_OWNER, db, ensurePersonalSpace, getSpace } from './db.ts'
 
 export type Role = 'user' | 'admin'
+
+/** 空间内角色，强度：owner > admin > editor > viewer > guest */
+export type SpaceRole = 'owner' | 'admin' | 'editor' | 'viewer' | 'guest'
 
 export interface UserRow {
   id: string
@@ -39,8 +42,13 @@ export interface PublicUser {
 
 export interface AuthLocals {
   user: PublicUser
-  /** 本次请求读写的数据归属：用户 id，或管理员切到公共空间时的 PUBLIC_OWNER */
+  /** 本次请求读写的数据归属：个人空间 id / 团队空间 id / PUBLIC_OWNER */
   owner: string
+  /** 空间 id（与 owner 相同，显式命名便于业务校验） */
+  spaceId: string
+  spaceType: 'personal' | 'team' | 'public'
+  /** 当前用户在该空间的有效角色 */
+  spaceRole: SpaceRole
   /** 当前登录会话；旧令牌或 API Token 调用时为 null */
   sid: string | null
   /** 通过个人访问令牌调用时的令牌信息 */
@@ -377,12 +385,58 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
     return
   }
   const user = toPublicUser(row)
-  const wantsPublic = req.headers['x-space'] === 'public'
-  if (wantsPublic && user.role !== 'admin') {
-    res.status(403).json({ error: '只有管理员可以编辑公共原稿' })
-    return
+
+  // 解析本次请求的空间：默认个人空间；X-Space 可指定团队空间或公共原稿
+  const rawSpace = req.headers['x-space']
+  const wanted = typeof rawSpace === 'string' ? rawSpace.trim() : ''
+  let owner: string
+  let spaceType: AuthLocals['spaceType']
+  let spaceRole: SpaceRole
+
+  if (wanted === 'public') {
+    if (user.role !== 'admin') {
+      res.status(403).json({ error: '只有管理员可以编辑公共原稿' })
+      return
+    }
+    owner = PUBLIC_OWNER
+    spaceType = 'public'
+    spaceRole = 'owner'
+  } else if (wanted && wanted !== user.id) {
+    const space = getSpace(wanted)
+    if (!space || space.type !== 'team') {
+      res.status(403).json({ error: '空间不存在或不可访问' })
+      return
+    }
+    if (space.owner_user_id === user.id) {
+      owner = space.id
+      spaceType = 'team'
+      spaceRole = 'owner'
+    } else {
+      const member = db
+        .prepare(
+          `SELECT role FROM space_members
+           WHERE space_id = ? AND user_id = ? AND status = 'active'
+           ORDER BY CASE role
+             WHEN 'admin' THEN 4 WHEN 'editor' THEN 3 WHEN 'viewer' THEN 2 ELSE 1 END DESC
+           LIMIT 1`,
+        )
+        .get(wanted, user.id) as { role: SpaceRole } | undefined
+      if (!member) {
+        res.status(403).json({ error: '你不是该空间的成员' })
+        return
+      }
+      owner = space.id
+      spaceType = 'team'
+      spaceRole = member.role
+    }
+  } else {
+    ensurePersonalSpace(user.id, user.nickname ?? user.username)
+    owner = user.id
+    spaceType = 'personal'
+    spaceRole = 'owner'
   }
-  const locals: AuthLocals = { user, owner: wantsPublic ? PUBLIC_OWNER : user.id, sid, apiToken }
+
+  const locals: AuthLocals = { user, owner, spaceId: owner, spaceType, spaceRole, sid, apiToken }
   res.locals.auth = locals
   next()
 }
