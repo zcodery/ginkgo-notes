@@ -230,6 +230,8 @@ ginkgoNotes/
 | 75 | 团队页一屏布局 + 卡片内部滚动 | ✅ | 团队页不再出现整页竖向滚动条：宽屏（≥1180px）下 `.tm-page` 直接 `overflow: hidden`，`.tm-main` 变成 `display:flex; flex-direction:column; min-height:0`，`.tm-cols` 用 `grid-template-rows: minmax(0,1fr)` 吃掉剩余高度，左右两张卡各自 `min-height:0` 后由 body 内部滚动；两个 body 统一挂 `.tm-scroll`（`overflow-y:auto` + `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`），滚动条宽度实测 `offsetWidth === clientWidth`；成员卡的「添加成员」区固定在卡片底部不随列表滚动，`max-height:min(52vh,520px)` 在宽屏下取消改由 flex 高度决定；左侧空间导航 `max-height:100%` 后同样内部滚动且隐藏滚动条。窄屏（<1180px）仍保留整页滚动，避免上下堆叠时把两张卡压扁 |
 | 77 | 成员拖到节点改归属 / 代注册成员 / 下拉反色修复 | ✅ | ①**拖拽分配部门**：右侧成员行可拖（`draggable`，左侧常驻 10px ⠿ 手柄、悬停显形；`dataTransfer` 用私有 MIME `application/x-ginkgo-member`，与节点排序的 `text/plain` 隔离），组织树每一行都能接落点——命中行实线描边 + 主色文字、底部条带提示「松手 → 把成员挂到该节点下」，松手调 `PATCH /spaces/:id/members/:userId` 改 `org_node_id` 并刷新（树上人数 + 分组同步）；落到成员已所在节点直接跳过，拖拽源在右侧所以高亮由 document 的 `dragend/drop` 兜底清理。②**代注册成员**：邀请区改为「邀请加入 / 新建成员」两个 tab，新建只需手机号（11 位校验）+ 姓名（可选）+ 角色 + 部门，接口 `POST /spaces/:id/members/register` 建号（账号=手机号、初始密码=手机号）并直接入组，手机号已有账号时不重复建号而是直接加入（返回 `created: false`），成功后底部胶囊提示「初始密码为手机号」；选中某个部门后再切 tab 会自动预填目标节点。③**下拉反色**：`GnSelect` 的「上翻」布尔量原来叫 `invert`，正好撞上 Tailwind 的 `.invert{filter:invert(100%)}`，面板在视口底部上翻时整块反色（亮色主题下变成纯黑底 + 淡紫字），改名 `dropUp` / `.is-up`。④顺手修掉两处底层问题：`select()` 内部再调 `run()` 会撞上 busy 保护直接返回，导致改角色/邀请/导入后列表不刷新（拆出 `load()` 供 run 内部调用）；`--gn-bg-soft` 从未定义过，行悬停与内嵌面板一直取到透明，补上亮/暗两套值 |
 | 78 | 邀请候选剔除已在团队的人 | ✅ | `PeoplePicker` 新增 `exclude?: string[]`：命中的用户名在「好友」「团队」两个 tab 里都不再列出，tab 上的计数一并扣掉（数据仍保留在缓存里，`exclude` 变小会自动复活，不依赖重新请求）；候选全被过滤时空态改说「这些人已在团队里，新人请用「新建成员」」，而不是「暂无成员」。`TeamsView` 把当前成员用户名传进去，`load()` 时顺带把已入队的名字从 `inviteDraft.usernames` 里清掉——原来选完点邀请才逐个报「已是团队成员」，来回一趟才知道 |
+| 79 | 部门负责人（管理一个部门及整棵子树） | ✅ | `org_nodes.lead_user_id` 从「有列没用」变成真权限：成员行加皇冠按钮任命/撤销，组织树在节点名字后面显示负责人。后端新增 `PUT /spaces/:id/org/nodes/:nodeId/lead`（`{ userId }`，null 撤销；只能任命本部门或上级部门的人），并抽出 `manageScope()` 统一判定——owner/admin 管全空间，负责人凭节点 `path` 前缀管自己那棵子树：**成员**增删改 / 邀请 / 代注册 / **下级部门**增删改名移动都放行，但角色封顶 `editor`（不能自己造管理员）、不能把人调出部门、不能建根级节点、不能删自己负责的部门；**文档**侧在 `effectiveResourceRole` 里把负责的节点并进用户上下文，授权给本部门（或本部门成员）的文档直接给 `admin`——可改正文也能改授权，撤销后立刻回落到空间基线。一致性：成员调离原部门或移出团队时自动清空 `lead_user_id`；一个节点只有一个负责人，换人时提示会替代谁 |
+
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
@@ -331,6 +333,7 @@ ginkgoNotes/
 | POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
 | GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
 | POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin |
+| PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销） | 空间 admin 或该节点负责人 |
 | PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出 | 空间 admin |
 | GET / POST | `/spaces/:id/invites` | 邀请列表 / 发起邀请 | 空间 admin |
 | GET | `/spaces/invites` | 我收到的团队邀请 | 会话/令牌 |
@@ -439,10 +442,11 @@ ginkgoNotes/
 | 72 | `0d3247e` | fix(ui) | 下拉上翻时不带 invert 类名，避免被 Tailwind 工具类整块反色 |
 | 73 | `1764642` | feat(team) | 成员可拖到组织节点改归属 + 按手机号代注册成员 |
 | 74 | `8771b34` | feat(team) | 邀请候选自动剔除已在团队的人 |
+| 75 | `45fb712` | feat(team) | 部门负责人：管本部门及整棵子树的人员、下级部门与部门文档 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `8771b34` — feat(team): 邀请候选自动剔除已在团队的人
+**HEAD**: `45fb712` — feat(team): 部门负责人 —— 任命某人管一个部门及整棵子树
 
 ---
 
@@ -563,6 +567,9 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 41. **「没归属」的数据要在计数和筛选里用同一套口径**：`space_members.org_node_id` 可以是空串（邀请时没指定节点），如果 `memberCount` 按空串分组、前端筛选又按「空串 = 根节点」处理，就会出现树上 0 人、点开却有人。两端统一成「空 = 全员（根节点）」后，数字和列表才对得上。
 42. **自定义布尔类名别用 Tailwind 的工具类名**：`GnSelect` 用 `invert` 表示「向上展开」并绑成类名，而 Tailwind 里 `.invert{filter:invert(100%)}` 是内置工具类——面板只有贴着视口底部上翻时才会带上这个类，于是「靠底部打开的下拉整块反色」（亮色主题下纯黑底 + 淡紫字，逐通道反色：`#fff→#000`、`#eaf3ed→(21,12,18)`、强调色 `#2f6b4f→(208,148,176)`）。这类工具类名还有 `hidden/flex/grid/block/static/fixed/absolute/table/filter/blur/grayscale/truncate/underline/...`，布尔类名要么加前缀（`is-up`/`has-x`）要么带组件前缀。排查时如果发现「某个浮层颜色正好是主题色的逐通道反色」，先怀疑 `filter: invert()`，而不是主题变量没生效。
 43. **`run()` 的忙碌保护会吞掉它自己内部的刷新**：`select()` 里套 `run(async () => ...)`，而 `run` 开头 `if (busy) return`；在 `run(() => { await update(); await select() })` 里调 select 时 busy 还是 true，select 直接返回、界面拿旧数据（表现为「改完角色/邀请完成员没反应，要手动切空间才刷新」）。要把「取数」和「忙碌包装」拆开：内部刷新直接调不加保护的 `load()`，只有用户触发的入口才走 `select()`。同理任何 `run` 包装的公共方法都不要嵌套调用。
+44. **「部门负责人」不等于「空间管理员」**：负责人只在 `path` 前缀覆盖的子树里管事，角色封顶 `editor`——否则一个部门负责人能手把自己提成 admin，再反过来管整个空间。判断范围一律用节点 path 前缀（`substr(n.path,1,length(led.path)) = led.path`），不要用 parent_id 递归，移动子树后 path 会整体重写，前缀匹配天然跟着走。
+45. **授权给「部门」的文档要给负责人 `admin`，不是 `editor`**：`editor` 只能改正文，改共享设置需要 `admin`（`aclRouter.put` 卡的是 `roleRank >= admin`）。所以 `effectiveResourceRole` 里对「授权主体落在负责范围内」的资源直接返回 `admin`，同时保留显式 deny 优先。
+46. **负责人会随人走**：成员调离原部门（`org_node_id` 变了）或移出团队时必须清 `lead_user_id`，否则树上一直挂着离职负责人，而且这个人重新加入后会凭旧身份又拿到整个部门。清理条件写成「新节点 path 不以旧负责节点的 path 开头」即可，原地不动/平级调动不会误清。
 
 ---
 
