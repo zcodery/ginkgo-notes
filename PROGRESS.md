@@ -228,7 +228,7 @@ ginkgoNotes/
 
 | 74 | 组织节点去掉「部门 / 团队」类型 | ✅ | 组织树只有一种节点，不再分部门/团队：新增行删掉右侧类型下拉（只剩 输入 + 确定 + 取消，三者 26px 等高）、按钮改「+ 根级节点」、占位改「根级/下级名称」；前端 `OrgNodeInfo` 去掉 `type`，`createOrgNode` body 只传 `{ name, parentId }`，`TeamsView` 邀请区文案改「不指定节点」、CSV 示例改「节点路径」。后端 `org_nodes` 建表不再带 `type` 列，老库启动时 `ALTER TABLE org_nodes DROP COLUMN type` 幂等删除（数据保留）；创建/导入/列表全部不再读写该列，导入 JSON 里遗留的 `type` 键被忽略而不是报错 |
 | 75 | 团队页一屏布局 + 卡片内部滚动 | ✅ | 团队页不再出现整页竖向滚动条：宽屏（≥1180px）下 `.tm-page` 直接 `overflow: hidden`，`.tm-main` 变成 `display:flex; flex-direction:column; min-height:0`，`.tm-cols` 用 `grid-template-rows: minmax(0,1fr)` 吃掉剩余高度，左右两张卡各自 `min-height:0` 后由 body 内部滚动；两个 body 统一挂 `.tm-scroll`（`overflow-y:auto` + `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`），滚动条宽度实测 `offsetWidth === clientWidth`；成员卡的「添加成员」区固定在卡片底部不随列表滚动，`max-height:min(52vh,520px)` 在宽屏下取消改由 flex 高度决定；左侧空间导航 `max-height:100%` 后同样内部滚动且隐藏滚动条。窄屏（<1180px）仍保留整页滚动，避免上下堆叠时把两张卡压扁 |
-| 76 | 成员跟随组织节点筛选 + 分组 | ✅ | 团队页右侧成员列表改为跟随左侧组织架构：点组织节点即选中（行高亮 + 左侧主色竖条），成员卡顶部显示从根到该节点的路径 chip（点 × 清除）与「包含下级」开关；关掉时只列该节点**直属**成员（平铺），打开时把整个子树的成员按节点分组，分组标题是「全员 › 两点十分动漫 › 部门 › 设计中心」这样的完整路径（末级加粗）+ 该组人数，按树的深度优先顺序排列，滚长列表时标题吸顶（每组包一层 `.tm-group`，吸顶只在组内生效，避免多个标题叠在一起）；成员卡头同时显示筛选后人数与「共 N 人」；没挂节点的成员算「全员」（根节点）成员——`GET /spaces/:id/org` 的 `memberCount` 也按这个口径统计，否则树上永远 0 人但列表里有人；选中节点被删/换空间时自动回落到全部成员，同空间内的改角色、邀请等刷新不会丢掉已选节点 |
+| 77 | 成员拖到节点改归属 / 代注册成员 / 下拉反色修复 | ✅ | ①**拖拽分配部门**：右侧成员行可拖（`draggable`，左侧常驻 10px ⠿ 手柄、悬停显形；`dataTransfer` 用私有 MIME `application/x-ginkgo-member`，与节点排序的 `text/plain` 隔离），组织树每一行都能接落点——命中行实线描边 + 主色文字、底部条带提示「松手 → 把成员挂到该节点下」，松手调 `PATCH /spaces/:id/members/:userId` 改 `org_node_id` 并刷新（树上人数 + 分组同步）；落到成员已所在节点直接跳过，拖拽源在右侧所以高亮由 document 的 `dragend/drop` 兜底清理。②**代注册成员**：邀请区改为「邀请加入 / 新建成员」两个 tab，新建只需手机号（11 位校验）+ 姓名（可选）+ 角色 + 部门，接口 `POST /spaces/:id/members/register` 建号（账号=手机号、初始密码=手机号）并直接入组，手机号已有账号时不重复建号而是直接加入（返回 `created: false`），成功后底部胶囊提示「初始密码为手机号」；选中某个部门后再切 tab 会自动预填目标节点。③**下拉反色**：`GnSelect` 的「上翻」布尔量原来叫 `invert`，正好撞上 Tailwind 的 `.invert{filter:invert(100%)}`，面板在视口底部上翻时整块反色（亮色主题下变成纯黑底 + 淡紫字），改名 `dropUp` / `.is-up`。④顺手修掉两处底层问题：`select()` 内部再调 `run()` 会撞上 busy 保护直接返回，导致改角色/邀请/导入后列表不刷新（拆出 `load()` 供 run 内部调用）；`--gn-bg-soft` 从未定义过，行悬停与内嵌面板一直取到透明，补上亮/暗两套值 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -330,6 +330,7 @@ ginkgoNotes/
 | PATCH / DELETE | `/spaces/:id/org/nodes/:nodeId` | 移动/改名 / 删除（成员与授权迁回上级） | 空间 admin |
 | POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
 | GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
+| POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin |
 | PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出 | 空间 admin |
 | GET / POST | `/spaces/:id/invites` | 邀请列表 / 发起邀请 | 空间 admin |
 | GET | `/spaces/invites` | 我收到的团队邀请 | 会话/令牌 |
@@ -435,10 +436,12 @@ ginkgoNotes/
 | 69 | `3826d4a` | refactor(org) | 组织节点去掉部门/团队类型字段（含表列与导入兼容） |
 | 70 | `d03fa75` | fix(ui) | 团队页改为一屏布局，卡片各自内部滚动且滚动条宽度为 0 |
 | 71 | `f701678` | feat(team) | 成员列表跟随组织节点筛选，支持包含下级并按组织路径分组 |
+| 72 | `0d3247e` | fix(ui) | 下拉上翻时不带 invert 类名，避免被 Tailwind 工具类整块反色 |
+| 73 | `1764642` | feat(team) | 成员可拖到组织节点改归属 + 按手机号代注册成员 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `f701678` — feat(team): 成员列表跟随组织节点筛选，支持包含下级并按组织路径分组
+**HEAD**: `1764642` — feat(team): 成员可拖到组织节点改归属，支持按手机号代注册成员
 
 ---
 
@@ -557,6 +560,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 39. **「不要外部滚动条、改内部滚动」不是加一条 `overflow: auto` 就行**：滚动容器的祖先必须有一条**确定高度**的链，否则内部滚动会把父级撑高、外部滚动条照旧出现。可行写法是 `.page{height:100%;overflow:hidden}` → `.main{display:flex;flex-direction:column;min-height:0}` → `.cols{flex:1 1 auto;min-height:0;grid-template-rows:minmax(0,1fr)}` → `.card{min-height:0}` → `.body{overflow-y:auto}`，每一层都要 `min-height:0`（flex/grid 子项默认 `min-height:auto`，不加就永远不收缩）。顺便：`grid-template-rows` 默认的 auto 行会被内容撑到 max-content，必须显式写 `minmax(0,1fr)` 才能让卡片高度受容器约束。隐藏滚动条用 `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`，实测 `offsetWidth === clientWidth`；再补 `overscroll-behavior:contain`，滚到底不会把滚动传给外层。窄屏上下堆叠时不要套这套高度链，否则两张卡会被压扁，用 `@media (min-width: 1180px)` 限定即可。
 40. **`position: sticky` 的多个兄弟元素会一起粘在同一个位置**：给一组卡片都写 `sticky; top:0`，滚动时几个表头会叠成一坨（后一个盖前一个）。正确做法是把每个分组包一层容器（`.tm-group`），表头粘在各自容器内——容器底边到了，表头就被推走，这才是「分组吸顶」。另外滚动容器自身的 `padding-top` 会让吸顶元素停在 padding 内侧，露出 8px 的正文细条（视觉上像被切了一半的行），顶部留白要改挂到第一个分组上（`.tm-group:first-child{padding-top:8px}`），并把 body 的 `padding-top` 归零。
 41. **「没归属」的数据要在计数和筛选里用同一套口径**：`space_members.org_node_id` 可以是空串（邀请时没指定节点），如果 `memberCount` 按空串分组、前端筛选又按「空串 = 根节点」处理，就会出现树上 0 人、点开却有人。两端统一成「空 = 全员（根节点）」后，数字和列表才对得上。
+42. **自定义布尔类名别用 Tailwind 的工具类名**：`GnSelect` 用 `invert` 表示「向上展开」并绑成类名，而 Tailwind 里 `.invert{filter:invert(100%)}` 是内置工具类——面板只有贴着视口底部上翻时才会带上这个类，于是「靠底部打开的下拉整块反色」（亮色主题下纯黑底 + 淡紫字，逐通道反色：`#fff→#000`、`#eaf3ed→(21,12,18)`、强调色 `#2f6b4f→(208,148,176)`）。这类工具类名还有 `hidden/flex/grid/block/static/fixed/absolute/table/filter/blur/grayscale/truncate/underline/...`，布尔类名要么加前缀（`is-up`/`has-x`）要么带组件前缀。排查时如果发现「某个浮层颜色正好是主题色的逐通道反色」，先怀疑 `filter: invert()`，而不是主题变量没生效。
+43. **`run()` 的忙碌保护会吞掉它自己内部的刷新**：`select()` 里套 `run(async () => ...)`，而 `run` 开头 `if (busy) return`；在 `run(() => { await update(); await select() })` 里调 select 时 busy 还是 true，select 直接返回、界面拿旧数据（表现为「改完角色/邀请完成员没反应，要手动切空间才刷新」）。要把「取数」和「忙碌包装」拆开：内部刷新直接调不加保护的 `load()`，只有用户触发的入口才走 `select()`。同理任何 `run` 包装的公共方法都不要嵌套调用。
 
 ---
 
