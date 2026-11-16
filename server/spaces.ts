@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
 import { authOf, createUser, findUserById, findUserByName, updateUserProfile, type SpaceRole } from './auth.ts'
 import { effectiveSpaceRole, leadCoversNode, roleRank } from './acl.ts'
-import { db, getSpace, listSpacesFor, transaction, type SpaceRow } from './db.ts'
+import { db, getSetting, getSpace, listSpacesFor, setSetting, transaction, type SpaceRow } from './db.ts'
 import { HttpError, param, str } from './http.ts'
 import { notify } from './notify.ts'
 
@@ -116,6 +116,38 @@ function manageScope(spaceId: string, userId: string, nodeIds: (string | null | 
   throw new HttpError(403, '需要团队管理权限，或成为该部门的负责人')
 }
 
+/** 负责人至少要能改文档：访客身份拿不到部门文档的完全控制（见 acl.effectiveResourceRole） */
+function promoteLeadRole(spaceId: string, userId: string): void {
+  db.prepare("UPDATE space_members SET role = 'editor' WHERE space_id = ? AND user_id = ? AND role = 'guest'").run(
+    spaceId,
+    userId,
+  )
+}
+
+/**
+ * 一个部门只有一个人时，这个人默认就是负责人。
+ *
+ * 只在「这个节点还没人负责」时兜底，不覆盖手工任命（上级部门的人兼管新设下级部门是允许的）；
+ * 所以成员加入、调岗、移出、部门合并之后都要调一次，否则单人民部门会一直空着负责人。
+ */
+function syncSoleLead(spaceId: string, nodeIds: (string | null | undefined)[]): void {
+  const ids = [...new Set(nodeIds.filter((v): v is string => !!v))]
+  for (const nodeId of ids) {
+    const node = db
+      .prepare('SELECT lead_user_id FROM org_nodes WHERE id = ? AND space_id = ?')
+      .get(nodeId, spaceId) as { lead_user_id: string | null } | undefined
+    if (!node || node.lead_user_id) continue
+    const rows = db
+      .prepare(
+        "SELECT user_id FROM space_members WHERE space_id = ? AND org_node_id = ? AND status = 'active' LIMIT 2",
+      )
+      .all(spaceId, nodeId) as { user_id: string }[]
+    if (rows.length !== 1) continue
+    db.prepare('UPDATE org_nodes SET lead_user_id = ? WHERE id = ?').run(rows[0]!.user_id, nodeId)
+    promoteLeadRole(spaceId, rows[0]!.user_id)
+  }
+}
+
 function requireMember(spaceId: string, userId: string): SpaceRole {
   const role = effectiveSpaceRole(userId, spaceId)
   if (!role) throw new HttpError(404, '空间不存在或无权访问')
@@ -201,8 +233,9 @@ spacesRouter.post('/spaces/invites/:id/accept', (req, res) => {
       `INSERT INTO space_members (space_id, user_id, org_node_id, role, status, joined_at)
        VALUES (?, ?, ?, ?, 'active', ?)
        ON CONFLICT(space_id, user_id, org_node_id) DO UPDATE SET role = excluded.role, status = 'active'`,
-    ).run(inv.space_id, user.id, inv.org_node_id, inv.role, now)
+    )    .run(inv.space_id, user.id, inv.org_node_id, inv.role, now)
     db.prepare("UPDATE invites SET status = 'accepted' WHERE id = ?").run(inv.id)
+    syncSoleLead(inv.space_id, [inv.org_node_id])
   })
   const space = getSpace(inv.space_id)
   notify(inv.created_by, 'member', `${user.nickname || user.username} 加入了「${space?.name ?? '团队'}」`, null, '/teams')
@@ -466,6 +499,8 @@ spacesRouter.delete('/spaces/:id/org/nodes/:nodeId', (req, res) => {
       node.id,
     )
     db.prepare('DELETE FROM org_nodes WHERE id = ?').run(node.id)
+    // 成员并回上级后，上级可能刚好只剩一个人
+    syncSoleLead(space.id, [node.parent_id])
   })
   res.json({ ok: true })
 })
@@ -517,6 +552,7 @@ spacesRouter.put('/spaces/:id/org/nodes/:nodeId/lead', (req, res) => {
   }
 
   db.prepare('UPDATE org_nodes SET lead_user_id = ? WHERE id = ?').run(nextId, node.id)
+  promoteLeadRole(space.id, nextId)
   notify(nextId, 'member', `你成为「${node.name}」的负责人`, `可以管理该部门及下级的人员与文档`, '/teams')
   res.json({ ok: true, leadUserId: nextId, leadName: target.nickname || target.username })
 })
@@ -728,6 +764,13 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
         addMember(username, keyToNode.get(nodeKey) ?? root!.id, String(m.role ?? 'viewer'))
       }
     }
+
+    // 导入完整体过一遍：只有一个人的部门自动出负责人
+    const allNodes = db.prepare('SELECT id FROM org_nodes WHERE space_id = ?').all(space.id) as { id: string }[]
+    syncSoleLead(
+      space.id,
+      allNodes.map((n) => n.id),
+    )
   })
 
   res.json({ ok: true, ...result })
@@ -784,6 +827,7 @@ spacesRouter.post('/spaces/:id/members', (req, res) => {
      VALUES (?, ?, ?, ?, 'active', ?)
      ON CONFLICT(space_id, user_id, org_node_id) DO UPDATE SET role = excluded.role, status = 'active'`,
   ).run(space.id, target.id, orgNodeId, role, Date.now())
+  syncSoleLead(space.id, [orgNodeId])
   notify(target.id, 'member', `${user.nickname || user.username} 邀请你加入「${space.name}」`, `角色：${role}`, '/teams')
   res.status(201).json({ ...publicUser(target.id), role, orgNodeId })
 })
@@ -824,6 +868,7 @@ spacesRouter.post('/spaces/:id/members/register', (req, res) => {
      VALUES (?, ?, ?, ?, 'active', ?)
      ON CONFLICT(space_id, user_id, org_node_id) DO UPDATE SET role = excluded.role, status = 'active'`,
   ).run(space.id, target.id, orgNodeId, role, Date.now())
+  syncSoleLead(space.id, [orgNodeId])
 
   res.status(201).json({ ...publicUser(target.id), role, orgNodeId, created })
 })
@@ -873,6 +918,8 @@ spacesRouter.patch('/spaces/:id/members/:userId', (req, res) => {
       }
     }
   }
+  // 新部门可能只剩他一个；原部门走了他之后也可能只剩一个
+  if (orgNodeId !== undefined) syncSoleLead(space.id, [existing.org_node_id, orgNodeId])
   res.json({ ok: true, role })
 })
 
@@ -893,12 +940,17 @@ spacesRouter.delete('/spaces/:id/members/:userId', (req, res) => {
     throw new HttpError(400, '请让团队所有者移除你')
   }
   transaction(() => {
+    const led = db
+      .prepare('SELECT id FROM org_nodes WHERE space_id = ? AND lead_user_id = ?')
+      .all(space.id, targetId) as { id: string }[]
     db.prepare('DELETE FROM space_members WHERE space_id = ? AND user_id = ?').run(space.id, targetId)
     // 人走了，他负责的部门要空出来，否则树上一直挂着离职负责人
     db.prepare('UPDATE org_nodes SET lead_user_id = NULL WHERE space_id = ? AND lead_user_id = ?').run(
       space.id,
       targetId,
     )
+    // 空出来的部门如果只剩一个人，就由那个人接手
+    syncSoleLead(space.id, [...led.map((n) => n.id), targetRow.org_node_id])
     db.prepare('DELETE FROM acl_entries WHERE space_id = ? AND subject_type = ? AND subject_id = ?').run(
       space.id,
       'user',
@@ -985,3 +1037,22 @@ spacesRouter.post('/spaces/:id/invites', (req, res) => {
   notify(target.id, 'member', `${user.nickname || user.username} 邀请你加入「${space.name}」`, `角色：${role}`, '/teams')
   res.status(201).json({ id: row.id })
 })
+/**
+ * 一次性回填：历史数据里「整个部门只有一个人」的节点补上负责人。
+ *
+ * 新数据靠 syncSoleLead 在成员变动时兜住，这里只处理规则上线之前的存量；
+ * 用 settings 打标记，避免每次重启都把管理员手动撤销过的任命又补回来。
+ */
+if (!getSetting('lead_sole_backfill')) {
+  transaction(() => {
+    const spaces = db.prepare("SELECT id FROM spaces WHERE type = 'team'").all() as { id: string }[]
+    for (const s of spaces) {
+      const rows = db.prepare('SELECT id FROM org_nodes WHERE space_id = ?').all(s.id) as { id: string }[]
+      syncSoleLead(
+        s.id,
+        rows.map((n) => n.id),
+      )
+    }
+    setSetting('lead_sole_backfill', '1')
+  })
+}

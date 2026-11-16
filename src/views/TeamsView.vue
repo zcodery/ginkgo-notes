@@ -7,6 +7,7 @@ import {
   FolderTree,
   GripVertical,
   Plus,
+  ShieldCheck,
   Upload,
   UserPlus,
   Users,
@@ -98,6 +99,19 @@ function canManageMember(m: SpaceMemberInfo): boolean {
 /** 他是不是所在部门的负责人 */
 function isDeptLead(m: SpaceMemberInfo): boolean {
   return !!m.orgNodeId && nodeById.value.get(m.orgNodeId)?.leadUserId === m.id
+}
+/** 每个部门直属的人数（不含下级） */
+const nodeMemberCount = computed(() => {
+  const map = new Map<string, number>()
+  for (const m of members.value) {
+    if (!m.orgNodeId) continue
+    map.set(m.orgNodeId, (map.get(m.orgNodeId) ?? 0) + 1)
+  }
+  return map
+})
+/** 部门里只有他一个人：负责人由系统自动指定，撤销没有意义 */
+function isSoloLead(m: SpaceMemberInfo): boolean {
+  return isDeptLead(m) && (m.orgNodeId ? (nodeMemberCount.value.get(m.orgNodeId) ?? 0) : 0) <= 1
 }
 /** 所在部门现任负责人姓名（换人时提示会替代谁） */
 function currentLeadName(m: SpaceMemberInfo): string {
@@ -228,6 +242,11 @@ function toggleLead(member: SpaceMemberInfo) {
   if (!current.value || !member.orgNodeId) return
   const node = nodeById.value.get(member.orgNodeId)
   if (!node) return
+  // 单人民部门的负责人是规则给的，撤销了也还是他，直接拦掉
+  if (isSoloLead(member)) {
+    flash(`「${node.name}」只有 1 人，负责人由系统自动指定`)
+    return
+  }
   const spaceId = current.value.id
   const nodeId = member.orgNodeId
   const next = isDeptLead(member) ? null : member.id
@@ -709,25 +728,34 @@ onBeforeUnmount(() => {
                       <div class="tm-member-sub">@{{ m.username }}</div>
                     </div>
                     <GnSelect
-                      v-if="canManageMember(m)"
+                      v-if="canManageMember(m) && m.role !== 'owner' && !isDeptLead(m)"
                       :model-value="m.role"
                       :options="canManage ? roleOptions : assignableRoles"
                       :min-width="92"
                       v-tooltip="'成员角色：可管理 / 可编辑 / 可查看'"
                       @update:model-value="changeRole(m, $event)"
                     />
+                    <span
+                      v-else-if="isDeptLead(m) && m.role !== 'owner'"
+                      class="tm-tag tm-tag-full"
+                      v-tooltip="'部门负责人：对该部门及下级的人员、文档都是完全控制，不需要再单独设角色'"
+                    >
+                      <ShieldCheck :size="11" />完全控制
+                    </span>
                     <span v-else class="tm-tag">{{ roleLabel(m.role) }}</span>
                     <button
                       v-if="m.orgNodeId && m.role !== 'owner' && canManageMember(m)"
                       type="button"
                       class="tm-icon tm-lead-btn"
-                      :class="{ on: isDeptLead(m) }"
+                      :class="{ on: isDeptLead(m), solo: isSoloLead(m) }"
                       v-tooltip="
-                        isDeptLead(m)
-                          ? '取消该部门负责人'
-                          : currentLeadName(m)
-                            ? `设为所在部门负责人（会替代现任负责人 ${currentLeadName(m)}）`
-                            : '设为所在部门负责人：可管理该部门及下级的人员与文档'
+                        isSoloLead(m)
+                          ? '部门只有 1 人，系统自动指定为负责人'
+                          : isDeptLead(m)
+                            ? '取消该部门负责人'
+                            : currentLeadName(m)
+                              ? `设为所在部门负责人（会替代现任负责人 ${currentLeadName(m)}）`
+                              : '设为所在部门负责人：可管理该部门及下级的人员与文档'
                       "
                       @click="toggleLead(m)"
                     >
@@ -1362,6 +1390,10 @@ onBeforeUnmount(() => {
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
 }
+/* 单人民部门：负责人是规则给的，按钮只作提示，视觉上别抢眼 */
+.tm-lead-btn.solo {
+  cursor: default;
+}
 .tm-member.is-lead {
   background: var(--gn-bg-soft);
 }
@@ -1429,6 +1461,20 @@ onBeforeUnmount(() => {
 .tm-tag {
   font-size: 11.5px;
   color: var(--gn-text-muted);
+  white-space: nowrap;
+}
+/* 负责人的角色位：不用下拉，直接标成完全控制 */
+.tm-tag-full {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 .tm-icon {
