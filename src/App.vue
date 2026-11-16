@@ -9,6 +9,8 @@ const SharedNoteView = defineAsyncComponent(() => import('@/views/SharedNoteView
 const SharedPublicView = defineAsyncComponent(() => import('@/views/SharedPublicView.vue'))
 import HomeView from '@/views/HomeView.vue'
 import TrashView from '@/views/TrashView.vue'
+import FriendsView from '@/views/FriendsView.vue'
+import TeamsView from '@/views/TeamsView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import AuthView from '@/views/AuthView.vue'
 import PinLock from '@/components/PinLock.vue'
@@ -232,6 +234,8 @@ onBeforeUnmount(() => {
         :page-id="currentPageId"
       />
       <TrashView v-else-if="store.route.view === 'trash'" />
+      <FriendsView v-else-if="store.route.view === 'friends'" />
+      <TeamsView v-else-if="store.route.view === 'teams'" />
       <HomeView v-else />
     </main>
     <SearchModal />
