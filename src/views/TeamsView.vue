@@ -423,7 +423,8 @@ interface MemberGroup {
 
 const groups = computed<MemberGroup[]>(() => {
   const scope = scopeNode.value
-  if (!scope) return [{ key: 'all', segs: [], members: members.value }]
+  // 没选组织节点就不列成员：一次渲染几十上百行会明显拖慢首屏，先让用户点一个部门
+  if (!scope) return []
   if (!includeChildren.value) {
     return [
       {
@@ -442,12 +443,14 @@ const groups = computed<MemberGroup[]>(() => {
 })
 
 const visibleMembers = computed(() => groups.value.flatMap((g) => g.members))
+/** 卡片标题上的数字：没选节点时给团队总人数，选了节点给节点内人数 */
+const headCount = computed(() => (scopeNode.value ? visibleMembers.value.length : members.value.length))
 const scopePath = computed(() => (scopeNode.value ? pathOf(scopeNode.value.id) : []))
 const scopePathText = computed(() => scopePath.value.join(' / '))
 
 const visiblePending = computed(() => {
   const scope = scopeNode.value
-  if (!scope) return pending.value
+  if (!scope) return []
   const ids = new Set(includeChildren.value ? subtreeOrder(scope.id) : [scope.id])
   return pending.value.filter((p) => ids.has(memberNodeId(p.orgNodeId ?? '')))
 })
@@ -461,7 +464,7 @@ function clearScope() {
 function toggleChildren() {
   if (scopeNode.value) includeChildren.value = !includeChildren.value
 }
-/** 节点被删/换空间后，选中的 id 可能已失效，回落到「全部成员」 */
+/** 节点被删/换空间后，选中的 id 可能已失效，回落到「未选择节点」 */
 function resolveScope() {
   if (scopeId.value && !nodeMap.value.has(scopeId.value)) scopeId.value = ''
 }
@@ -625,7 +628,7 @@ onBeforeUnmount(() => {
             <section class="tm-card tm-people">
               <div class="tm-card-head">
                 <Users :size="14" /><span>成员</span>
-                <span class="tm-count">{{ visibleMembers.length }}</span>
+                <span class="tm-count">{{ headCount }}</span>
                 <span v-if="scopeNode && visibleMembers.length !== members.length" class="tm-head-of">
                   共 {{ members.length }} 人
                 </span>
@@ -644,7 +647,7 @@ onBeforeUnmount(() => {
                   <span class="tm-scope-text">{{ scopePathText }}</span>
                   <X :size="11" />
                 </button>
-                <span v-else class="tm-scope-all">全部成员</span>
+                <span v-else class="tm-scope-all">未选择组织节点</span>
 
                 <div
                   class="tm-scope-toggle"
@@ -657,7 +660,7 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div class="tm-card-body tm-people-body tm-scroll">
+              <div class="tm-card-body tm-people-body tm-scroll" :class="{ 'is-idle': !scopeNode }">
                 <section v-for="g in groups" :key="g.key" class="tm-group">
                   <div v-if="g.segs.length" class="tm-group-head">
                     <span class="tm-group-path">
@@ -748,10 +751,19 @@ onBeforeUnmount(() => {
                 </section>
 
                 <div v-if="!visibleMembers.length" class="tm-people-empty">
-                  <span>{{ scopeNode ? '这个节点下还没有成员' : '还没有成员' }}</span>
-                  <span class="tm-people-empty-tip">
-                    {{ scopeNode ? '可以打开「包含下级」，或邀请时把成员挂到这个节点下' : '用下方「添加成员」邀请同事加入' }}
-                  </span>
+                  <template v-if="!scopeNode">
+                    <FolderTree :size="18" class="tm-people-empty-icon" />
+                    <span>先选一个组织节点</span>
+                    <span class="tm-people-empty-tip">
+                      点左侧组织架构里的任意节点查看成员；团队共 {{ members.length }} 人，不一次性全部列出
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span>这个节点下还没有成员</span>
+                    <span class="tm-people-empty-tip">
+                      可以打开「包含下级」，或邀请时把成员挂到这个节点下
+                    </span>
+                  </template>
                 </div>
 
                 <div v-if="visiblePending.length" class="tm-pending">
@@ -1294,6 +1306,21 @@ onBeforeUnmount(() => {
 .tm-people-empty-tip {
   font-size: 11px;
   opacity: 0.8;
+}
+.tm-people-empty-icon {
+  margin-bottom: 2px;
+  opacity: 0.65;
+}
+/* 未选节点：成员区整块空着，提示居中，避免一大片空白 */
+.tm-people-body.is-idle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 8px;
+}
+.tm-people-body.is-idle .tm-people-empty {
+  max-width: 260px;
+  margin-top: 0;
 }
 
 /* ---------- 成员 ---------- */
