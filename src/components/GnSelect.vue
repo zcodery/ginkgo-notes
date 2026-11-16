@@ -22,8 +22,8 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
 const open = ref(false)
-/** 下方空间不足时向上展开 */
-const invert = ref(false)
+/** 下方空间不足时向上展开（类名不能叫 invert：Tailwind 有个同名工具类会把它整块反色） */
+const dropUp = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 const triggerRef = ref<HTMLButtonElement | null>(null)
 const panelRef = ref<HTMLElement | null>(null)
@@ -50,8 +50,8 @@ function place() {
   const below = window.innerHeight - r.bottom - GAP - EDGE
   const above = r.top - GAP - EDGE
   const want = wantedHeight()
-  invert.value = below < want && above > below
-  const room = Math.max(96, invert.value ? above : below)
+  dropUp.value = below < want && above > below
+  const room = Math.max(96, dropUp.value ? above : below)
   const width = Math.max(r.width, 150)
   // 右对齐触发器，再夹到视口内
   const left = Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE)
@@ -60,7 +60,7 @@ function place() {
     width: `${Math.round(width)}px`,
     maxHeight: `${Math.round(Math.min(want, room))}px`,
   }
-  if (invert.value) style.bottom = `${Math.round(window.innerHeight - r.top + GAP)}px`
+  if (dropUp.value) style.bottom = `${Math.round(window.innerHeight - r.top + GAP)}px`
   else style.top = `${Math.round(r.bottom + GAP)}px`
   panelStyle.value = style
 }
@@ -142,7 +142,7 @@ onBeforeUnmount(() => {
         v-if="open"
         ref="panelRef"
         class="gn-select-list gn-pop"
-        :class="{ invert }"
+        :class="{ 'is-up': dropUp }"
         :style="panelStyle"
       >
         <button
