@@ -11,6 +11,10 @@ import { mailEnabled } from './mailer.ts'
 import { aiRouter } from './ai.ts'
 import { mcpRouter } from './mcp.ts'
 import { membersRouter } from './members.ts'
+import { aclRouter } from './acl.ts'
+import { friendsRouter } from './friends.ts'
+import { spacesRouter } from './spaces.ts'
+import { presenceRouter } from './presence.ts'
 import { shareRouter, sharePublicRouter } from './share.ts'
 import { oauthPublicRouter } from './account.ts'
 import {
@@ -51,6 +55,10 @@ featuresRouter.use(shareRouter)
 featuresRouter.use(mcpRouter)
 featuresRouter.use(aiRouter)
 featuresRouter.use(membersRouter)
+featuresRouter.use(aclRouter)
+featuresRouter.use(friendsRouter)
+featuresRouter.use(spacesRouter)
+featuresRouter.use(presenceRouter)
 
 /* ---------------- 消息通知 ---------------- */
 

@@ -6,6 +6,7 @@ export type NotificationType =
   | 'security'
   | 'share'
   | 'member'
+  | 'friend'
   | 'feedback'
   | 'webhook'
   | 'system'
