@@ -218,12 +218,14 @@ ginkgoNotes/
 | 64 | 统一 ACL | ✅ | `acl_entries` 支持 user / org_node / space 三种主体；优先级 deny → 资源显式 → 组织继承 → 空间基线；个人笔记可邀请好友或同团队成员 |
 | 65 | 实时在线状态 | ✅ | SSE 下行 + 25s 心跳；同用户多窗口合并、60s 过期剔除；文档右上角只显示他人（过滤自己）；按当前空间隔离 |
 | 66 | 并发编辑 | ✅ | 编辑占用 `doc_locks`（60s 租约 + 30s 清理）+ `pages.version` 乐观锁 CAS；冲突返回 `409 version_conflict`，前端转只读提示 |
-| 67 | 分享人员多选 | ✅ | `PeoplePicker` 单一人员下拉：好友/团队成员分组、多团队切换、搜索、多选、标签删除、同人去重 |
+| 67 | 分享人员多选 | ✅ | `PeoplePicker` 单一人员下拉：**好友 / 各团队横向 tab 切换**（每个 tab 独立列表，团队再多也不用向下滚）、打开时预加载各 tab 成员数、搜索、多选、标签删除、同人去重、下方空间不足自动上翻；点击输入框不再「开→关」抖动（`onBoxClick` 跳过 input/chip） |
+| 68 | 好友页 / 团队页布局重构 | ✅ | 好友页：标题带待处理角标 + 右侧搜索，主体「好友列表（1fr）+ 申请/已发出（330px sticky）」两列，行内操作按钮常显、申请行按钮换行到姓名下方；团队页：空间导航（宽屏左侧竖排 / 窄屏顶部横排，断点 1180）+ 标题徽章 + 「组织架构 / 成员」两列（断点 1024），成员卡内邀请区固定在卡底、卡片不再 `overflow:hidden` 以放行下拉面板 |
+| 69 | 组织节点就地重命名 | ✅ | 重命名不再在节点下方多占一行：标题（`.ot-name`）就地变成输入框，保存/取消与之同行，进入编辑自动聚焦并全选；回车提交、Esc 取消、失焦按「有改动才提交」落定，编辑态隐藏类型/人数/行内按钮避免跳动 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
-| 1 | 好友页 / 团队页视觉 | ⚠️ | 接口与交互已闭环，但布局、留白、列表密度经多轮截图反馈仍未定稿；接手时按「UI 一致性」约定做结构重排，不要只调 padding |
+| 1 | 好友页 / 团队页视觉 | ⚠️ | 已按第 68 项重构布局骨架（顶部空间切换、两列卡片、紧凑列表），待用户确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
 | 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` 文案仍是中文硬编码，未接三语 |
 | 3 | 好友共享页在线状态 | ⚠️ | presence 按当前空间隔离，`/shared` 个人笔记共享页暂不显示在线头像 |
 
@@ -527,6 +529,10 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 27. **页面写入只有带 `baseVersion` 才走 CAS**：不传时仍走 `putPage`（版本递增但属于后写覆盖）；前端 `savePage/saveContent` 传 `cur.version`，冲突会抛 `VersionConflictError`，`NoteView` 捕获后转只读。不要在服务端把 409 吞成 200。
 28. **presence 按空间隔离**：SSE `/presence/page/:id/stream` 用当前 `X-Space` 校验；`/shared` 个人笔记共享页不在该空间上下文，所以暂时没有在线头像。编辑占用由 `doc_locks` 维护，心跳同时续租，30s 定时清理过期锁。
 29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、确认用行内二次确认而非 `window.confirm`、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
+30. **祖先 `overflow: hidden` 会裁掉绝对定位下拉**：团队页为了圆角给 `.tm-card` 加了 `overflow: hidden`，结果 `PeoplePicker` 的 `.pp-panel`（`position: absolute`）整块被裁掉，点开只看到 tab 栏一行、列表消失。弹层/下拉的祖先链上不能有 `overflow: hidden`；圆角改由内部区块自己写 `border-radius: 0 0 11px 11px` 实现。
+31. **「容器 click 开合 + 内部 input focus 开合」会双切换**：点输入框时先触发 `focus` 打开，紧接着 click 冒泡到容器又关掉，表现为「点了没反应」。容器的 click 处理必须先 `if (e.target.closest('input, .pp-chip')) return`，只让 focus 负责打开。
+32. **`flex-direction: column` 时 `align-items: flex-start` 会让子项缩成内容宽度**：团队页窄屏断点切成纵向堆叠后，卡片只剩约 490px 宽、右侧大片空白。切纵向必须同时把 `align-items` 改成 `stretch`。另外 `PeoplePicker` 根节点带 `flex: 1 1 220px`（为横向排布设计），放进纵向容器会被撑成 220px 高，需要在容器里 `:deep(.pp) { flex: 0 0 auto }` 收掉。
+33. **就地编辑不要在下方再开一行表单**：组织节点重命名原来在行下面插一条 `ot-inline` 输入框，同一份信息出现两处、行高还会跳。改成把标题 `span` 直接换成 `input`（同一个 flex 行内），配合 `nextTick` 后 `focus() + select()`；`保存/取消` 必须加 `@mousedown.prevent`，否则点击时 input 先 blur 触发失焦提交，取消永远点不掉。
 
 ---
 

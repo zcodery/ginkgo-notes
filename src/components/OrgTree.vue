@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import {
   createOrgNode,
@@ -135,10 +135,37 @@ function startRename(node: OrgNodeInfo) {
   editingName.value = node.name
 }
 
+// 重命名输入框就地渲染在标题位置，进入编辑后自动聚焦并全选
+const renameInput = ref<HTMLInputElement | null>(null)
+function setRenameInput(el: unknown) {
+  renameInput.value = (el as HTMLInputElement) ?? null
+}
+watch(editingId, async (id) => {
+  if (!id) return
+  await nextTick()
+  const el = renameInput.value
+  if (!el) return
+  el.focus()
+  el.select()
+})
+
 function saveRename() {
   const name = editingName.value.trim()
   if (!name || !editingId.value) return
   void apply(() => updateOrgNode(props.spaceId, editingId.value, { name }))
+}
+
+/** 失焦即落定：名称没改或为空则视为取消，避免留下一个悬空的输入框 */
+function onRenameBlur() {
+  const id = editingId.value
+  if (!id) return
+  const original = props.nodes.find((n) => n.id === id)?.name ?? ''
+  const name = editingName.value.trim()
+  if (!name || name === original) {
+    resetInline()
+    return
+  }
+  saveRename()
 }
 
 function startMove(node: OrgNodeInfo) {
@@ -183,7 +210,11 @@ function doDelete(id: string) {
 
     <div class="ot-list">
       <div v-for="row in rows" :key="row.node.id" class="ot-item">
-        <div class="ot-row" :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }">
+        <div
+          class="ot-row"
+          :class="{ editing: editingId === row.node.id }"
+          :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }"
+        >
           <button
             type="button"
             class="ot-toggle"
@@ -193,26 +224,48 @@ function doDelete(id: string) {
           >
             <ChevronRight :size="13" :class="{ open: row.hasChildren && !isCollapsed(row.node.id) }" />
           </button>
-          <span class="ot-name">{{ row.node.name }}</span>
-          <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
-          <span class="ot-count">{{ row.node.memberCount }} 人</span>
-          <div v-if="canManage" class="ot-actions">
-            <button type="button" title="新增下级" @click="startAdd(row.node.id)">
-              <Plus :size="12" />
-            </button>
-            <button type="button" title="重命名" @click="startRename(row.node)">
-              <Pencil :size="12" />
-            </button>
-            <button v-if="row.node.parentId" type="button" title="删除" @click="confirmingId = row.node.id">
-              <Trash2 :size="12" />
-            </button>
-          </div>
-        </div>
 
-        <div v-if="editingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
-          <input v-model="editingName" @keydown.enter="saveRename" />
-          <button type="button" class="ot-btn primary" :disabled="busy" @click="saveRename">保存</button>
-          <button type="button" class="ot-btn" :disabled="busy" @click="resetInline">取消</button>
+          <!-- 重命名：标题就地变成输入框，不再在下方多占一行 -->
+          <template v-if="editingId === row.node.id">
+            <input
+              :ref="setRenameInput"
+              v-model="editingName"
+              class="ot-name-input"
+              :disabled="busy"
+              @keydown.enter.prevent="saveRename"
+              @keydown.esc.prevent="resetInline"
+              @blur="onRenameBlur"
+            />
+            <button
+              type="button"
+              class="ot-btn primary sm"
+              :disabled="busy || !editingName.trim()"
+              @mousedown.prevent
+              @click="saveRename"
+            >
+              保存
+            </button>
+            <button type="button" class="ot-btn sm" :disabled="busy" @mousedown.prevent @click="resetInline">
+              取消
+            </button>
+          </template>
+
+          <template v-else>
+            <span class="ot-name">{{ row.node.name }}</span>
+            <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
+            <span class="ot-count">{{ row.node.memberCount }} 人</span>
+            <div v-if="canManage" class="ot-actions">
+              <button type="button" title="新增下级" @click="startAdd(row.node.id)">
+                <Plus :size="12" />
+              </button>
+              <button type="button" title="重命名" @click="startRename(row.node)">
+                <Pencil :size="12" />
+              </button>
+              <button v-if="row.node.parentId" type="button" title="删除" @click="confirmingId = row.node.id">
+                <Trash2 :size="12" />
+              </button>
+            </div>
+          </template>
         </div>
 
         <div v-if="movingId === row.node.id" class="ot-inline" :style="{ marginLeft: 24 + row.depth * 16 + 'px' }">
@@ -312,6 +365,26 @@ function doDelete(id: string) {
   color: var(--gn-text);
   white-space: nowrap;
 }
+/* 标题就地编辑：输入框接管 .ot-name 的位置与字号 */
+.ot-name-input {
+  flex: 0 1 auto;
+  min-width: 84px;
+  max-width: 260px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--gn-accent);
+  border-radius: 5px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+.ot-row.editing .ot-name-input,
+.ot-row.editing .ot-btn {
+  /* 编辑态不跟着悬停一起淡出 */
+  opacity: 1;
+}
 .ot-type,
 .ot-count {
   font-size: 11px;
@@ -389,6 +462,13 @@ function doDelete(id: string) {
   border-color: transparent;
   background: var(--gn-accent);
   color: var(--gn-bg);
+}
+/* 行内紧凑按钮：跟标题同一行放得下 */
+.ot-btn.sm {
+  height: 22px;
+  padding: 0 7px;
+  font-size: 11.5px;
+  flex: 0 0 auto;
 }
 .ot-btn.danger {
   border-color: transparent;

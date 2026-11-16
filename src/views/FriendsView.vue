@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { Check, Search, UserPlus, X } from 'lucide-vue-next'
 import {
   acceptFriendRequest,
@@ -22,9 +22,14 @@ const incoming = ref<FriendRequestInfo[]>([])
 const outgoing = ref<FriendRequestInfo[]>([])
 const keyword = ref('')
 const results = ref<UserSearchItem[]>([])
+const searched = ref(false)
 const loading = ref(true)
 const busy = ref(false)
 const err = ref('')
+
+const confirming = ref<{ id: string; kind: 'remove' | 'block' } | null>(null)
+
+const incomingCount = computed(() => incoming.value.length)
 
 async function refresh() {
   const [f, i, o] = await Promise.all([listFriends(), listFriendRequests(), listSentFriendRequests()])
@@ -51,7 +56,14 @@ function doSearch() {
   if (!q) return
   return run(async () => {
     results.value = await searchUsers(q)
+    searched.value = true
   })
+}
+
+function clearSearch() {
+  keyword.value = ''
+  results.value = []
+  searched.value = false
 }
 
 function add(item: UserSearchItem) {
@@ -77,8 +89,6 @@ function decline(id: string) {
     await refresh()
   })
 }
-
-const confirming = ref<{ id: string; kind: 'remove' | 'block' } | null>(null)
 
 function ask(id: string, kind: 'remove' | 'block') {
   confirming.value = { id, kind }
@@ -123,13 +133,6 @@ function avatarText(name: string) {
   return (name || '?').slice(0, 1).toUpperCase()
 }
 
-function dateText(ts: number): string {
-  if (!ts) return ''
-  const d = new Date(ts)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
 onMounted(async () => {
   try {
     await refresh()
@@ -144,128 +147,148 @@ onMounted(async () => {
 <template>
   <section class="fr-page gn-scroll">
     <div class="fr-inner">
-    <div class="fr-bar">
-      <div class="fr-bar-title">
-        <h1>好友</h1>
-        <p class="fr-desc">好友关系只用于文档分享与协作邀请，不会自动获得任何文档权限。</p>
-      </div>
-      <div class="fr-search">
-        <input
-          v-model="keyword"
-          placeholder="输入用户名或昵称"
-          @keydown.enter="doSearch"
-        />
-        <button type="button" :disabled="busy || !keyword.trim()" @click="doSearch">
-          <Search :size="13" />搜索
-        </button>
-      </div>
-    </div>
-
-    <div v-if="results.length" class="fr-card">
-      <div class="fr-card-title"><UserPlus :size="14" />搜索结果</div>
-      <div class="fr-list">
-        <div v-for="u in results" :key="u.id" class="fr-row">
-          <div class="fr-avatar">
-            <img v-if="u.avatar" :src="u.avatar" alt="" />
-            <span v-else>{{ avatarText(u.name) }}</span>
+      <header class="fr-head">
+        <div class="fr-head-text">
+          <div class="fr-title-line">
+            <h1>好友</h1>
+            <span class="fr-badge">{{ friends.length }}</span>
+            <span v-if="incomingCount" class="fr-badge warn">{{ incomingCount }} 条待处理</span>
           </div>
-          <div class="fr-main">
-            <div class="fr-name">{{ u.name }}</div>
-            <div class="fr-sub">@{{ u.username }}</div>
-          </div>
-          <span v-if="u.relation" class="fr-tag">{{ relationText(u.relation) }}</span>
-          <button
-            v-else
-            type="button"
-            class="fr-btn primary"
-            :disabled="busy"
-            @click="add(u)"
-          >
-            加好友
-          </button>
+          <p class="fr-desc">好友关系只用于文档分享与协作邀请，不会自动获得任何文档权限。</p>
         </div>
-      </div>
-
-    </div>
-
-    <div class="fr-cols">
-    <div v-if="!incoming.length && !outgoing.length" class="fr-card">
-      <div class="fr-card-title">好友申请</div>
-      <p class="fr-empty">暂无新的好友申请。收到申请后会显示在这里。</p>
-    </div>
-    <div class="fr-card" v-if="incoming.length">
-      <div class="fr-card-title">待处理申请<span class="fr-count">{{ incoming.length }}</span></div>
-      <div class="fr-list">
-        <div v-for="r in incoming" :key="r.id" class="fr-row">
-          <div class="fr-avatar">
-            <img v-if="r.from?.avatar" :src="r.from.avatar" alt="" />
-            <span v-else>{{ avatarText(r.from?.name ?? '?') }}</span>
-          </div>
-          <div class="fr-main">
-            <div class="fr-name">{{ r.from?.name }}</div>
-            <div class="fr-sub">{{ r.message || '请求添加你为好友' }}</div>
-          </div>
-          <button type="button" class="fr-btn primary" :disabled="busy" @click="accept(r.id)">
-            <Check :size="13" />同意
-          </button>
-          <button type="button" class="fr-btn" :disabled="busy" @click="decline(r.id)">
-            <X :size="13" />拒绝
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <div class="fr-card">
-      <div class="fr-card-title">我的好友<span class="fr-count">{{ friends.length }}</span></div>
-      <div v-if="loading" class="fr-empty">加载中…</div>
-      <div v-else-if="friends.length" class="fr-list">
-        <div v-for="f in friends" :key="f.id" class="fr-row">
-          <div class="fr-avatar">
-            <img v-if="f.avatar" :src="f.avatar" alt="" />
-            <span v-else>{{ avatarText(f.name) }}</span>
-          </div>
-          <div class="fr-main">
-            <div class="fr-name">{{ f.name }}</div>
-            <div class="fr-sub">
-              @{{ f.username }}<template v-if="f.since"> · 添加于 {{ dateText(f.since) }}</template>
-            </div>
-          </div>
-          <template v-if="confirming?.id === f.id">
-            <span class="fr-confirm-text">确认{{ confirming.kind === 'remove' ? '解除好友' : '拉黑' }}？</span>
-            <button
-              type="button"
-              class="fr-btn danger"
-              :disabled="busy"
-              @click="confirming.kind === 'remove' ? remove(f.id) : block(f.id)"
-            >
-              确认
+        <div class="fr-search">
+          <div class="fr-search-box">
+            <Search :size="13" class="fr-search-icon" />
+            <input
+              v-model="keyword"
+              placeholder="搜索用户名或昵称"
+              @keydown.enter="doSearch"
+            />
+            <button v-if="searched || keyword" type="button" class="fr-search-clear" @click="clearSearch">
+              <X :size="12" />
             </button>
-            <button type="button" class="fr-btn" :disabled="busy" @click="cancelConfirm">取消</button>
-          </template>
-          <template v-else>
-            <button type="button" class="fr-btn danger" :disabled="busy" @click="ask(f.id, 'remove')">解除</button>
-            <button type="button" class="fr-btn" :disabled="busy" @click="ask(f.id, 'block')">拉黑</button>
-          </template>
-        </div>
-      </div>
-      <p v-else class="fr-empty">还没有好友。添加好友后即可在分享面板中直接邀请。</p>
-    </div>
-
-    <div v-if="outgoing.length" class="fr-card">
-      <div class="fr-card-title">已发出的申请</div>
-      <div class="fr-list">
-        <div v-for="r in outgoing" :key="r.id" class="fr-row">
-          <div class="fr-avatar">{{ avatarText(r.to?.name ?? '?') }}</div>
-          <div class="fr-main">
-            <div class="fr-name">{{ r.to?.name }}</div>
-            <div class="fr-sub">等待对方处理</div>
           </div>
+          <button type="button" class="fr-btn primary" :disabled="busy || !keyword.trim()" @click="doSearch">
+            搜索
+          </button>
         </div>
-      </div>
-    </div>
-    </div>
+      </header>
 
-    <p v-if="err" class="fr-err">{{ err }}</p>
+      <div class="fr-cols">
+        <div class="fr-main-col">
+          <section v-if="results.length || (searched && !loading)" class="fr-card">
+            <div class="fr-card-head">
+              <UserPlus :size="14" />
+              <span>搜索结果</span>
+              <span class="fr-count">{{ results.length }}</span>
+              <button type="button" class="fr-head-link" @click="clearSearch">关闭</button>
+            </div>
+            <div v-if="results.length" class="fr-list">
+              <div v-for="u in results" :key="u.id" class="fr-row">
+                <div class="fr-avatar">
+                  <img v-if="u.avatar" :src="u.avatar" alt="" />
+                  <span v-else>{{ avatarText(u.name) }}</span>
+                </div>
+                <div class="fr-main">
+                  <div class="fr-name">{{ u.name }}</div>
+                  <div class="fr-sub">@{{ u.username }}</div>
+                </div>
+                <span v-if="u.relation" class="fr-tag">{{ relationText(u.relation) }}</span>
+                <button v-else type="button" class="fr-btn primary" :disabled="busy" @click="add(u)">
+                  <UserPlus :size="12" />加好友
+                </button>
+              </div>
+            </div>
+            <p v-else class="fr-empty">没有找到匹配的用户，换个用户名或昵称再试试。</p>
+          </section>
+
+          <section class="fr-card">
+            <div class="fr-card-head">
+              <span>我的好友</span>
+              <span class="fr-count">{{ friends.length }}</span>
+            </div>
+            <div v-if="loading" class="fr-empty">加载中…</div>
+            <div v-else-if="friends.length" class="fr-list">
+              <div v-for="f in friends" :key="f.id" class="fr-row">
+                <div class="fr-avatar">
+                  <img v-if="f.avatar" :src="f.avatar" alt="" />
+                  <span v-else>{{ avatarText(f.name) }}</span>
+                </div>
+                <div class="fr-main">
+                  <div class="fr-name">{{ f.name }}</div>
+                  <div class="fr-sub">@{{ f.username }}</div>
+                </div>
+                <div v-if="confirming?.id === f.id" class="fr-ops is-confirm">
+                  <span class="fr-confirm-text">确认{{ confirming.kind === 'remove' ? '解除好友' : '拉黑' }}？</span>
+                  <button
+                    type="button"
+                    class="fr-btn danger"
+                    :disabled="busy"
+                    @click="confirming.kind === 'remove' ? remove(f.id) : block(f.id)"
+                  >
+                    确认
+                  </button>
+                  <button type="button" class="fr-btn" :disabled="busy" @click="cancelConfirm">取消</button>
+                </div>
+                <div v-else class="fr-ops">
+                  <button type="button" class="fr-act danger" :disabled="busy" @click="ask(f.id, 'remove')">解除</button>
+                  <button type="button" class="fr-act" :disabled="busy" @click="ask(f.id, 'block')">拉黑</button>
+                </div>
+              </div>
+            </div>
+            <div v-else class="fr-empty-box">
+              <UserPlus :size="16" />
+              <p>还没有好友。在上方搜索用户名发送申请，通过后即可在分享面板直接邀请。</p>
+            </div>
+          </section>
+        </div>
+
+        <aside class="fr-side-col">
+          <section class="fr-card">
+            <div class="fr-card-head">
+              <span>好友申请</span>
+              <span v-if="incomingCount" class="fr-count">{{ incomingCount }}</span>
+            </div>
+            <div v-if="incomingCount" class="fr-list">
+              <div v-for="r in incoming" :key="r.id" class="fr-row is-request">
+                <div class="fr-avatar">
+                  <img v-if="r.from?.avatar" :src="r.from.avatar" alt="" />
+                  <span v-else>{{ avatarText(r.from?.name ?? '?') }}</span>
+                </div>
+                <div class="fr-main">
+                  <div class="fr-name">{{ r.from?.name }}</div>
+                  <div class="fr-sub">{{ r.message || '请求添加你为好友' }}</div>
+                  <div class="fr-request-ops">
+                    <button type="button" class="fr-btn primary" :disabled="busy" @click="accept(r.id)">
+                      <Check :size="12" />同意
+                    </button>
+                    <button type="button" class="fr-btn" :disabled="busy" @click="decline(r.id)">拒绝</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p v-else class="fr-empty">暂无待处理申请。</p>
+          </section>
+
+          <section v-if="outgoing.length" class="fr-card">
+            <div class="fr-card-head">
+              <span>已发出的申请</span>
+              <span class="fr-count">{{ outgoing.length }}</span>
+            </div>
+            <div class="fr-list">
+              <div v-for="r in outgoing" :key="r.id" class="fr-row">
+                <div class="fr-avatar">{{ avatarText(r.to?.name ?? '?') }}</div>
+                <div class="fr-main">
+                  <div class="fr-name">{{ r.to?.name }}</div>
+                  <div class="fr-sub">等待对方处理</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <p v-if="err" class="fr-err">{{ err }}</p>
     </div>
   </section>
 </template>
@@ -277,59 +300,153 @@ onMounted(async () => {
   overflow-y: auto;
 }
 .fr-inner {
-  max-width: 1560px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 28px 32px 80px;
+  padding: 30px 32px 80px;
 }
-.fr-bar {
+
+/* ---------- 顶部 ---------- */
+.fr-head {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: 20px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
-.fr-cols {
-  display: grid;
-  gap: 18px;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: start;
+.fr-title-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
 }
-.fr-cols .fr-card {
-  margin-bottom: 0;
-}
-@media (min-width: 1024px) {
-  .fr-cols {
-    grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
-  }
-}
-.fr-head h1,
-.fr-bar-title h1 {
-  margin: 0 0 4px;
+.fr-title-line h1 {
+  margin: 0;
   font-size: 22px;
   font-weight: 650;
   color: var(--gn-text);
 }
+.fr-badge {
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
+  font-size: 11.5px;
+}
+.fr-badge.warn {
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
 .fr-desc {
   margin: 0;
-  max-width: 640px;
-  font-size: 13px;
+  max-width: 560px;
+  font-size: 12.5px;
+  line-height: 1.6;
   color: var(--gn-text-soft);
 }
-.fr-card {
-  margin-bottom: 16px;
-  padding: 16px 18px;
-  border: 1px solid var(--gn-border);
-  border-radius: 10px;
-  background: var(--gn-bg);
+.fr-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 1 360px;
+  min-width: 260px;
 }
-.fr-card-title {
+.fr-search-box {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 12px;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--gn-border);
+  border-radius: 8px;
+  background: var(--gn-bg);
+}
+.fr-search-box:focus-within {
+  border-color: var(--gn-accent);
+}
+.fr-search-icon {
+  flex: 0 0 auto;
+  color: var(--gn-text-muted);
+}
+.fr-search-box input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--gn-text);
+  font-size: 12.5px;
+  outline: none;
+}
+.fr-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  cursor: pointer;
+}
+.fr-search-clear:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+
+/* ---------- 两列 ---------- */
+.fr-cols {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.fr-main-col,
+.fr-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .fr-cols {
+    grid-template-columns: minmax(0, 1fr) 330px;
+  }
+  .fr-side-col {
+    position: sticky;
+    top: 20px;
+  }
+}
+
+/* ---------- 卡片 ---------- */
+.fr-card {
+  border: 1px solid var(--gn-border);
+  border-radius: 12px;
+  background: var(--gn-bg);
+  overflow: hidden;
+}
+.fr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--gn-border);
   font-size: 13px;
   font-weight: 600;
+  color: var(--gn-text);
+}
+.fr-head-link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--gn-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.fr-head-link:hover {
   color: var(--gn-text);
 }
 .fr-count {
@@ -340,80 +457,41 @@ onMounted(async () => {
   color: var(--gn-accent);
   font-size: 11px;
   font-weight: 500;
-}
-.fr-search {
-  display: flex;
-  gap: 8px;
-  flex: 1 1 320px;
-  max-width: 440px;
-}
-.fr-search input {
-  flex: 1 1 auto;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--gn-border);
-  border-radius: 7px;
-  background: var(--gn-bg-soft);
-  color: var(--gn-text);
-  font-size: 13px;
-  outline: none;
-}
-.fr-search input:focus {
-  border-color: var(--gn-accent);
-}
-.fr-search button,
-.fr-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--gn-border);
-  border-radius: 7px;
-  background: var(--gn-bg);
-  color: var(--gn-text);
-  font-size: 12.5px;
-  cursor: pointer;
-}
-.fr-btn.primary {
-  border-color: transparent;
-  background: var(--gn-accent);
-  color: var(--gn-bg);
-}
-.fr-btn.danger {
-  color: #c0392b;
-}
-.fr-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
+  text-align: center;
 }
 .fr-list {
-  margin-top: 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  padding: 5px 6px;
 }
 .fr-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 40px;
-  padding: 8px 10px;
+  min-height: 46px;
+  padding: 7px 8px;
   border-radius: 8px;
+}
+.fr-row:hover {
   background: var(--gn-bg-soft);
 }
+.fr-row.is-request {
+  align-items: flex-start;
+}
+
+/* ---------- 行内元素 ---------- */
 .fr-avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   border-radius: 50%;
   overflow: hidden;
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 .fr-avatar img {
@@ -428,31 +506,123 @@ onMounted(async () => {
 .fr-name {
   font-size: 13px;
   color: var(--gn-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .fr-sub {
   font-size: 11.5px;
-  color: var(--gn-text-soft);
+  color: var(--gn-text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .fr-tag {
   font-size: 11.5px;
-  color: var(--gn-text-soft);
+  color: var(--gn-text-muted);
+  white-space: nowrap;
 }
 .fr-confirm-text {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--gn-text-soft);
   white-space: nowrap;
 }
-.fr-empty {
-  margin: 8px 0 0;
-  font-size: 12.5px;
-  color: var(--gn-text-soft);
+
+/* 行内操作：默认清晰可见，悬停时加深 */
+.fr-ops {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
 }
-.fr-err {
+.fr-act {
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.fr-act:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.fr-act.danger:hover {
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+  color: var(--gn-danger);
+}
+.fr-request-ops {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+/* ---------- 按钮 ---------- */
+.fr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--gn-border);
+  border-radius: 7px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 12px;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.fr-btn:hover {
+  background: var(--gn-bg-hover);
+}
+.fr-btn.primary {
+  border-color: transparent;
+  background: var(--gn-accent);
+  color: var(--gn-bg);
+}
+.fr-btn.primary:hover {
+  filter: brightness(1.06);
+}
+.fr-btn.danger {
+  border-color: color-mix(in srgb, var(--gn-danger) 35%, var(--gn-border));
+  color: var(--gn-danger);
+}
+.fr-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---------- 空态 ---------- */
+.fr-empty {
+  margin: 0;
+  padding: 14px 14px 16px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--gn-text-muted);
+}
+.fr-empty-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 12px;
+  padding: 14px;
+  border: 1px dashed var(--gn-border-strong);
+  border-radius: 9px;
+  color: var(--gn-text-muted);
+}
+.fr-empty-box p {
   margin: 0;
   font-size: 12.5px;
-  color: #c0392b;
+  line-height: 1.6;
+}
+.fr-err {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--gn-danger);
 }
 </style>
