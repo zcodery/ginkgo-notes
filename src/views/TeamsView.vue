@@ -595,11 +595,12 @@ onBeforeUnmount(() => {
             </button>
           </header>
 
-          <div class="tm-cols">
+          <div class="tm-cols" :class="{ 'is-scopeless': !scopeNode }">
             <section class="tm-card">
               <div class="tm-card-head">
                 <Users :size="14" /><span>组织架构</span>
                 <span class="tm-count">{{ nodes.length }}</span>
+                <span v-if="!scopeNode" class="tm-tree-hint">点任意节点查看成员</span>
               </div>
               <div class="tm-card-body tm-scroll">
                 <OrgTree
@@ -1124,6 +1125,32 @@ onBeforeUnmount(() => {
 @media (min-width: 1024px) {
   .tm-cols {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    /* 收起 / 展开成员列时让整块跟着走，不做「先消失再补位」的跳变 */
+    transition:
+      grid-template-columns 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+      gap 0.26s ease;
+  }
+  /* 没选组织节点：成员列压到 0 宽，把地方全让给组织树 */
+  .tm-cols.is-scopeless {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0px);
+    gap: 0;
+  }
+}
+.tm-people {
+  transition:
+    opacity 0.16s ease,
+    transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.tm-cols.is-scopeless .tm-people {
+  opacity: 0;
+  transform: translateX(10px);
+  pointer-events: none;
+  overflow: hidden;
+}
+@media (max-width: 1023px) {
+  /* 窄屏是上下堆叠，没有横向空间可让，直接不占位 */
+  .tm-cols.is-scopeless .tm-people {
+    display: none;
   }
 }
 
@@ -1147,6 +1174,12 @@ onBeforeUnmount(() => {
 }
 .tm-card-head .tm-count {
   margin-left: 2px;
+}
+.tm-tree-hint {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--gn-text-muted);
 }
 .tm-card-body {
   flex: 1 1 auto;

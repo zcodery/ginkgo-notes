@@ -494,21 +494,24 @@ function onRowLeave(el: Element) {
                 <Crown :size="10" />{{ row.node.leadName }}
               </span>
               <span class="ot-count">{{ row.node.memberCount }} 人</span>
-              <div v-if="canManageNode(row.node.id)" class="ot-actions">
-                <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
-                  <Plus :size="12" />
-                </button>
-                <button type="button" v-tooltip="'重命名'" @click="startRename(row.node)">
-                  <Pencil :size="12" />
-                </button>
-                <button
-                  v-if="row.node.parentId && (canManage || !row.node.leadUserId)"
-                  type="button"
-                  v-tooltip="'删除节点（成员与授权会迁移到上级）'"
-                  @click="confirmingId = row.node.id"
-                >
-                  <Trash2 :size="12" />
-                </button>
+              <!-- 操作区始终占位（只是透明），否则悬停/少一个按钮都会把人数挤得对不齐 -->
+              <div class="ot-actions" :class="{ 'is-readonly': !canManageNode(row.node.id) }">
+                <template v-if="canManageNode(row.node.id)">
+                  <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
+                    <Plus :size="12" />
+                  </button>
+                  <button type="button" v-tooltip="'重命名'" @click="startRename(row.node)">
+                    <Pencil :size="12" />
+                  </button>
+                  <button
+                    v-if="row.node.parentId && (canManage || !row.node.leadUserId)"
+                    type="button"
+                    v-tooltip="'删除节点（成员与授权会迁移到上级）'"
+                    @click="confirmingId = row.node.id"
+                  >
+                    <Trash2 :size="12" />
+                  </button>
+                </template>
               </div>
             </template>
           </div>
@@ -772,12 +775,12 @@ function onRowLeave(el: Element) {
   opacity: 1;
 }
 .ot-count {
+  margin-left: auto;
+  min-width: 34px;
+  text-align: right;
   font-size: 11px;
   color: var(--gn-text-muted);
   white-space: nowrap;
-}
-.ot-count {
-  margin-left: auto;
 }
 /* 部门负责人：树上一眼看出这层归谁管 */
 .ot-lead {
@@ -800,7 +803,10 @@ function onRowLeave(el: Element) {
 .ot-actions {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 1px;
+  /* 固定宽度：按钮数量变化时人数列的右边界不动 */
+  flex: 0 0 68px;
   opacity: 0;
   transition: opacity 0.12s ease;
 }

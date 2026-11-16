@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Check, ChevronDown, Search, X } from 'lucide-vue-next'
+import { Check, ChevronDown, ChevronRight, Folder, Search, X } from 'lucide-vue-next'
 import {
   getSpaceOrg,
   listFriends,
   type FriendInfo,
+  type OrgNodeInfo,
   type SpaceMemberInfo,
 } from '@/api/features'
 
 /**
  * 人员多选器：可从好友、当前团队成员中选择。
  * 值统一为用户名字符串，后端邀请/分享接口都以用户名定位用户。
+ *
+ * 团队按组织架层级联展开：部门和人都出现在同一份列表里，
+ * 部门行只能点击展开下一级，人才能勾选。
  */
 const props = withDefaults(
   defineProps<{
@@ -43,6 +47,12 @@ interface Person {
   avatar: string | null
 }
 
+/** 团队成员 = 人 + 他挂在哪个组织节点上 */
+interface Entry {
+  person: Person
+  orgNodeId: string
+}
+
 const FRIENDS_TAB = '__friends__'
 
 const open = ref(false)
@@ -51,11 +61,18 @@ const keyword = ref('')
 const rootRef = ref<HTMLElement | null>(null)
 const friends = ref<Person[]>([])
 const friendsLoaded = ref(false)
-/** 按空间缓存成员，切换 tab 不重复请求 */
-const membersBySpace = ref<Record<string, Person[]>>({})
+/** 按空间缓存，切换 tab 不重复请求 */
+const membersBySpace = ref<Record<string, Entry[]>>({})
+const nodesBySpace = ref<Record<string, OrgNodeInfo[]>>({})
 const loadingSpace = ref('')
+/** 展开的部门节点 id */
+const expanded = ref<Record<string, boolean>>({})
+/** 已经做过默认展开的空间，避免重新加载时把用户的手动收起又打开 */
+const primed = ref<Record<string, boolean>>({})
 /** 当前 tab：FRIENDS_TAB 或空间 id */
 const activeTab = ref(FRIENDS_TAB)
+/** 用户自己切过 tab 之后就别再自动换，免得刚点开好友又被抢回去 */
+const manualTab = ref(false)
 
 const selected = computed(() => props.modelValue ?? [])
 
@@ -71,23 +88,35 @@ const teamSpaces = computed<{ id: string; name: string }[]>(() =>
       : [],
 )
 
-const visible = (rows: Person[]) => rows.filter((p) => !excludeSet.value.has(p.username))
+const isTeamTab = computed(() => activeTab.value !== FRIENDS_TAB)
+
+const entriesOf = (spaceId: string): Entry[] =>
+  (membersBySpace.value[spaceId] ?? []).filter((e) => !excludeSet.value.has(e.person.username))
+
+const nodesOf = (spaceId: string): OrgNodeInfo[] => nodesBySpace.value[spaceId] ?? []
 
 const tabs = computed(() => {
   const out: { key: string; label: string; count: number }[] = []
   if (props.source !== 'team') {
-    out.push({ key: FRIENDS_TAB, label: '好友', count: visible(friends.value).length })
+    out.push({
+      key: FRIENDS_TAB,
+      label: '好友',
+      count: friends.value.filter((p) => !excludeSet.value.has(p.username)).length,
+    })
   }
   if (props.source !== 'friends') {
     for (const s of teamSpaces.value) {
-      out.push({ key: s.id, label: s.name, count: visible(membersBySpace.value[s.id] ?? []).length })
+      out.push({ key: s.id, label: s.name, count: entriesOf(s.id).length })
     }
   }
   return out
 })
 
 const pool = computed<Person[]>(() => {
-  const all = [friends.value, ...Object.values(membersBySpace.value)].flat()
+  const all = [
+    friends.value,
+    ...Object.values(membersBySpace.value).map((rows) => rows.map((e) => e.person)),
+  ].flat()
   const seen = new Set<string>()
   return all.filter((p) => (seen.has(p.username) ? false : (seen.add(p.username), true)))
 })
@@ -100,28 +129,133 @@ function matches(p: Person): boolean {
   return p.name.toLowerCase().includes(q) || p.username.toLowerCase().includes(q)
 }
 
-/** 只渲染当前 tab 的成员，团队再多也不用来回滚动 */
-const currentRows = computed<Person[]>(() =>
-  activeTab.value === FRIENDS_TAB ? friends.value : (membersBySpace.value[activeTab.value] ?? []),
-)
-
-const currentList = computed<Person[]>(() => visible(currentRows.value).filter(matches))
-
-/** 候选池里全是已有成员：提示去「新建成员」，而不是说「暂无成员」 */
-const allAlreadyIn = computed(
-  () => currentRows.value.length > 0 && !visible(currentRows.value).length,
-)
-
 const currentTabLabel = computed(
   () => tabs.value.find((t) => t.key === activeTab.value)?.label ?? '成员',
 )
 
-const emptyText = computed(() => {
-  if (allAlreadyIn.value) return '这些人已在团队里，新人请用「新建成员」'
-  return activeTab.value === FRIENDS_TAB
-    ? '还没有好友，可前往「好友」页添加'
-    : `「${currentTabLabel.value}」暂无成员`
+/** 好友 tab 的扁平列表 */
+const friendList = computed<Person[]>(() =>
+  friends.value.filter((p) => !excludeSet.value.has(p.username)).filter(matches),
+)
+
+/** 团队 tab 的部门树：按 parent_id 建树（GET /org 是层序，不能按 depth 堆） */
+const treeRows = computed<PickerRow[]>(() => {
+  const spaceId = activeTab.value
+  if (!isTeamTab.value) return []
+  const nodes = nodesOf(spaceId)
+  const entries = entriesOf(spaceId)
+  if (!nodes.length) return []
+
+  const ids = new Set(nodes.map((n) => n.id))
+  const byParent = new Map<string, OrgNodeInfo[]>()
+  for (const n of nodes) {
+    const key = n.parentId && ids.has(n.parentId) ? n.parentId : ''
+    const arr = byParent.get(key) ?? []
+    arr.push(n)
+    byParent.set(key, arr)
+  }
+  for (const arr of byParent.values()) arr.sort((a, b) => a.sort - b.sort || a.name.localeCompare(b.name))
+
+  const direct = new Map<string, Person[]>()
+  for (const e of entries) {
+    const key = e.orgNodeId && ids.has(e.orgNodeId) ? e.orgNodeId : ''
+    const arr = direct.get(key) ?? []
+    arr.push(e.person)
+    direct.set(key, arr)
+  }
+
+  // 子树人数，用来在部门行上显示「这个部门一共多少人」
+  const totalCache = new Map<string, number>()
+  const totalOf = (id: string): number => {
+    const hit = totalCache.get(id)
+    if (hit !== undefined) return hit
+    let sum = (direct.get(id) ?? []).length
+    for (const child of byParent.get(id) ?? []) sum += totalOf(child.id)
+    totalCache.set(id, sum)
+    return sum
+  }
+
+  const out: PickerRow[] = []
+  const walk = (parentId: string, depth: number) => {
+    for (const n of byParent.get(parentId) ?? []) {
+      const kids = byParent.get(n.id) ?? []
+      const people = direct.get(n.id) ?? []
+      const isOpen = !!expanded.value[n.id]
+      out.push({
+        kind: 'dept',
+        key: `d-${n.id}`,
+        id: n.id,
+        name: n.name,
+        depth,
+        total: totalOf(n.id),
+        open: isOpen,
+        canOpen: kids.length > 0 || people.length > 0,
+      })
+      if (!isOpen) continue
+      walk(n.id, depth + 1)
+      for (const p of people) {
+        out.push({ kind: 'person', key: `p-${p.username}`, person: p, depth: depth + 1 })
+      }
+    }
+  }
+  walk('', 0)
+  // 没挂到任何节点（或节点已被删）的人，铺在根上
+  for (const p of direct.get('') ?? []) {
+    out.push({ kind: 'person', key: `p-${p.username}`, person: p, depth: 0 })
+  }
+  return out
 })
+
+type PickerRow =
+  | {
+      kind: 'dept'
+      key: string
+      id: string
+      name: string
+      depth: number
+      total: number
+      open: boolean
+      canOpen: boolean
+    }
+  | { kind: 'person'; key: string; person: Person; depth: number }
+
+/** 搜索态：跨部门扁平列出命中的人，部门只在副标题里出现 */
+const searchRows = computed<{ person: Person; path: string }[]>(() => {
+  if (!keyword.value.trim() || !isTeamTab.value) return []
+  const spaceId = activeTab.value
+  const nodes = nodesOf(spaceId)
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const pathOf = (id: string): string => {
+    const names: string[] = []
+    let cur = byId.get(id)
+    let guard = 0
+    while (cur && guard++ < 12) {
+      names.unshift(cur.name)
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined
+    }
+    return names.join(' / ')
+  }
+  return entriesOf(spaceId)
+    .filter((e) => matches(e.person))
+    .map((e) => ({ person: e.person, path: e.orgNodeId ? pathOf(e.orgNodeId) : '' }))
+})
+
+const emptyText = computed(() => {
+  const rows =
+    activeTab.value === FRIENDS_TAB
+      ? friends.value
+      : (membersBySpace.value[activeTab.value] ?? []).map((e) => e.person)
+  if (rows.length && rows.every((p) => excludeSet.value.has(p.username))) {
+    return '这些人已在团队里，新人请用「新建成员」'
+  }
+  if (activeTab.value === FRIENDS_TAB) return '还没有好友，可前往「好友」页添加'
+  if (keyword.value.trim()) return '没有匹配的成员'
+  return `「${currentTabLabel.value}」暂无成员`
+})
+
+function indent(depth: number) {
+  return { paddingLeft: `${7 + depth * 13}px` }
+}
 
 function toPerson(v: FriendInfo | SpaceMemberInfo): Person {
   return { id: v.id, username: v.username, name: v.name, avatar: v.avatar }
@@ -144,7 +278,12 @@ async function loadSpace(id: string) {
   loadingSpace.value = id
   try {
     const org = await getSpaceOrg(id)
-    membersBySpace.value = { ...membersBySpace.value, [id]: org.members.map(toPerson) }
+    nodesBySpace.value = { ...nodesBySpace.value, [id]: org.nodes }
+    membersBySpace.value = {
+      ...membersBySpace.value,
+      [id]: org.members.map((m) => ({ person: toPerson(m), orgNodeId: m.orgNodeId ?? '' })),
+    }
+    primeExpand(id)
   } catch {
     /* 失败保持空列表，切换 tab 会重试 */
   } finally {
@@ -152,7 +291,50 @@ async function loadSpace(id: string) {
   }
 }
 
-/** 展开面板时一次性把好友与各团队成员都取回来，tab 上的人数才不会是 0 */
+/**
+ * 首次拿到组织树时给一个合理的初始展开：根层全开，
+ * 单链条的部门（只有一个下级、自己没有直属成员）也一并打开，
+ * 免得「全员 → 公司 → 部门 → 组」这种一条线要点三次才看到人。
+ */
+function primeExpand(spaceId: string) {
+  if (primed.value[spaceId]) return
+  const nodes = nodesOf(spaceId)
+  if (!nodes.length) return
+  primed.value = { ...primed.value, [spaceId]: true }
+
+  const ids = new Set(nodes.map((n) => n.id))
+  const byParent = new Map<string, OrgNodeInfo[]>()
+  for (const n of nodes) {
+    const key = n.parentId && ids.has(n.parentId) ? n.parentId : ''
+    const arr = byParent.get(key) ?? []
+    arr.push(n)
+    byParent.set(key, arr)
+  }
+  const direct = new Map<string, number>()
+  for (const e of membersBySpace.value[spaceId] ?? []) {
+    if (e.orgNodeId) direct.set(e.orgNodeId, (direct.get(e.orgNodeId) ?? 0) + 1)
+  }
+
+  const next = { ...expanded.value }
+  const walk = (parentId: string, depth: number) => {
+    for (const n of byParent.get(parentId) ?? []) {
+      const kids = byParent.get(n.id) ?? []
+      const people = direct.get(n.id) ?? 0
+      // 根层全开；一条线的部门自动穿透；叶子部门人不多时直接把人也摊开
+      if (depth === 0 || (kids.length === 1 && !people) || (!kids.length && people > 0 && people <= 6)) {
+        next[n.id] = true
+      }
+      walk(n.id, depth + 1)
+    }
+  }
+  walk('', 0)
+  expanded.value = next
+}
+
+function toggleDept(id: string) {
+  expanded.value = { ...expanded.value, [id]: !expanded.value[id] }
+}
+
 function loadAll() {
   if (props.source !== 'team') void loadFriends()
   if (props.source !== 'friends') {
@@ -163,12 +345,15 @@ function loadAll() {
 function switchTab(key: string) {
   if (activeTab.value === key) return
   activeTab.value = key
+  manualTab.value = true
+  keyword.value = ''
 }
 
 function toggleOpen() {
   if (props.disabled) return
   open.value = !open.value
   if (open.value) {
+    manualTab.value = false
     measureDrop()
     loadAll()
   }
@@ -229,6 +414,22 @@ watch(
 
 onMounted(() => document.addEventListener('mousedown', onDocDown, true))
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true))
+
+/**
+ * 打开面板后数据陆续回来：当前 tab 是空的（比如没有好友）而别的 tab 有人时，
+ * 自动跳到第一个有人的 tab，否则用户看到的就是一片空白。
+ */
+watch(
+  [friends, membersBySpace],
+  () => {
+    if (!open.value || manualTab.value) return
+    const cur = tabs.value.find((t) => t.key === activeTab.value)
+    if (cur && cur.count > 0) return
+    const better = tabs.value.find((t) => t.count > 0)
+    if (better) activeTab.value = better.key
+  },
+  { deep: true },
+)
 </script>
 
 <template>
@@ -271,26 +472,89 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
       </div>
 
       <div class="pp-list">
-        <button
-          v-for="p in currentList"
-          :key="p.username"
-          type="button"
-          class="pp-row"
-          :class="{ on: selected.includes(p.username) }"
-          @click="toggle(p.username)"
-        >
-          <span class="pp-check"><Check v-if="selected.includes(p.username)" :size="11" :stroke-width="2.6" /></span>
-          <span class="pp-avatar">
-            <img v-if="p.avatar" :src="p.avatar" alt="" />
-            <span v-else>{{ (p.name || '?').slice(0, 1) }}</span>
-          </span>
-          <span class="pp-name">{{ p.name }}</span>
-          <span class="pp-sub">@{{ p.username }}</span>
-        </button>
+        <!-- 好友：没有组织层级，扁平列表 -->
+        <template v-if="!isTeamTab">
+          <button
+            v-for="p in friendList"
+            :key="p.username"
+            type="button"
+            class="pp-row"
+            :class="{ on: selected.includes(p.username) }"
+            @click="toggle(p.username)"
+          >
+            <span class="pp-check">
+              <Check v-if="selected.includes(p.username)" :size="11" :stroke-width="2.6" />
+            </span>
+            <span class="pp-avatar">
+              <img v-if="p.avatar" :src="p.avatar" alt="" />
+              <span v-else>{{ (p.name || '?').slice(0, 1) }}</span>
+            </span>
+            <span class="pp-name">{{ p.name }}</span>
+            <span class="pp-sub">@{{ p.username }}</span>
+          </button>
+          <div v-if="!friendList.length" class="pp-empty">{{ emptyText }}</div>
+        </template>
 
-        <div v-if="!currentList.length" class="pp-empty">
-          {{ keyword.trim() ? '没有匹配的成员' : emptyText }}
-        </div>
+        <!-- 搜索：跨部门扁平出结果，路径放副标题 -->
+        <template v-else-if="keyword.trim()">
+          <button
+            v-for="row in searchRows"
+            :key="row.person.username"
+            type="button"
+            class="pp-row"
+            :class="{ on: selected.includes(row.person.username) }"
+            @click="toggle(row.person.username)"
+          >
+            <span class="pp-check">
+              <Check v-if="selected.includes(row.person.username)" :size="11" :stroke-width="2.6" />
+            </span>
+            <span class="pp-avatar">
+              <img v-if="row.person.avatar" :src="row.person.avatar" alt="" />
+              <span v-else>{{ (row.person.name || '?').slice(0, 1) }}</span>
+            </span>
+            <span class="pp-name">{{ row.person.name }}</span>
+            <span v-if="row.path" class="pp-path" :title="row.path">{{ row.path }}</span>
+          </button>
+          <div v-if="!searchRows.length" class="pp-empty">{{ emptyText }}</div>
+        </template>
+
+        <!-- 团队：部门可展开、人可勾选 -->
+        <template v-else>
+          <template v-for="row in treeRows" :key="row.key">
+            <button
+              v-if="row.kind === 'dept'"
+              type="button"
+              class="pp-dept"
+              :class="{ open: row.open, ghost: !row.canOpen }"
+              :style="indent(row.depth)"
+              @click="row.canOpen && toggleDept(row.id)"
+            >
+              <ChevronRight :size="12" class="pp-chev" :class="{ on: row.open }" />
+              <Folder :size="12" class="pp-folder" />
+              <span class="pp-name">{{ row.name }}</span>
+              <span class="pp-dept-count">{{ row.total }}</span>
+            </button>
+            <button
+              v-else
+              type="button"
+              class="pp-row pp-person"
+              :class="{ on: selected.includes(row.person.username) }"
+              :style="indent(row.depth)"
+              @click="toggle(row.person.username)"
+            >
+              <span class="pp-check">
+                <Check v-if="selected.includes(row.person.username)" :size="11" :stroke-width="2.6" />
+              </span>
+              <span class="pp-avatar">
+                <img v-if="row.person.avatar" :src="row.person.avatar" alt="" />
+                <span v-else>{{ (row.person.name || '?').slice(0, 1) }}</span>
+              </span>
+              <span class="pp-name">{{ row.person.name }}</span>
+              <span class="pp-sub">@{{ row.person.username }}</span>
+            </button>
+          </template>
+          <div v-if="!treeRows.length" class="pp-empty">{{ emptyText }}</div>
+        </template>
       </div>
     </div>
   </div>
@@ -387,7 +651,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   z-index: 60;
   display: flex;
   flex-direction: column;
-  width: max(100%, 280px);
+  width: max(100%, 288px);
   padding: 4px;
   border: 1px solid var(--gn-border);
   border-radius: 8px;
@@ -458,7 +722,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   color: var(--gn-accent);
 }
 .pp-list {
-  max-height: 240px;
+  max-height: 268px;
   overflow-y: auto;
   padding: 0 1px;
 }
@@ -485,6 +749,17 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
 .pp-row.on {
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
+}
+/* 展开/收起时新行淡入一点，避免整块内容硬跳 */
+.pp-person,
+.pp-dept {
+  animation: pp-row-in 0.14s ease;
+}
+@keyframes pp-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
 .pp-check {
   display: inline-flex;
@@ -530,6 +805,70 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   font-size: 11px;
   color: var(--gn-text-muted);
   white-space: nowrap;
+}
+/* 搜索结果的部门路径：挤在右侧，太长就省略 */
+.pp-path {
+  margin-left: auto;
+  max-width: 45%;
+  font-size: 10.5px;
+  color: var(--gn-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* ---------- 部门行：只能展开，不能勾选 ---------- */
+.pp-dept {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  height: 28px;
+  padding: 0 7px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.pp-dept:hover {
+  background: var(--gn-bg-hover);
+}
+.pp-dept.ghost {
+  cursor: default;
+}
+.pp-chev {
+  flex: 0 0 auto;
+  color: var(--gn-text-muted);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.pp-chev.on {
+  transform: rotate(90deg);
+}
+.pp-dept.ghost .pp-chev {
+  visibility: hidden;
+}
+.pp-folder {
+  flex: 0 0 auto;
+  color: var(--gn-text-muted);
+}
+.pp-dept.open .pp-folder {
+  color: var(--gn-accent);
+}
+.pp-dept .pp-name {
+  font-weight: 500;
+}
+.pp-dept-count {
+  margin-left: auto;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-muted);
+  font-size: 10px;
+  text-align: center;
 }
 .pp-empty {
   padding: 10px 8px;
