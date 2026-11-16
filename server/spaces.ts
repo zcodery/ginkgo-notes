@@ -7,21 +7,19 @@ import { HttpError, param, str } from './http.ts'
 import { notify } from './notify.ts'
 
 /**
- * 团队空间：组织树（部门/团队）、成员与角色、邀请。
+ * 团队空间：组织树、成员与角色、邀请。
  *
  * 角色继承：成员挂在某个 org_node 上，条目授权到该节点时整棵子树生效。
  */
 
 export const spacesRouter = Router()
 
-const ORG_TYPES = new Set(['department', 'team'])
 const ASSIGNABLE = new Set<SpaceRole>(['admin', 'editor', 'viewer', 'guest'])
 
 interface OrgNodeRow {
   id: string
   space_id: string
   parent_id: string | null
-  type: string
   name: string
   path: string
   depth: number
@@ -131,8 +129,8 @@ spacesRouter.post('/spaces', (req, res) => {
       space.created_at,
     )
     db.prepare(
-      `INSERT INTO org_nodes (id, space_id, parent_id, type, name, path, depth, sort, lead_user_id, created_at)
-       VALUES (?, ?, NULL, 'department', '全员', ?, 0, 1, ?, ?)`,
+      `INSERT INTO org_nodes (id, space_id, parent_id, name, path, depth, sort, lead_user_id, created_at)
+       VALUES (?, ?, NULL, '全员', ?, 0, 1, ?, ?)`,
     ).run(rootId, space.id, `/${rootId}/`, user.id, now)
     db.prepare(
       "INSERT INTO space_members (space_id, user_id, org_node_id, role, status, joined_at) VALUES (?, ?, ?, 'owner', 'active', ?)",
@@ -232,7 +230,6 @@ spacesRouter.get('/spaces/:id/org', (req, res) => {
     nodes: nodes.map((n) => ({
       id: n.id,
       parentId: n.parent_id,
-      type: n.type,
       name: n.name,
       path: n.path,
       depth: n.depth,
@@ -265,7 +262,6 @@ spacesRouter.post('/spaces/:id/org/nodes', (req, res) => {
   requireAdmin(space.id, user.id)
   const name = str(req.body?.name, '节点名称', 40)
   if (!name) throw new HttpError(400, '请填写节点名称')
-  const type = ORG_TYPES.has(String(req.body?.type)) ? String(req.body.type) : 'department'
   const parentId = typeof req.body?.parentId === 'string' && req.body.parentId ? req.body.parentId : null
   if (parentId) {
     const parent = db.prepare('SELECT space_id FROM org_nodes WHERE id = ?').get(parentId) as
@@ -282,10 +278,10 @@ spacesRouter.post('/spaces/:id/org/nodes', (req, res) => {
     ) as { m: number }
   ).m + 1
   db.prepare(
-    `INSERT INTO org_nodes (id, space_id, parent_id, type, name, path, depth, sort, lead_user_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-  ).run(id, space.id, parentId, type, name, path, depth, sort, Date.now())
-  res.status(201).json({ id, parentId, type, name, path, depth, sort, memberCount: 0 })
+    `INSERT INTO org_nodes (id, space_id, parent_id, name, path, depth, sort, lead_user_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+  ).run(id, space.id, parentId, name, path, depth, sort, Date.now())
+  res.status(201).json({ id, parentId, name, path, depth, sort, memberCount: 0 })
 })
 
 spacesRouter.patch('/spaces/:id/org/nodes/:nodeId', (req, res) => {
@@ -502,8 +498,8 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
   if (!root) {
     const id = randomUUID()
     db.prepare(
-      `INSERT INTO org_nodes (id, space_id, parent_id, type, name, path, depth, sort, lead_user_id, created_at)
-       VALUES (?, ?, NULL, 'department', '全员', ?, 0, 1, ?, ?)`,
+      `INSERT INTO org_nodes (id, space_id, parent_id, name, path, depth, sort, lead_user_id, created_at)
+       VALUES (?, ?, NULL, '全员', ?, 0, 1, ?, ?)`,
     ).run(id, space.id, `/${id}/`, user.id, now)
     root = db.prepare('SELECT * FROM org_nodes WHERE id = ?').get(id) as unknown as OrgNodeRow
   }
@@ -515,7 +511,7 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
     return row.m + 1
   }
 
-  function createNode(parentId: string, name: string, type: string): string {
+  function createNode(parentId: string, name: string): string {
     const existing = db
       .prepare('SELECT id FROM org_nodes WHERE space_id = ? AND parent_id = ? AND name = ?')
       .get(space.id, parentId, name) as { id: string } | undefined
@@ -526,9 +522,9 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
     const id = randomUUID()
     const { path, depth } = nodePath(parentId, id)
     db.prepare(
-      `INSERT INTO org_nodes (id, space_id, parent_id, type, name, path, depth, sort, lead_user_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-    ).run(id, space.id, parentId, ORG_TYPES.has(type) ? type : 'department', name.slice(0, 40), path, depth, nextSort(parentId), now)
+      `INSERT INTO org_nodes (id, space_id, parent_id, name, path, depth, sort, lead_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+    ).run(id, space.id, parentId, name.slice(0, 40), path, depth, nextSort(parentId), now)
     result.createdNodes++
     return id
   }
@@ -574,7 +570,7 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
             parentId = hit
             continue
           }
-          parentId = createNode(parentId, part, 'department')
+          parentId = createNode(parentId, part)
           pathToNode.set(acc, parentId)
         }
         return parentId
@@ -614,7 +610,7 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
             continue
           }
           const parentId = parentKey ? keyToNode.get(String(parentKey))! : root!.id
-          const id = createNode(parentId, name, String(n.type ?? 'department'))
+          const id = createNode(parentId, name)
           keyToNode.set(String(n.key ?? n.id ?? name), id)
         }
         pending = next
@@ -625,7 +621,7 @@ spacesRouter.post('/spaces/:id/org/import', (req, res) => {
       const walk = (node: Record<string, unknown>, parentId: string, fallbackKey: string) => {
         const name = typeof node.name === 'string' ? node.name.trim() : ''
         if (!name) return
-        const id = createNode(parentId, name, String(node.type ?? 'department'))
+        const id = createNode(parentId, name)
         const key = String(node.key ?? node.id ?? fallbackKey)
         keyToNode.set(key, id)
         const children = Array.isArray(node.children) ? (node.children as Record<string, unknown>[]) : []

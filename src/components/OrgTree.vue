@@ -8,7 +8,6 @@ import {
   updateOrgNode,
   type OrgNodeInfo,
 } from '@/api/features'
-import GnSelect from './GnSelect.vue'
 
 const props = defineProps<{
   spaceId: string
@@ -27,12 +26,6 @@ const editingName = ref('')
 const confirmingId = ref('')
 const addingParentId = ref<string | null | undefined>(undefined)
 const addingName = ref('')
-const addingType = ref<'department' | 'team'>('department')
-
-const typeOptions = [
-  { value: 'department', label: '部门' },
-  { value: 'team', label: '团队' },
-]
 
 const isCollapsed = (id: string) => collapsed.value.includes(id)
 
@@ -106,7 +99,6 @@ function startAdd(parentId: string | null) {
   resetInline()
   addingParentId.value = parentId
   addingName.value = ''
-  addingType.value = 'department'
   // 父节点收着的话先展开，否则新行会挂在一个看不见的层级下
   if (parentId) collapsed.value = collapsed.value.filter((x) => x !== parentId)
 }
@@ -128,7 +120,6 @@ function saveAdd() {
   void apply(() =>
     createOrgNode(props.spaceId, {
       name,
-      type: addingType.value,
       parentId: addingParentId.value,
     }),
   )
@@ -334,7 +325,7 @@ function onRowLeave(el: Element) {
     <div class="ot-head">
       <span class="ot-title">组织架构</span>
       <button v-if="canManage" type="button" class="ot-add-root" :disabled="busy" @click="startAdd(null)">
-        <Plus :size="12" :stroke-width="2.2" />根级部门
+        <Plus :size="12" :stroke-width="2.2" />根级节点
       </button>
     </div>
 
@@ -360,12 +351,11 @@ function onRowLeave(el: Element) {
             :ref="setAddInput"
             v-model="addingName"
             class="ot-add-input"
-            :placeholder="row.parentId ? '下级部门 / 团队名称' : '根级部门名称'"
+            :placeholder="row.parentId ? '下级名称' : '根节点名称'"
             :disabled="busy"
             @keydown.enter.prevent="saveAdd"
             @keydown.esc.prevent="resetInline"
           />
-          <GnSelect v-model="addingType" :options="typeOptions" :min-width="68" />
           <button type="button" class="ot-btn primary sm" :disabled="busy || !addingName.trim()" @click="saveAdd">
             确定
           </button>
@@ -761,10 +751,6 @@ function onRowLeave(el: Element) {
   padding: 0 10px;
   font-size: 12px;
   flex: 0 0 auto;
-}
-/* 新增行里的下拉跟输入框同高，三者（输入/下拉/按钮）齐平 */
-.ot-add-row :deep(.gn-select-trigger) {
-  height: 26px;
 }
 .ot-btn.danger {
   border-color: transparent;

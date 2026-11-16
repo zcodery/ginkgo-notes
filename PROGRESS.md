@@ -226,6 +226,8 @@ ginkgoNotes/
 | 72 | 折叠展开高度动画 | ✅ | `TransitionGroup` + 进入/离开前置高度（`before-enter` 写 0、`leave` 先锁当前高度再归 0），收起最外层时整段下级是滑上去而不是瞬间消失；同时加了 `.otk-move` 让换位有位移过渡 |
 | 73 | 下拉面板改挂 body（修分享成员列表被裁） | ✅ | `GnSelect` 下拉原来 `position: absolute` 挂在触发器旁边，被 `.pf-list`（`max-height:360 + overflow-y:auto`）裁掉：列表只剩一位成员时点「可查看」，面板只露出一条浅色边，同时因为绝对定位的溢出撑出竖向滚动条、把行内权限下拉和删除按钮挤到一起。改为 `<Teleport to="body">` + `position: fixed`：打开前按触发器矩形算 `top/bottom`（下方不足且上方更宽裕就上翻）、宽度取 `max(触发器宽, 150)`、右对齐触发器再夹到视口内 8px，`max-height` 取可用空间；滚动/缩放时跟随重算，关闭时移除监听；面板内点击算「内部」（否则 mousedown 会先关掉面板、选项点不中）。成员列表换 `gn-scroll` 细滚动条，提示文字与列表之间补 10px 留白 |
 
+| 74 | 组织节点去掉「部门 / 团队」类型 | ✅ | 组织树只有一种节点，不再分部门/团队：新增行删掉右侧类型下拉（只剩 输入 + 确定 + 取消，三者 26px 等高）、按钮改「+ 根级节点」、占位改「根级/下级名称」；前端 `OrgNodeInfo` 去掉 `type`，`createOrgNode` body 只传 `{ name, parentId }`，`TeamsView` 邀请区文案改「不指定节点」、CSV 示例改「节点路径」。后端 `org_nodes` 建表不再带 `type` 列，老库启动时 `ALTER TABLE org_nodes DROP COLUMN type` 幂等删除（数据保留）；创建/导入/列表全部不再读写该列，导入 JSON 里遗留的 `type` 键被忽略而不是报错 |
+
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
@@ -322,7 +324,7 @@ ginkgoNotes/
 | POST | `/spaces` | 创建团队（自动建根节点「全员」） | 会话/令牌 |
 | GET / PATCH | `/spaces/:id` | 详情 / 改名 | 空间成员 / admin |
 | GET | `/spaces/:id/org` | 组织树 + 成员 | 空间成员 |
-| POST | `/spaces/:id/org/nodes` | 新建部门 / 团队 | 空间 admin |
+| POST | `/spaces/:id/org/nodes` | 新建组织节点（body：`{ name, parentId? }`） | 空间 admin |
 | PATCH / DELETE | `/spaces/:id/org/nodes/:nodeId` | 移动/改名 / 删除（成员与授权迁回上级） | 空间 admin |
 | POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
 | GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
@@ -495,7 +497,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 | `shares` | token / pageId / password / expiresAt / includeChildren |
 | `page_grants` | pageId / userId / role(viewer/editor)；旧表，启动时迁移进 `acl_entries`，新写入走 `acl_entries` |
 | `spaces` | id / type(personal/team/public) / name / ownerUserId；个人空间 id = 用户 id |
-| `org_nodes` | spaceId / parentId / type(department/team) / name / path(物化路径) / depth / sort / leadUserId |
+| `org_nodes` | spaceId / parentId / name / path(物化路径) / depth / sort / leadUserId（不再区分类型，`type` 列已删除） |
 | `space_members` | spaceId / userId / orgNodeId / role(owner/admin/editor/viewer/guest) / status |
 | `acl_entries` | spaceId / resourceType(page/database) / resourceId / subjectType(user/org_node/space) / subjectId / role / deny / inherit |
 | `friendships` | userLow / userHigh（归一化用户对，唯一）/ status / requestedBy / message |
@@ -546,6 +548,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 35. **TransitionGroup 的每个子节点必须是一个元素**：`<template v-for :key>` 产出的是 fragment，动画会静默失效。要给每个 key 套一层包裹元素（这里是 `.ot-slot`），并把 `v-if/v-else` 放进包裹内。另外 `height` 过渡必须有具体数值：`before-enter` 里先写 `height:0`、`enter` 里读 `scrollHeight` 再写回，`leave` 里先锁 `getBoundingClientRect().height` 再归 0；只写 CSS 类不做这两步，高度不会动。
 36. **拖拽换位别用「sort 数值」做接口**：前端算不出稳定的中间值（并列、浮点精度都会出问题）。让服务端接 `beforeId`（插到哪个兄弟之前，空表示末尾），在事务里把该父节点下的兄弟整体重排成 1..n，同时只在父节点真的变了时才更新子树 `path/depth`。前端还要挡「拖到自己的下级」——原生 DnD 在不调 `preventDefault` 时不会触发 drop，正好可以当作拒绝态。
 37. **`overflow-y: auto` 的列表会同时「裁掉」和「撑开」绝对定位下拉**：`.pf-list` 这类滚动容器里放 `position: absolute` 的浮层，面板超出底部会被裁掉（只露出一条边），而且它计入 scrollable overflow，哪怕只有一行成员也会冒出滚动条、把行宽压掉十几像素，表现为「下拉框和滚动条挤在一起」。下拉/菜单一律 `Teleport to="body"` + `position: fixed`，坐标由触发器 `getBoundingClientRect()` 算（下方不够就上翻、右对齐后夹进视口）。两个连带问题：①判断「点击在面板外」必须把 teleport 出去的 panel 也纳入判断，否则 mousedown 先关面板、click 落不到选项上；②滚动/窗口缩放要重算位置，否则浮层会与触发器脱开。
+38. **删字段只改建表语句是不够的**：`CREATE TABLE IF NOT EXISTS` 对已存在的表直接跳过，老库照样留着旧列，于是「代码里已经不读、库里还在」。删列必须在建表之后补一条幂等迁移：`ALTER TABLE org_nodes DROP COLUMN type` 放在 try/catch 里（列不存在、或 SQLite < 3.35 不支持 DROP COLUMN 时静默跳过），实测 node:sqlite 可以正常删列且保留数据。另外导入类的接口要能容忍旧数据里的多余键（如 JSON 节点上的 `type`），只取认识的字段，别因为多一个键就整体报错。
 
 ---
 

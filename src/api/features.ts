@@ -378,7 +378,6 @@ export interface SpaceInfo {
 export interface OrgNodeInfo {
   id: string
   parentId: string | null
-  type: 'department' | 'team'
   name: string
   path: string
   depth: number
@@ -414,7 +413,7 @@ export const getSpace = (id: string) => api<SpaceInfo>('GET', `/spaces/${id}`)
 export const renameSpace = (id: string, name: string) => api<SpaceInfo>('PATCH', `/spaces/${id}`, { name })
 export const getSpaceOrg = (id: string) =>
   api<{ nodes: OrgNodeInfo[]; members: SpaceMemberInfo[] }>('GET', `/spaces/${id}/org`)
-export const createOrgNode = (spaceId: string, body: { parentId?: string | null; type: string; name: string }) =>
+export const createOrgNode = (spaceId: string, body: { parentId?: string | null; name: string }) =>
   api<OrgNodeInfo>('POST', `/spaces/${spaceId}/org/nodes`, body)
 export const updateOrgNode = (
   spaceId: string,

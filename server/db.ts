@@ -173,12 +173,11 @@ db.exec(`
     created_at    INTEGER NOT NULL
   );
 
-  -- 组织节点：部门 / 团队，path 为物化路径，便于子树查询
+  -- 组织节点：path 为物化路径，便于子树查询
   CREATE TABLE IF NOT EXISTS org_nodes (
     id           TEXT PRIMARY KEY,
     space_id     TEXT NOT NULL,
     parent_id    TEXT,
-    type         TEXT NOT NULL DEFAULT 'department',
     name         TEXT NOT NULL,
     path         TEXT NOT NULL,
     depth        INTEGER NOT NULL DEFAULT 0,
@@ -284,6 +283,13 @@ try {
   db.exec('ALTER TABLE pages ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
 } catch {
   /* 列已存在 */
+}
+
+// 组织节点不再区分「部门 / 团队」：老库把这一列删掉（新库建表时就没有）
+try {
+  db.exec('ALTER TABLE org_nodes DROP COLUMN type')
+} catch {
+  /* 列不存在或 SQLite 不支持 DROP COLUMN */
 }
 
 /* ---------------- 协作域存量迁移（幂等） ---------------- */

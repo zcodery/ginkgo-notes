@@ -147,7 +147,7 @@ async function enterTeam() {
 }
 
 const orgOptions = computed(() => [
-  { value: '', label: '不指定部门' },
+  { value: '', label: '不指定节点' },
   ...nodes.value.map((n) => ({ value: n.id, label: `${'　'.repeat(n.depth)}${n.name}` })),
 ])
 const formatOptions = [
@@ -284,7 +284,7 @@ onMounted(async () => {
                   <textarea
                     v-model="importText"
                     rows="6"
-                    placeholder="CSV：部门路径,用户名,角色&#10;研发部/前端组,zhangsan,editor&#10;研发部/后端组,lisi,viewer&#10;&#10;也支持粘贴 JSON：{ &quot;nodes&quot;: [...], &quot;members&quot;: [...] }"
+                    placeholder="CSV：节点路径,用户名,角色&#10;研发部/前端组,zhangsan,editor&#10;研发部/后端组,lisi,viewer&#10;&#10;也支持粘贴 JSON：{ &quot;nodes&quot;: [...], &quot;members&quot;: [...] }"
                   ></textarea>
                   <div class="tm-inline tm-wrap">
                     <label class="tm-btn tm-file">
@@ -372,7 +372,7 @@ onMounted(async () => {
                     v-model="inviteDraft.orgNodeId"
                     :options="orgOptions"
                     :min-width="150"
-                    v-tooltip="'挂到哪个部门，成员会继承该节点权限'"
+                    v-tooltip="'挂到哪个节点，成员会继承该节点权限'"
                   />
                   <button
                     type="button"
