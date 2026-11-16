@@ -13,6 +13,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import GnSelect from '@/components/GnSelect.vue'
+import GnCascader, { type GnCascadeOption } from '@/components/GnCascader.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
 import {
@@ -344,11 +345,30 @@ async function enterTeam() {
   goHome()
 }
 
-const orgOptions = computed(() => {
+/** 组织节点 → 级联选项：管理员可以从「不指定节点」起步，负责人只列自己能管的子树 */
+const orgCascade = computed<GnCascadeOption[]>(() => {
   const list = canManage.value ? nodes.value : nodes.value.filter((n) => inMyScope(n.id))
-  const rows = list.map((n) => ({ value: n.id, label: `${'　'.repeat(n.depth)}${n.name}` }))
+  const ids = new Set(list.map((n) => n.id))
+  const byParent = new Map<string, OrgNodeInfo[]>()
+  const roots: OrgNodeInfo[] = []
+  for (const n of list) {
+    if (n.parentId && ids.has(n.parentId)) {
+      const bucket = byParent.get(n.parentId)
+      if (bucket) bucket.push(n)
+      else byParent.set(n.parentId, [n])
+    } else {
+      roots.push(n)
+    }
+  }
+  const toOption = (n: OrgNodeInfo): GnCascadeOption => {
+    const kids = byParent.get(n.id) ?? []
+    const opt: GnCascadeOption = { value: n.id, label: n.name }
+    if (kids.length) opt.children = kids.map(toOption)
+    return opt
+  }
+  const tree = roots.map(toOption)
   // 「不指定节点」等于挂到空间根上，只有管理员能这么放
-  return canManage.value ? [{ value: '', label: '不指定节点' }, ...rows] : rows
+  return canManage.value ? [{ value: '', label: '不指定节点' }, ...tree] : tree
 })
 const formatOptions = [
   { value: 'csv', label: 'CSV' },
@@ -782,9 +802,9 @@ onBeforeUnmount(() => {
                       :min-width="92"
                       v-tooltip="'邀请后授予的角色'"
                     />
-                    <GnSelect
+                    <GnCascader
                       v-model="inviteDraft.orgNodeId"
-                      :options="orgOptions"
+                      :options="orgCascade"
                       :min-width="150"
                       v-tooltip="'挂到哪个节点，成员会继承该节点权限'"
                     />
@@ -824,9 +844,9 @@ onBeforeUnmount(() => {
                       :min-width="78"
                       v-tooltip="'新成员的角色'"
                     />
-                    <GnSelect
+                    <GnCascader
                       v-model="createDraft.orgNodeId"
-                      :options="orgOptions"
+                      :options="orgCascade"
                       :min-width="120"
                       v-tooltip="'建号后直接挂到这个节点'"
                     />
