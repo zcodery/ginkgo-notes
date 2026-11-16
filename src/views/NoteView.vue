@@ -44,6 +44,9 @@ import FindReplaceBar from '@/components/FindReplaceBar.vue'
 import ImageExportModal from '@/components/ImageExportModal.vue'
 import CollapseTransition from '@/components/CollapseTransition.vue'
 import ChildPages from '@/components/ChildPages.vue'
+import PresenceAvatars from '@/components/PresenceAvatars.vue'
+import { ApiError } from '@/api/client'
+import { claimEdit, releaseEdit } from '@/api/features'
 import { copyText } from '@/utils/clipboard'
 import {
   activePage,
@@ -70,7 +73,7 @@ import {
   type NoteLayout,
   type NoteWidthRatio,
 } from '@/store'
-import { createPage, saveContent, savePage, trashPage, toPlainText, uid } from '@/db/repo'
+import { createPage, saveContent, savePage, trashPage, toPlainText, uid, VersionConflictError } from '@/db/repo'
 import { ASSET_PREFIX, hydrateAssets, inflateAssetsForExport } from '@/editor/assets'
 import { expandDatabases } from '@/blocks/exportDatabases'
 import { downloadBlob, exportNoteAsPdf, safeFileName } from '@/utils/exportPage'
@@ -132,7 +135,32 @@ const FONT_SIZE_OPTIONS = NOTE_FONT_SIZES.map((s) => ({
 const page = computed(() => (activePage.value?.id === props.pageId ? activePage.value : null))
 const crumbs = computed(() => ancestorsOf(store.pages, props.pageId))
 const isLocked = computed(() => !!page.value?.locked)
-const canEdit = computed(() => !isLocked.value)
+
+/** 有人抢先占用编辑权时，本页转为只读并给出提示 */
+const remoteEditing = ref(false)
+const remoteEditorName = ref('')
+const hasEditLease = ref(false)
+const canEdit = computed(() => !isLocked.value && !remoteEditing.value)
+
+/** 首次真正编辑时才申请编辑占用，避免只是查看也抢走写权限 */
+async function ensureEditLease(): Promise<boolean> {
+  if (hasEditLease.value) return true
+  if (!canEdit.value || !page.value) return false
+  try {
+    await claimEdit(page.value.id)
+    hasEditLease.value = true
+    return true
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      const data = e.data as { holder?: { name?: string } } | null
+      remoteEditorName.value = data?.holder?.name ?? '其他成员'
+      remoteEditing.value = true
+      return false
+    }
+    // 其他错误不阻塞编辑（例如断网时会话内继续尝试）
+    return true
+  }
+}
 
 const innerStyle = computed(() => {
   if (store.noteWidthMode === 'auto') {
@@ -404,6 +432,10 @@ function onTitleEnter(e: KeyboardEvent) {
 
 async function onContentChange(markdown: string, pageId: string) {
   if (!canEdit.value) return
+  if (!(await ensureEditLease())) {
+    store.saveState = 'error'
+    return
+  }
 
   store.saveState = 'saving'
   if (pageId === props.pageId) syncToc(markdown)
@@ -414,8 +446,12 @@ async function onContentChange(markdown: string, pageId: string) {
       markdown,
       pageId === props.pageId ? title.value || undefined : undefined,
     )
-  } catch {
+  } catch (e) {
     store.saveState = 'error'
+    if (e instanceof VersionConflictError) {
+      remoteEditing.value = true
+      remoteEditorName.value = remoteEditorName.value || '其他成员'
+    }
     return
   }
   const p = store.pages.find((x) => x.id === pageId)
@@ -724,6 +760,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onGlobalDown)
   document.removeEventListener('keydown', onNoteKeydown)
   tipTapEditor.value?.commands.clearSearch()
+  if (hasEditLease.value) void releaseEdit(props.pageId)
   // 离开页面时只补写还没落库的标题
   if (titleTimer) {
     window.clearTimeout(titleTimer)
@@ -780,6 +817,7 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="nv-top-actions">
+        <PresenceAvatars :page-id="pageId" />
         <span class="nv-save" :class="{ error: store.saveState === 'error' }">
           <span v-if="store.saveState === 'saving'" class="nv-dot saving"></span>
           <span v-else class="nv-dot"></span>
@@ -1328,6 +1366,10 @@ onBeforeUnmount(() => {
   gap: 2px;
   position: relative;
   flex: 0 0 auto;
+}
+/* 在线头像与「已保存」状态之间留出呼吸感 */
+.nv-top-actions :deep(.pa-wrap) {
+  margin-right: 8px;
 }
 .nv-more-btn.starred {
   color: #e0a92e;
