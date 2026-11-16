@@ -292,7 +292,7 @@ onMounted(async () => {
           </button>
         </div>
         <p class="pf-dialog-tip sd-tip">可以邀请好友，也可以邀请同团队的成员。被邀请的人会收到站内通知，可在侧栏「与我共享」中打开这个页面及其子页面。</p>
-        <div v-if="grants.length" class="pf-list">
+        <div v-if="grants.length" class="pf-list gn-scroll sd-grants">
           <div v-for="g in grants" :key="g.id" class="pf-list-item">
             <div class="pf-list-main">
               <div class="pf-list-title">{{ g.grantee.name }}</div>
@@ -390,5 +390,9 @@ onMounted(async () => {
 .sd-tip {
   margin-top: 10px;
   line-height: 1.65;
+}
+/* 提示文字与成员列表之间留白，避免列表边框贴住文字下沿 */
+.sd-grants {
+  margin-top: 10px;
 }
 </style>

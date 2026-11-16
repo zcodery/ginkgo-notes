@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, ChevronDown } from 'lucide-vue-next'
 
 export interface GnSelectOption {
@@ -22,13 +22,48 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
 const open = ref(false)
-/** 下方空间不足时向上展开，避免面板被容器底部裁掉 */
+/** 下方空间不足时向上展开 */
 const invert = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
+const triggerRef = ref<HTMLButtonElement | null>(null)
+const panelRef = ref<HTMLElement | null>(null)
+/** 面板 fixed 定位（Teleport 到 body，避免被滚动容器裁掉） */
+const panelStyle = ref<Record<string, string>>({})
 
 const label = computed(
   () => props.options.find((o) => o.value === props.modelValue)?.label ?? props.modelValue,
 )
+
+const GAP = 4
+const EDGE = 8
+const MAX_PANEL_H = 220
+
+/** 面板内容高度估算：内边距 8 + 每项 28 */
+function wantedHeight() {
+  return Math.min(MAX_PANEL_H, props.options.length * 28 + 10)
+}
+
+function place() {
+  const el = triggerRef.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const below = window.innerHeight - r.bottom - GAP - EDGE
+  const above = r.top - GAP - EDGE
+  const want = wantedHeight()
+  invert.value = below < want && above > below
+  const room = Math.max(96, invert.value ? above : below)
+  const width = Math.max(r.width, 150)
+  // 右对齐触发器，再夹到视口内
+  const left = Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE)
+  const style: Record<string, string> = {
+    left: `${Math.round(left)}px`,
+    width: `${Math.round(width)}px`,
+    maxHeight: `${Math.round(Math.min(want, room))}px`,
+  }
+  if (invert.value) style.bottom = `${Math.round(window.innerHeight - r.top + GAP)}px`
+  else style.top = `${Math.round(r.bottom + GAP)}px`
+  panelStyle.value = style
+}
 
 function toggle() {
   if (props.disabled) return
@@ -36,9 +71,7 @@ function toggle() {
     open.value = false
     return
   }
-  const rect = rootRef.value?.getBoundingClientRect()
-  const below = rect ? window.innerHeight - rect.bottom : 0
-  invert.value = !!rect && below < 240 && rect.top > 240
+  place()
   open.value = true
 }
 
@@ -50,40 +83,82 @@ function pick(v: string) {
 function onDocDown(e: MouseEvent) {
   if (!open.value) return
   const t = e.target as Node
-  if (rootRef.value?.contains(t)) return
+  if (rootRef.value?.contains(t) || panelRef.value?.contains(t)) return
   open.value = false
 }
 
+/** 浮层是 fixed 的，触发器位置一变就得重新贴上去 */
+function reposition() {
+  if (open.value) place()
+}
+
+function close() {
+  open.value = false
+}
+
+watch(open, (v) => {
+  if (v) {
+    window.addEventListener('scroll', reposition, true)
+    window.addEventListener('resize', reposition)
+  } else {
+    window.removeEventListener('scroll', reposition, true)
+    window.removeEventListener('resize', reposition)
+  }
+})
+
+// 选项或宽度变化时（例如窗口缩放后）保证面板不跑偏
+watch(
+  () => props.options.length,
+  () => {
+    if (open.value) void nextTick(place)
+  },
+)
+
 onMounted(() => document.addEventListener('mousedown', onDocDown, true))
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true))
+
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onDocDown, true)
+  window.removeEventListener('scroll', reposition, true)
+  window.removeEventListener('resize', reposition)
+})
 </script>
 
 <template>
   <div ref="rootRef" class="gn-select" :class="{ open, disabled }">
     <button
+      ref="triggerRef"
       type="button"
       class="gn-select-trigger"
       :style="{ minWidth: minWidth + 'px' }"
       :disabled="disabled"
       @click="toggle"
+      @keydown.esc.stop="close"
     >
       <span>{{ label }}</span>
       <ChevronDown :size="13" :stroke-width="2" />
     </button>
-    <div v-if="open" class="gn-select-list gn-pop" :class="{ invert }">
-      <button
-        v-for="opt in options"
-        :key="opt.value"
-        type="button"
-        class="gn-select-opt"
-        :class="{ on: opt.value === modelValue }"
-        :style="opt.style"
-        @click="pick(opt.value)"
+    <Teleport to="body">
+      <div
+        v-if="open"
+        ref="panelRef"
+        class="gn-select-list gn-pop"
+        :class="{ invert }"
+        :style="panelStyle"
       >
-        <span>{{ opt.label }}</span>
-        <Check v-if="opt.value === modelValue" :size="13" :stroke-width="2.2" />
-      </button>
-    </div>
+        <button
+          v-for="opt in options"
+          :key="opt.value"
+          type="button"
+          class="gn-select-opt"
+          :class="{ on: opt.value === modelValue }"
+          :style="opt.style"
+          @click="pick(opt.value)"
+        >
+          <span>{{ opt.label }}</span>
+          <Check v-if="opt.value === modelValue" :size="13" :stroke-width="2.2" />
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -133,23 +208,33 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   transform: rotate(180deg);
 }
 .gn-select-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 40;
-  min-width: max(100%, 150px);
-  max-width: min(300px, 76vw);
-  max-height: 220px;
+  position: fixed;
+  z-index: 1200;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px;
   background: var(--gn-bg);
   border: 1px solid var(--gn-border);
   border-radius: 8px;
   box-shadow: var(--gn-shadow-md);
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
-.gn-select-list.invert {
-  top: auto;
-  bottom: calc(100% + 4px);
+.gn-select-list:hover {
+  scrollbar-color: var(--gn-border-strong) transparent;
+}
+.gn-select-list::-webkit-scrollbar {
+  width: 6px;
+}
+.gn-select-list::-webkit-scrollbar-thumb {
+  border-radius: 99px;
+  background: transparent;
+}
+.gn-select-list:hover::-webkit-scrollbar-thumb {
+  background: var(--gn-border-strong);
+}
+.gn-select-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 .gn-select-opt {
   display: flex;
@@ -171,6 +256,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   flex: 1 1 auto;
   min-width: 0;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .gn-select-opt:hover {
   background: var(--gn-bg-hover);
