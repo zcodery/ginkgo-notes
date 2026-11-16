@@ -201,12 +201,12 @@ function clearMemberHint() {
   memberHintId.value = ''
 }
 
-/** 点行 = 选中该节点，右侧成员列表跟着过滤；点的是按钮/输入框则交给它们自己处理 */
+/** 点行 = 选中该节点，右侧成员列表跟着过滤；再点一次同一个节点 = 取消选择 */
 function onRowClick(node: OrgNodeInfo, e: MouseEvent) {
   if (editingId.value === node.id) return
   if (Date.now() - dragEndAt < 150) return
   if ((e.target as HTMLElement | null)?.closest('button, input, a, textarea')) return
-  emit('select', node.id)
+  emit('select', props.selectedId === node.id ? '' : node.id)
 }
 
 const nodeById = (id: string) => props.nodes.find((n) => n.id === id)
@@ -493,8 +493,11 @@ function onRowLeave(el: Element) {
               <span v-if="row.node.leadName" class="ot-lead">
                 <Crown :size="10" />{{ row.node.leadName }}
               </span>
-              <span class="ot-count">{{ row.node.memberCount }} 人</span>
-              <!-- 操作区始终占位（只是透明），否则悬停/少一个按钮都会把人数挤得对不齐 -->
+              <!--
+                操作区紧跟在名称后面（不是最右侧）：上下扫行时鼠标就在名称附近，
+                不用每次横跨大半个面板去够按钮。宽度固定并始终占位，
+                悬停只是把它点亮，名称和人数不会跟着抖。
+              -->
               <div class="ot-actions" :class="{ 'is-readonly': !canManageNode(row.node.id) }">
                 <template v-if="canManageNode(row.node.id)">
                   <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
@@ -513,6 +516,7 @@ function onRowLeave(el: Element) {
                   </button>
                 </template>
               </div>
+              <span class="ot-count">{{ row.node.memberCount }} 人</span>
             </template>
           </div>
 
@@ -750,6 +754,10 @@ function onRowLeave(el: Element) {
   transform: rotate(90deg);
 }
 .ot-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 13px;
   color: var(--gn-text);
   white-space: nowrap;
@@ -803,9 +811,10 @@ function onRowLeave(el: Element) {
 .ot-actions {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  /* 按钮贴着名称左对齐：鼠标扫行时就在手边，不用横跨面板去够 */
+  justify-content: flex-start;
   gap: 1px;
-  /* 固定宽度：按钮数量变化时人数列的右边界不动 */
+  /* 固定宽度：按钮数量变化时名称与人数都不动 */
   flex: 0 0 68px;
   opacity: 0;
   transition: opacity 0.12s ease;

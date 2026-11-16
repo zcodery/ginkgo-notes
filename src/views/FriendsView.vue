@@ -266,12 +266,13 @@ onMounted(async () => {
         </div>
 
         <aside class="fr-side-col">
-          <section class="fr-card">
+          <!-- 没有待处理申请就整块不出现，避免右侧常驻一张空卡 -->
+          <section v-if="incomingCount" class="fr-card">
             <div class="fr-card-head">
               <span>好友申请</span>
-              <span v-if="incomingCount" class="fr-count">{{ incomingCount }}</span>
+              <span class="fr-count">{{ incomingCount }}</span>
             </div>
-            <div v-if="incomingCount" class="fr-list">
+            <div class="fr-list">
               <div v-for="r in incoming" :key="r.id" class="fr-row is-request">
                 <div class="fr-avatar">
                   <img v-if="r.from?.avatar" :src="r.from.avatar" alt="" />
@@ -289,7 +290,6 @@ onMounted(async () => {
                 </div>
               </div>
             </div>
-            <p v-else class="fr-empty">暂无待处理申请。</p>
           </section>
 
           <section v-if="outgoing.length" class="fr-card">

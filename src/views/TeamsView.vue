@@ -2,7 +2,9 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   ArrowRight,
+  Check,
   ChevronRight,
+  Clock,
   Crown,
   FolderTree,
   GripVertical,
@@ -23,10 +25,13 @@ import {
   getSpaceOrg,
   importOrg,
   inviteToSpace,
-  listSpaces,
+  listFriends,
+  listSentFriendRequests,
   listSpaceInvites,
+  listSpaces,
   registerSpaceMember,
   removeSpaceMember,
+  sendFriendRequest,
   setNodeLead,
   updateSpaceMember,
   type BackendRole,
@@ -357,6 +362,78 @@ function removeMember(member: SpaceMemberInfo) {
   })
 }
 
+/* ---------------- 成员行右键菜单 ---------------- */
+
+const menuMember = ref<SpaceMemberInfo | null>(null)
+const menuPos = ref({ x: 0, y: 0 })
+/** 我和谁是好友、已经向谁发过申请：决定右键里「添加好友」这条怎么显示 */
+const friendUsernames = ref<Set<string>>(new Set())
+const sentUsernames = ref<Set<string>>(new Set())
+
+async function loadFriendState() {
+  try {
+    const [friends, sent] = await Promise.all([listFriends(), listSentFriendRequests()])
+    friendUsernames.value = new Set(friends.map((f) => f.username))
+    sentUsernames.value = new Set(sent.map((r) => r.to?.username).filter((u): u is string => !!u))
+  } catch {
+    // 好友接口挂了不该影响团队管理：菜单里的「添加好友」退化为可点，失败时再报错
+  }
+}
+
+function openMemberMenu(member: SpaceMemberInfo, e: MouseEvent) {
+  e.preventDefault()
+  // 先按估算尺寸把菜单夹进视口，贴边右键时不会溢出屏幕
+  const W = 186
+  const H = 210
+  menuPos.value = {
+    x: Math.max(8, Math.min(e.clientX, window.innerWidth - W - 8)),
+    y: Math.max(8, Math.min(e.clientY, window.innerHeight - H - 8)),
+  }
+  menuMember.value = member
+}
+
+function closeMemberMenu() {
+  menuMember.value = null
+}
+
+/** me：自己；friend：已是好友；pending：已发申请；none：可以申请 */
+function friendState(member: SpaceMemberInfo): 'me' | 'friend' | 'pending' | 'none' {
+  if (member.id === myId.value) return 'me'
+  if (friendUsernames.value.has(member.username)) return 'friend'
+  if (sentUsernames.value.has(member.username)) return 'pending'
+  return 'none'
+}
+
+function addFriendFromMenu(member: SpaceMemberInfo) {
+  closeMemberMenu()
+  return run(async () => {
+    await sendFriendRequest(member.username)
+    sentUsernames.value = new Set([...sentUsernames.value, member.username])
+    flash(`已向 ${member.name || member.username} 发送好友申请`)
+  })
+}
+
+function leadFromMenu(member: SpaceMemberInfo) {
+  closeMemberMenu()
+  return toggleLead(member)
+}
+
+/** 移出仍然走行内的二次确认，避免右键一滑就把人踢了 */
+function removeFromMenu(member: SpaceMemberInfo) {
+  closeMemberMenu()
+  confirmingMember.value = member.id
+}
+
+function onMenuDocDown(e: MouseEvent) {
+  if (!menuMember.value) return
+  if ((e.target as HTMLElement | null)?.closest('.tm-menu')) return
+  closeMemberMenu()
+}
+
+function onMenuKey(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeMemberMenu()
+}
+
 async function enterTeam() {
   if (!current.value) return
   await switchSpace(current.value.id)
@@ -474,6 +551,7 @@ const visiblePending = computed(() => {
   return pending.value.filter((p) => ids.has(memberNodeId(p.orgNodeId ?? '')))
 })
 
+/** 组织树传空 id 表示「再点一次取消了选择」，回到未选状态的收起布局 */
 function selectNode(id: string) {
   scopeId.value = id
 }
@@ -526,12 +604,18 @@ function doImport() {
 }
 
 onMounted(async () => {
+  document.addEventListener('mousedown', onMenuDocDown, true)
+  document.addEventListener('keydown', onMenuKey)
+  window.addEventListener('resize', closeMemberMenu)
+  window.addEventListener('scroll', closeMemberMenu, true)
   try {
     await refreshSpaces()
     await reloadSpaces()
     // 优先打开第一个团队；没有团队时退到个人空间，避免主区整片空白
     const initial = spaces.value.find((s) => s.type === 'team') ?? spaces.value[0]
     if (initial) await select(initial)
+    // 右键菜单要知道谁已经是好友，单独异步取，失败了也不影响页面
+    void loadFriendState()
   } catch (e) {
     err.value = errorText(e)
   } finally {
@@ -541,6 +625,10 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (noticeTimer) clearTimeout(noticeTimer)
+  document.removeEventListener('mousedown', onMenuDocDown, true)
+  document.removeEventListener('keydown', onMenuKey)
+  window.removeEventListener('resize', closeMemberMenu)
+  window.removeEventListener('scroll', closeMemberMenu, true)
 })
 </script>
 
@@ -705,6 +793,7 @@ onBeforeUnmount(() => {
                     :draggable="canManageMember(m)"
                     @dragstart="onMemberDragStart(m, $event)"
                     @dragend="onMemberDragEnd"
+                    @contextmenu.prevent="openMemberMenu(m, $event)"
                   >
                     <span
                       v-if="canManageMember(m)"
@@ -924,6 +1013,57 @@ onBeforeUnmount(() => {
     <Transition name="tm-notice">
       <div v-if="notice" class="tm-notice">{{ notice }}</div>
     </Transition>
+
+    <!-- 成员行右键菜单：和行内按钮同源，只是换成鼠标右键触发 -->
+    <div
+      v-if="menuMember"
+      class="tm-menu gn-pop"
+      role="menu"
+      :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }"
+      @contextmenu.prevent
+    >
+      <div class="tm-menu-head">
+        <span class="tm-menu-name">{{ menuMember.name }}</span>
+        <span class="tm-menu-sub">@{{ menuMember.username }}</span>
+      </div>
+
+      <template v-if="friendState(menuMember) === 'none'">
+        <button type="button" @click="addFriendFromMenu(menuMember)">
+          <UserPlus :size="14" :stroke-width="1.8" /><span>添加好友</span>
+        </button>
+      </template>
+      <button v-else type="button" class="is-muted" disabled>
+        <component
+          :is="friendState(menuMember) === 'friend' ? Check : friendState(menuMember) === 'pending' ? Clock : Users"
+          :size="14"
+          :stroke-width="1.8"
+        />
+        <span>
+          {{
+            friendState(menuMember) === 'friend'
+              ? '已是好友'
+              : friendState(menuMember) === 'pending'
+                ? '已发送好友申请'
+                : '这是你自己'
+          }}
+        </span>
+      </button>
+
+      <template v-if="canManageMember(menuMember)">
+        <div class="tm-menu-sep" />
+        <button
+          v-if="menuMember.orgNodeId && menuMember.role !== 'owner'"
+          type="button"
+          @click="leadFromMenu(menuMember)"
+        >
+          <Crown :size="14" :stroke-width="1.8" />
+          <span>{{ isDeptLead(menuMember) ? '取消部门负责人' : '设为部门负责人' }}</span>
+        </button>
+        <button type="button" class="danger" @click="removeFromMenu(menuMember)">
+          <X :size="14" :stroke-width="1.8" /><span>移出团队</span>
+        </button>
+      </template>
+    </div>
   </section>
 </template>
 
@@ -1626,6 +1766,81 @@ onBeforeUnmount(() => {
 .tm-notice-leave-to {
   opacity: 0;
   transform: translate(-50%, 8px);
+}
+/* ---------- 成员右键菜单 ---------- */
+.tm-menu {
+  position: fixed;
+  z-index: 600;
+  width: 186px;
+  padding: 5px;
+  border: 1px solid var(--gn-border);
+  border-radius: 9px;
+  background: var(--gn-bg);
+  box-shadow: var(--gn-shadow-lg);
+}
+.tm-menu-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--gn-border);
+  margin-bottom: 3px;
+}
+.tm-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gn-text);
+}
+.tm-menu-sub {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--gn-text-muted);
+}
+.tm-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.tm-menu button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-menu button:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.tm-menu button.danger {
+  color: var(--gn-danger);
+}
+.tm-menu button.danger:hover {
+  background: color-mix(in srgb, var(--gn-danger) 12%, transparent);
+}
+/* 已是好友 / 已申请 / 自己：保留位置但不给点 */
+.tm-menu button.is-muted,
+.tm-menu button.is-muted:hover {
+  background: transparent;
+  color: var(--gn-text-muted);
+  cursor: default;
+}
+.tm-menu-sep {
+  height: 1px;
+  margin: 4px 3px;
+  background: var(--gn-border);
 }
 /* PeoplePicker 默认带 flex:1 1 220px，在纵向容器里会被撑成 220px 高，这里收掉 */
 .tm-invite :deep(.pp) {
