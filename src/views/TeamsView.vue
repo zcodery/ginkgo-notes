@@ -322,6 +322,7 @@ onMounted(async () => {
                       :model-value="m.role"
                       :options="roleOptions"
                       :min-width="92"
+                      v-tooltip="'成员角色：可管理 / 可编辑 / 可查看'"
                       @update:model-value="changeRole(m, $event)"
                     />
                     <span v-else class="tm-tag">{{ m.role }}</span>
@@ -330,7 +331,13 @@ onMounted(async () => {
                       <button type="button" class="tm-btn" :disabled="busy" @click="removeMember(m)">确认</button>
                       <button type="button" class="tm-btn" :disabled="busy" @click="confirmingMember = ''">取消</button>
                     </template>
-                    <button v-else-if="canManage" type="button" class="tm-icon" @click="confirmingMember = m.id">
+                    <button
+                      v-else-if="canManage"
+                      type="button"
+                      class="tm-icon"
+                      v-tooltip="'移出成员'"
+                      @click="confirmingMember = m.id"
+                    >
                       <X :size="13" />
                     </button>
                   </div>
@@ -355,8 +362,18 @@ onMounted(async () => {
                   placeholder="选择好友或团队成员"
                 />
                 <div class="tm-inline tm-wrap">
-                  <GnSelect v-model="inviteDraft.role" :options="roleOptions" :min-width="92" />
-                  <GnSelect v-model="inviteDraft.orgNodeId" :options="orgOptions" :min-width="150" />
+                  <GnSelect
+                    v-model="inviteDraft.role"
+                    :options="roleOptions"
+                    :min-width="92"
+                    v-tooltip="'邀请后授予的角色'"
+                  />
+                  <GnSelect
+                    v-model="inviteDraft.orgNodeId"
+                    :options="orgOptions"
+                    :min-width="150"
+                    v-tooltip="'挂到哪个部门，成员会继承该节点权限'"
+                  />
                   <button
                     type="button"
                     class="tm-btn primary"

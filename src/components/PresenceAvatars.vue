@@ -88,7 +88,10 @@ onBeforeUnmount(() => {
         :key="u.userId"
         class="pa-avatar"
         :class="{ editing: u.editing }"
-        :title="`${u.name}${u.tabs > 1 ? `（${u.tabs} 个窗口）` : ''}${u.editing ? ' · 正在编辑' : ''}`"
+        v-tooltip="{
+          title: u.name,
+          desc: `${u.tabs > 1 ? `${u.tabs} 个窗口在线` : '在线'}${u.editing ? ' · 正在编辑' : ''}`,
+        }"
       >
         <img v-if="u.avatar" :src="u.avatar" alt="" />
         <span v-else>{{ initial(u.name) }}</span>

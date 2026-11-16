@@ -254,6 +254,7 @@ function doDelete(id: string) {
               class="ot-toggle"
               :class="{ ghost: !row.hasChildren }"
               :disabled="!row.hasChildren"
+              v-tooltip="row.hasChildren ? (isCollapsed(row.node.id) ? '展开下级' : '收起下级') : null"
               @click="toggle(row.node.id)"
             >
               <ChevronRight :size="13" :class="{ open: row.hasChildren && !isCollapsed(row.node.id) }" />
@@ -289,13 +290,18 @@ function doDelete(id: string) {
               <span class="ot-type">{{ row.node.type === 'team' ? '团队' : '部门' }}</span>
               <span class="ot-count">{{ row.node.memberCount }} 人</span>
               <div v-if="canManage" class="ot-actions">
-                <button type="button" title="新增下级" @click="startAdd(row.node.id)">
+                <button type="button" v-tooltip="'新增下级'" @click="startAdd(row.node.id)">
                   <Plus :size="12" />
                 </button>
-                <button type="button" title="重命名" @click="startRename(row.node)">
+                <button type="button" v-tooltip="'重命名'" @click="startRename(row.node)">
                   <Pencil :size="12" />
                 </button>
-                <button v-if="row.node.parentId" type="button" title="删除" @click="confirmingId = row.node.id">
+                <button
+                  v-if="row.node.parentId"
+                  type="button"
+                  v-tooltip="'删除节点（成员与授权会迁移到上级）'"
+                  @click="confirmingId = row.node.id"
+                >
                   <Trash2 :size="12" />
                 </button>
               </div>
@@ -394,7 +400,7 @@ function doDelete(id: string) {
   flex: 1 1 auto;
   min-width: 88px;
   max-width: 230px;
-  height: 24px;
+  height: 26px;
   padding: 0 7px;
   border: 1px solid var(--gn-accent);
   border-radius: 5px;
@@ -436,7 +442,7 @@ function doDelete(id: string) {
   flex: 0 1 auto;
   min-width: 84px;
   max-width: 260px;
-  height: 24px;
+  height: 26px;
   padding: 0 6px;
   border: 1px solid var(--gn-accent);
   border-radius: 5px;
@@ -531,10 +537,14 @@ function doDelete(id: string) {
 }
 /* 行内紧凑按钮：跟标题同一行放得下 */
 .ot-btn.sm {
-  height: 22px;
-  padding: 0 7px;
-  font-size: 11.5px;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
   flex: 0 0 auto;
+}
+/* 新增行里的下拉跟输入框同高，三者（输入/下拉/按钮）齐平 */
+.ot-add-row :deep(.gn-select-trigger) {
+  height: 26px;
 }
 .ot-btn.danger {
   border-color: transparent;

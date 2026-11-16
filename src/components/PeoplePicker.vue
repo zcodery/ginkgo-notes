@@ -216,7 +216,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
     <div class="pp-box" @click="onBoxClick">
       <span v-for="u in selected" :key="u" class="pp-chip">
         {{ nameOf(u) }}
-        <button type="button" class="pp-chip-x" @click.stop="remove(u)">
+        <button type="button" class="pp-chip-x" v-tooltip="'移除'" @click.stop="remove(u)">
           <X :size="11" :stroke-width="2.4" />
         </button>
       </span>

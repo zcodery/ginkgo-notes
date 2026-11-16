@@ -164,7 +164,13 @@ onMounted(async () => {
               placeholder="搜索用户名或昵称"
               @keydown.enter="doSearch"
             />
-            <button v-if="searched || keyword" type="button" class="fr-search-clear" @click="clearSearch">
+            <button
+              v-if="searched || keyword"
+              type="button"
+              class="fr-search-clear"
+              v-tooltip="'清空搜索'"
+              @click="clearSearch"
+            >
               <X :size="12" />
             </button>
           </div>
@@ -231,8 +237,24 @@ onMounted(async () => {
                   <button type="button" class="fr-btn" :disabled="busy" @click="cancelConfirm">取消</button>
                 </div>
                 <div v-else class="fr-ops">
-                  <button type="button" class="fr-act danger" :disabled="busy" @click="ask(f.id, 'remove')">解除</button>
-                  <button type="button" class="fr-act" :disabled="busy" @click="ask(f.id, 'block')">拉黑</button>
+                  <button
+                    type="button"
+                    class="fr-act danger"
+                    :disabled="busy"
+                    v-tooltip="'解除好友关系'"
+                    @click="ask(f.id, 'remove')"
+                  >
+                    解除
+                  </button>
+                  <button
+                    type="button"
+                    class="fr-act"
+                    :disabled="busy"
+                    v-tooltip="'拉黑后不再接收对方的申请'"
+                    @click="ask(f.id, 'block')"
+                  >
+                    拉黑
+                  </button>
                 </div>
               </div>
             </div>

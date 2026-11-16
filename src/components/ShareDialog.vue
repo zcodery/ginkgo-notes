@@ -298,7 +298,13 @@ onMounted(async () => {
               <div class="pf-list-title">{{ g.grantee.name }}</div>
               <div class="pf-row-desc">@{{ g.grantee.username }} · 邀请于 {{ formatDateTime(g.createdAt) }}</div>
             </div>
-            <GnSelect :model-value="g.role" :options="roleOptions" :min-width="92" @update:model-value="changeRole(g, $event)" />
+            <GnSelect
+              :model-value="g.role"
+              :options="roleOptions"
+              :min-width="92"
+              v-tooltip="'这个人拿到的权限'"
+              @update:model-value="changeRole(g, $event)"
+            />
             <button type="button" class="gn-icon-btn" v-tooltip="'移除'" :disabled="busy" @click="removeMember(g)"><X :size="14" /></button>
           </div>
         </div>
