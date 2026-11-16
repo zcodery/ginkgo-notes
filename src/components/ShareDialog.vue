@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Check, Copy, ExternalLink, Globe, RefreshCw, UserPlus, Users, X } from 'lucide-vue-next'
 import SettingsModal from '@/views/settings/SettingsModal.vue'
 import GnSelect from './GnSelect.vue'
+import PeoplePicker from './PeoplePicker.vue'
 import {
   createGrant,
   createShare,
@@ -11,12 +12,14 @@ import {
   errorText,
   formatDateTime,
   listGrants,
+  listSpaces,
   shareOfPage,
   shareUrl,
   updateGrant,
   updateShare,
   type GrantInfo,
   type ShareInfo,
+  type SpaceInfo,
 } from '@/api/features'
 import { store } from '@/store'
 import { copyText } from '@/utils/clipboard'
@@ -141,19 +144,30 @@ function regenerate() {
 /* ---------------- 成员 ---------------- */
 
 const grants = ref<GrantInfo[]>([])
-const invite = ref({ username: '', role: 'viewer' as 'viewer' | 'editor' })
+const invite = ref({ usernames: [] as string[], role: 'viewer' as 'viewer' | 'editor' })
 const roleOptions = [
   { value: 'viewer', label: '可查看' },
   { value: 'editor', label: '可编辑' },
 ]
 
-function addMember() {
-  const name = invite.value.username.trim()
-  if (!name) return
+const teamSpaces = ref<SpaceInfo[]>([])
+const teamSpaceChoices = computed(() => teamSpaces.value.map((s) => ({ id: s.id, name: s.name })))
+
+function addMembers() {
+  if (!invite.value.usernames.length) return
   return run(async () => {
-    const g = await createGrant(props.pageId, name, invite.value.role)
-    grants.value = [...grants.value.filter((x) => x.id !== g.id), g]
-    invite.value.username = ''
+    const names = [...invite.value.usernames]
+    const errors: string[] = []
+    for (const username of names) {
+      try {
+        const g = await createGrant(props.pageId, username, invite.value.role)
+        grants.value = [...grants.value.filter((x) => x.id !== g.id), g]
+      } catch (e) {
+        errors.push(`${username}：${errorText(e)}`)
+      }
+    }
+    invite.value.usernames = []
+    if (errors.length) err.value = errors.join('；')
   })
 }
 
@@ -173,9 +187,15 @@ function removeMember(g: GrantInfo) {
 
 onMounted(async () => {
   try {
-    const [s, g] = await Promise.all([shareOfPage(props.pageId), isPublicSpace.value ? [] : listGrants(props.pageId)])
+    const [s, g, spaces] = await Promise.all([
+      shareOfPage(props.pageId),
+      isPublicSpace.value ? [] : listGrants(props.pageId),
+      isPublicSpace.value ? [] : listSpaces(),
+    ])
     share.value = s
     grants.value = g
+    teamSpaces.value = spaces.filter((x) => x.type === 'team')
+
   } catch (e) {
     err.value = errorText(e)
   } finally {
@@ -254,14 +274,24 @@ onMounted(async () => {
     <template v-else>
       <p v-if="isPublicSpace" class="pf-dialog-tip">公共原稿不支持邀请成员。</p>
       <template v-else>
-        <div class="pf-copy">
-          <input v-model="invite.username" placeholder="输入对方的用户名" @keydown.enter="addMember" />
+        <div class="sd-invite">
+          <PeoplePicker
+            v-model="invite.usernames"
+            source="both"
+            :spaces="teamSpaceChoices"
+            placeholder="选择好友或团队成员"
+          />
           <GnSelect v-model="invite.role" :options="roleOptions" :min-width="92" />
-          <button type="button" class="pf-btn primary" :disabled="busy || !invite.username.trim()" @click="addMember">
-            <UserPlus :size="12" :stroke-width="2" />邀请
+          <button
+            type="button"
+            class="pf-btn primary"
+            :disabled="busy || !invite.usernames.length"
+            @click="addMembers"
+          >
+            <UserPlus :size="12" :stroke-width="2" />邀请{{ invite.usernames.length ? `（${invite.usernames.length}）` : '' }}
           </button>
         </div>
-        <p class="pf-dialog-tip">被邀请的人会收到站内通知，可在侧栏「与我共享」中打开这个页面及其子页面。</p>
+        <p class="pf-dialog-tip sd-tip">可以邀请好友，也可以邀请同团队的成员。被邀请的人会收到站内通知，可在侧栏「与我共享」中打开这个页面及其子页面。</p>
         <div v-if="grants.length" class="pf-list">
           <div v-for="g in grants" :key="g.id" class="pf-list-item">
             <div class="pf-list-main">
@@ -329,5 +359,30 @@ onMounted(async () => {
 .sd-foot {
   padding-top: 8px;
   border-top: 1px solid var(--gn-border);
+}
+.sd-friends {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.sd-invite {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.sd-invite .gn-select {
+  margin-top: 2px;
+}
+.sd-invite .pf-btn {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+.sd-tip {
+  margin-top: 10px;
+  line-height: 1.65;
 }
 </style>

@@ -22,6 +22,8 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
 const open = ref(false)
+/** 下方空间不足时向上展开，避免面板被容器底部裁掉 */
+const invert = ref(false)
 const rootRef = ref<HTMLElement | null>(null)
 
 const label = computed(
@@ -30,7 +32,14 @@ const label = computed(
 
 function toggle() {
   if (props.disabled) return
-  open.value = !open.value
+  if (open.value) {
+    open.value = false
+    return
+  }
+  const rect = rootRef.value?.getBoundingClientRect()
+  const below = rect ? window.innerHeight - rect.bottom : 0
+  invert.value = !!rect && below < 240 && rect.top > 240
+  open.value = true
 }
 
 function pick(v: string) {
@@ -61,7 +70,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
       <span>{{ label }}</span>
       <ChevronDown :size="13" :stroke-width="2" />
     </button>
-    <div v-if="open" class="gn-select-list gn-pop">
+    <div v-if="open" class="gn-select-list gn-pop" :class="{ invert }">
       <button
         v-for="opt in options"
         :key="opt.value"
@@ -128,7 +137,8 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   top: calc(100% + 4px);
   right: 0;
   z-index: 40;
-  min-width: 100%;
+  min-width: max(100%, 150px);
+  max-width: min(300px, 76vw);
   max-height: 220px;
   overflow-y: auto;
   padding: 4px;
@@ -136,6 +146,10 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown, true)
   border: 1px solid var(--gn-border);
   border-radius: 8px;
   box-shadow: var(--gn-shadow-md);
+}
+.gn-select-list.invert {
+  top: auto;
+  bottom: calc(100% + 4px);
 }
 .gn-select-opt {
   display: flex;
