@@ -13,9 +13,11 @@ const props = defineProps<{
   spaceId: string
   nodes: OrgNodeInfo[]
   canManage: boolean
+  /** 当前选中的节点，右侧成员列表按它过滤 */
+  selectedId?: string
 }>()
 
-const emit = defineEmits<{ (e: 'changed'): void }>()
+const emit = defineEmits<{ (e: 'changed'): void; (e: 'select', id: string): void }>()
 
 const collapsed = ref<string[]>([])
 const err = ref('')
@@ -171,6 +173,16 @@ type DropZone = 'before' | 'after' | 'inside'
 const dragId = ref('')
 const dropHint = ref<{ id: string; zone: DropZone } | null>(null)
 const rootZone = ref(false)
+// 拖完松手时浏览器有时仍会补一个 click，用它把紧跟其后的点击吞掉
+let dragEndAt = 0
+
+/** 点行 = 选中该节点，右侧成员列表跟着过滤；点的是按钮/输入框则交给它们自己处理 */
+function onRowClick(node: OrgNodeInfo, e: MouseEvent) {
+  if (editingId.value === node.id) return
+  if (Date.now() - dragEndAt < 150) return
+  if ((e.target as HTMLElement | null)?.closest('button, input, a, textarea')) return
+  emit('select', node.id)
+}
 
 const nodeById = (id: string) => props.nodes.find((n) => n.id === id)
 
@@ -223,6 +235,7 @@ function resetDrag() {
   dragId.value = ''
   dropHint.value = null
   rootZone.value = false
+  dragEndAt = Date.now()
 }
 
 function onRowDrop(node: OrgNodeInfo, e: DragEvent) {
@@ -368,12 +381,14 @@ function onRowLeave(el: Element) {
             :draggable="canManage && editingId !== row.node.id"
             :class="{
               editing: editingId === row.node.id,
+              on: selectedId === row.node.id,
               dragging: dragId === row.node.id,
               'drop-before': dropHint?.id === row.node.id && dropHint.zone === 'before',
               'drop-after': dropHint?.id === row.node.id && dropHint.zone === 'after',
               'drop-inside': dropHint?.id === row.node.id && dropHint.zone === 'inside',
             }"
             :style="{ paddingLeft: 4 + row.depth * 16 + 'px' }"
+            @click="onRowClick(row.node, $event)"
             @dragstart="onRowDragStart(row.node, $event)"
             @dragover="onRowDragOver(row.node, $event)"
             @dragleave="onRowDragLeave(row.node, $event)"
@@ -525,9 +540,21 @@ function onRowLeave(el: Element) {
   min-height: 30px;
   padding-right: 4px;
   border-radius: 6px;
+  cursor: pointer;
 }
 .ot-row:hover {
   background: var(--gn-bg-soft);
+}
+/* 选中的节点：左侧一条主色竖条 + 淡底，右侧成员列表跟着它过滤 */
+.ot-row.on {
+  background: var(--gn-accent-soft);
+  box-shadow: inset 2px 0 0 var(--gn-accent);
+}
+.ot-row.on .ot-name {
+  font-weight: 600;
+}
+.ot-row.on .ot-count {
+  color: var(--gn-accent);
 }
 /* ---------- 拖拽调整层级 ---------- */
 .ot-list.is-dragging {

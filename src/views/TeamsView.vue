@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ArrowRight, Plus, Upload, UserPlus, Users, X } from 'lucide-vue-next'
+import { ArrowRight, ChevronRight, FolderTree, Plus, Upload, UserPlus, Users, X } from 'lucide-vue-next'
 import GnSelect from '@/components/GnSelect.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
@@ -26,7 +26,7 @@ const spaces = ref<SpaceInfo[]>([])
 const current = ref<SpaceInfo | null>(null)
 const nodes = ref<OrgNodeInfo[]>([])
 const members = ref<SpaceMemberInfo[]>([])
-const pending = ref<{ id: string; invitee: SpaceMemberInfo | null; role: string }[]>([])
+const pending = ref<{ id: string; invitee: SpaceMemberInfo | null; role: string; orgNodeId: string }[]>([])
 const loading = ref(true)
 const busy = ref(false)
 const err = ref('')
@@ -74,12 +74,15 @@ async function refreshSpaces() {
 }
 
 async function select(space: SpaceInfo) {
+  // 换空间才清掉成员筛选；同一空间内的增删改刷新不能把用户选的节点丢掉
+  if (current.value?.id !== space.id) scopeId.value = ''
   current.value = space
   await run(async () => {
     const org = await getSpaceOrg(space.id)
     nodes.value = org.nodes
     members.value = org.members
     pending.value = canManage.value ? await listSpaceInvites(space.id) : []
+    resolveScope()
   })
 }
 
@@ -154,6 +157,97 @@ const formatOptions = [
   { value: 'csv', label: 'CSV' },
   { value: 'json', label: 'JSON' },
 ]
+
+/* ---------------- 成员按组织节点过滤 / 分组 ---------------- */
+
+const scopeId = ref('')
+/** 是否把下级节点的成员一起列出；开启时按节点分组，标题给出完整组织路径 */
+const includeChildren = ref(true)
+
+const nodeMap = computed(() => new Map(nodes.value.map((n) => [n.id, n])))
+const rootNodeId = computed(() => nodes.value.find((n) => !n.parentId)?.id ?? '')
+const scopeNode = computed(() => (scopeId.value ? nodeMap.value.get(scopeId.value) ?? null : null))
+
+/** 成员归属节点：没挂节点的算「全员」（根节点）成员 */
+const memberNodeId = (orgNodeId: string) => orgNodeId || rootNodeId.value
+
+const childrenOf = (id: string) =>
+  nodes.value.filter((n) => (n.parentId ?? '') === id).sort((a, b) => a.sort - b.sort)
+
+/** 子树节点 id，按树的展示顺序（深度优先 + 同级 sort），保证分组顺序与左侧一致 */
+function subtreeOrder(id: string): string[] {
+  const out: string[] = []
+  const walk = (nid: string) => {
+    out.push(nid)
+    for (const child of childrenOf(nid)) walk(child.id)
+  }
+  walk(id)
+  return out
+}
+
+/** 根到该节点的名称链，分组标题里的组织路径靠它 */
+function pathOf(id: string): string[] {
+  const segs: string[] = []
+  let cur = nodeMap.value.get(id)
+  let guard = 0
+  while (cur && guard++ < 32) {
+    segs.unshift(cur.name)
+    cur = cur.parentId ? nodeMap.value.get(cur.parentId) : undefined
+  }
+  return segs
+}
+
+interface MemberGroup {
+  key: string
+  /** 为空表示不分组（没有选中节点 / 不含下级时只有一条平铺列表） */
+  segs: string[]
+  members: SpaceMemberInfo[]
+}
+
+const groups = computed<MemberGroup[]>(() => {
+  const scope = scopeNode.value
+  if (!scope) return [{ key: 'all', segs: [], members: members.value }]
+  if (!includeChildren.value) {
+    return [
+      {
+        key: scope.id,
+        segs: [],
+        members: members.value.filter((m) => memberNodeId(m.orgNodeId) === scope.id),
+      },
+    ]
+  }
+  const out: MemberGroup[] = []
+  for (const id of subtreeOrder(scope.id)) {
+    const list = members.value.filter((m) => memberNodeId(m.orgNodeId) === id)
+    if (list.length) out.push({ key: id, segs: pathOf(id), members: list })
+  }
+  return out
+})
+
+const visibleMembers = computed(() => groups.value.flatMap((g) => g.members))
+const scopePath = computed(() => (scopeNode.value ? pathOf(scopeNode.value.id) : []))
+const scopePathText = computed(() => scopePath.value.join(' / '))
+
+const visiblePending = computed(() => {
+  const scope = scopeNode.value
+  if (!scope) return pending.value
+  const ids = new Set(includeChildren.value ? subtreeOrder(scope.id) : [scope.id])
+  return pending.value.filter((p) => ids.has(memberNodeId(p.orgNodeId ?? '')))
+})
+
+function selectNode(id: string) {
+  scopeId.value = id
+}
+function clearScope() {
+  scopeId.value = ''
+}
+function toggleChildren() {
+  if (scopeNode.value) includeChildren.value = !includeChildren.value
+}
+/** 节点被删/换空间后，选中的 id 可能已失效，回落到「全部成员」 */
+function resolveScope() {
+  if (scopeId.value && !nodeMap.value.has(scopeId.value)) scopeId.value = ''
+}
 
 async function reloadOrg() {
   if (current.value) await select(current.value)
@@ -269,6 +363,8 @@ onMounted(async () => {
                   :space-id="current.id"
                   :nodes="nodes"
                   :can-manage="canManage"
+                  :selected-id="scopeId"
+                  @select="selectNode"
                   @changed="reloadOrg"
                 />
 
@@ -306,12 +402,56 @@ onMounted(async () => {
             <section class="tm-card tm-people">
               <div class="tm-card-head">
                 <Users :size="14" /><span>成员</span>
-                <span class="tm-count">{{ members.length }}</span>
+                <span class="tm-count">{{ visibleMembers.length }}</span>
+                <span v-if="scopeNode && visibleMembers.length !== members.length" class="tm-head-of">
+                  共 {{ members.length }} 人
+                </span>
+              </div>
+
+              <!-- 跟随左侧组织：显示当前选中节点 + 是否加载下级 -->
+              <div class="tm-scope">
+                <button
+                  v-if="scopeNode"
+                  type="button"
+                  class="tm-scope-chip"
+                  v-tooltip="`只看「${scopePathText}」下的成员，点击清除`"
+                  @click="clearScope"
+                >
+                  <FolderTree :size="12" />
+                  <span class="tm-scope-text">{{ scopePathText }}</span>
+                  <X :size="11" />
+                </button>
+                <span v-else class="tm-scope-all">全部成员</span>
+
+                <div
+                  class="tm-scope-toggle"
+                  :class="{ off: !scopeNode }"
+                  v-tooltip="scopeNode ? '开启后连同所有下级节点的成员一起列出，并按组织路径分组' : '先在左侧组织架构里点一个节点'"
+                  @click="toggleChildren"
+                >
+                  <span>包含下级</span>
+                  <span class="tm-switch" :class="{ on: includeChildren && !!scopeNode }"><i /></span>
+                </div>
               </div>
 
               <div class="tm-card-body tm-people-body tm-scroll">
-                <div class="tm-member-list">
-                  <div v-for="m in members" :key="m.id" class="tm-member">
+                <section v-for="g in groups" :key="g.key" class="tm-group">
+                  <div v-if="g.segs.length" class="tm-group-head">
+                    <span class="tm-group-path">
+                      <template v-for="(seg, i) in g.segs" :key="i">
+                        <ChevronRight v-if="i" :size="10" class="tm-seg-sep" />
+                        <span class="tm-seg" :class="{ last: i === g.segs.length - 1 }">{{ seg }}</span>
+                      </template>
+                    </span>
+                    <span class="tm-group-count">{{ g.members.length }} 人</span>
+                  </div>
+
+                  <div
+                    v-for="m in g.members"
+                    :key="m.id"
+                    class="tm-member"
+                    :class="{ 'is-grouped': g.segs.length }"
+                  >
                     <div class="tm-avatar">{{ (m.name || '?').slice(0, 1) }}</div>
                     <div class="tm-member-main">
                       <div class="tm-member-name">{{ m.name }}</div>
@@ -341,11 +481,18 @@ onMounted(async () => {
                       <X :size="13" />
                     </button>
                   </div>
+                </section>
+
+                <div v-if="!visibleMembers.length" class="tm-people-empty">
+                  <span>{{ scopeNode ? '这个节点下还没有成员' : '还没有成员' }}</span>
+                  <span class="tm-people-empty-tip">
+                    {{ scopeNode ? '可以打开「包含下级」，或邀请时把成员挂到这个节点下' : '用下方「添加成员」邀请同事加入' }}
+                  </span>
                 </div>
 
-                <div v-if="pending.length" class="tm-pending">
-                  <div class="tm-subtitle">待接受邀请<span class="tm-count">{{ pending.length }}</span></div>
-                  <div v-for="p in pending" :key="p.id" class="tm-member is-pending">
+                <div v-if="visiblePending.length" class="tm-pending">
+                  <div class="tm-subtitle">待接受邀请<span class="tm-count">{{ visiblePending.length }}</span></div>
+                  <div v-for="p in visiblePending" :key="p.id" class="tm-member is-pending">
                     <div class="tm-member-main">{{ p.invitee?.name || p.invitee?.username || p.id }}</div>
                     <span class="tm-tag">{{ p.role }}</span>
                   </div>
@@ -635,6 +782,11 @@ onMounted(async () => {
 .tm-people-body {
   max-height: min(52vh, 520px);
   overflow-y: auto;
+  padding-top: 0;
+}
+/* 顶部留白交给第一个分组，吸顶标题才能贴着滚动区上沿，不会漏出一条内容 */
+.tm-group:first-child {
+  padding-top: 8px;
 }
 .tm-count {
   min-width: 18px;
@@ -654,19 +806,172 @@ onMounted(async () => {
   color: var(--gn-text-muted);
 }
 
-/* ---------- 成员 ---------- */
-.tm-member-list {
+/* ---------- 成员：跟随组织筛选 ---------- */
+.tm-head-of {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--gn-text-muted);
+}
+.tm-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--gn-border);
+  background: var(--gn-bg-soft);
+}
+.tm-scope-all {
+  font-size: 12px;
+  color: var(--gn-text-muted);
+}
+.tm-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 7px 3px 8px;
+  border: 1px solid var(--gn-border);
+  border-radius: 7px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.tm-scope-chip:hover {
+  border-color: var(--gn-border-strong);
+  background: var(--gn-bg-hover);
+}
+.tm-scope-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tm-scope-chip svg {
+  flex: 0 0 auto;
+}
+.tm-scope-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 11.5px;
+  color: var(--gn-text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.tm-scope-toggle.off {
+  opacity: 0.45;
+  cursor: default;
+}
+.tm-switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  flex: 0 0 auto;
+  border-radius: 99px;
+  background: var(--gn-bg-active);
+  transition: background 0.15s ease;
+}
+.tm-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  transition: transform 0.15s ease;
+}
+.tm-switch.on {
+  background: var(--gn-accent);
+}
+.tm-switch.on i {
+  transform: translateX(12px);
+}
+
+/* 分组标题：一条从根到该节点的组织路径；吸顶显示，滚长分组时也知道自己在哪一级 */
+.tm-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 4px 6px;
+  background: var(--gn-bg);
+  border-bottom: 1px solid var(--gn-border);
+}
+.tm-group-head:first-child {
+  padding-top: 2px;
+}
+.tm-group-path {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--gn-text-muted);
+}
+.tm-seg {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tm-seg.last {
+  color: var(--gn-text);
+  font-weight: 600;
+}
+.tm-seg-sep {
+  flex: 0 0 auto;
+  margin: 0 1px;
+  opacity: 0.55;
+}
+.tm-group-count {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--gn-text-muted);
+}
+.tm-member.is-grouped {
+  margin-left: 6px;
+}
+.tm-group-head + .tm-member {
+  margin-top: 6px;
+}
+.tm-people-empty {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-top: 6px;
+  align-items: center;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 16px 10px;
+  border: 1px dashed var(--gn-border);
+  border-radius: 10px;
+  color: var(--gn-text-muted);
+  font-size: 12px;
+  text-align: center;
 }
+.tm-people-empty-tip {
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* ---------- 成员 ---------- */
 .tm-member {
   display: flex;
   align-items: center;
   gap: 9px;
   padding: 6px 8px;
   border-radius: 8px;
+}
+.tm-member + .tm-member {
+  margin-top: 2px;
 }
 .tm-member:hover {
   background: var(--gn-bg-soft);

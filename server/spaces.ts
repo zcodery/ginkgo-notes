@@ -225,7 +225,12 @@ spacesRouter.get('/spaces/:id/org', (req, res) => {
     .prepare("SELECT * FROM space_members WHERE space_id = ? AND status = 'active' ORDER BY joined_at")
     .all(space.id) as unknown as MemberRow[]
   const counts = new Map<string, number>()
-  for (const m of members) counts.set(m.org_node_id, (counts.get(m.org_node_id) ?? 0) + 1)
+  // 没挂节点的成员视为「全员」（根节点）成员，否则树上永远显示 0 人，但右侧列表里却有人
+  const rootNodeId = nodes.find((n) => !n.parent_id)?.id ?? ''
+  for (const m of members) {
+    const key = m.org_node_id || rootNodeId
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
   res.json({
     nodes: nodes.map((n) => ({
       id: n.id,
