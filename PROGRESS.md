@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.3.0 | 更新于 2026-11-13
+> 版本 0.3.0 | 更新于 2026-11-16
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 
@@ -8,7 +8,7 @@
 
 ## 一、项目概览
 
-一个基于 **Vue 3 + TipTap (ProseMirror) + Express + SQLite** 的自托管 Markdown 笔记应用，支持多维表格、Mermaid 图表、代码块、公开分享、成员协作、AI 助手、Webhook 和 MCP 协议接入。
+一个基于 **Vue 3 + TipTap (ProseMirror) + Express + SQLite** 的自托管 Markdown 笔记应用，支持多维表格、Mermaid 图表、代码块、公开分享、成员协作、好友关系、团队空间与组织树、实时在线状态、AI 助手、Webhook 和 MCP 协议接入。
 
 | 维度 | 选择 |
 |---|---|
@@ -26,6 +26,7 @@
 3. **写操作串行化**：`src/db/repo.ts` 的 `serial('page:<id>')` / `serial('db:<id>')` 防止标题/正文两路保存交错导致旧快照覆盖。
 4. **只读内容走 HTML 渲染**：公开分享页用 `src/utils/renderMarkdown.ts` 白名单清洗后输出 HTML，不加载 TipTap，也不暴露任何编辑路径。
 5. **编辑器状态随 Markdown 持久化**：折叠状态写成 `<!-- gn-li collapsed -->` / `<details open>`，解析时经 token 预处理还原；只读页按白名单回填，保证编辑态与分享态一致。
+6. **空间即数据边界**：`owner` 字段收敛为空间 id（个人空间 id 复用用户 id，团队空间 `sp_*`），所有业务表按 `owner` 物理隔离；资源访问再经统一 ACL（deny 优先 → 资源显式 → 组织节点继承 → 空间基线）。
 
 ---
 
@@ -44,7 +45,11 @@ ginkgoNotes/
 │   ├── http.ts          # HttpError / 参数校验 / IP 归一化
 │   ├── templates.ts     # 公共原稿种子 + 新用户模板拷贝
 │   ├── share.ts         # 公开分享链接（密码/有效期/子页）
-│   ├── members.ts       # 成员协作（viewer/editor 角色）
+│   ├── members.ts       # 个人笔记分享（数据源 acl_entries；viewer/editor）
+│   ├── acl.ts           # 统一 ACL：有效角色计算 / deny 优先 / 组织继承 / 授权接口
+│   ├── friends.ts       # 好友关系（申请/同意/拒绝/拉黑/搜索）
+│   ├── spaces.ts        # 团队空间 / 组织树 / 成员 / 邀请 / 组织架构导入
+│   ├── presence.ts      # 文档在线状态（SSE + 心跳）与编辑占用
 │   ├── ai.ts            # OpenAI 兼容转发 + SSE 流式
 │   ├── mcp.ts           # MCP Streamable HTTP 服务（JSON-RPC 2.0，个人令牌认证）
 │   ├── webhooks.ts      # 页面事件 Webhook（HMAC-SHA256 签名）
@@ -99,18 +104,21 @@ ginkgoNotes/
 │   │   ├── PageLinkBlock.vue    # 子页面卡片
 │   │   └── ColumnsView.vue      # 多栏分栏 NodeView（栏数 stepper + 宽度比例预设 + 增删栏）
 │   ├── components/      # 编辑器外部通用 UI
-│   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间切换）
+│   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间/好友/团队入口）
 │   │   ├── PageTree.vue / Item.vue # 页面树（拖拽、重命名、右键菜单）
 │   │   ├── SearchModal.vue     # 全局搜索（打分排序、关键词高亮）
 │   │   ├── PageToc.vue         # 右侧目录（IntersectionObserver 跟踪）
 │   │   ├── FindReplaceBar.vue  # 页内查找替换条
-│   │   ├── ShareDialog.vue     # 分享（公开链接 Tab + 成员授权 Tab）
+│   │   ├── ShareDialog.vue     # 分享（公开链接 Tab + 人员下拉邀请）
+│   │   ├── PeoplePicker.vue    # 人员多选下拉（好友/团队成员分组、团队切换、去重）
+│   │   ├── PresenceAvatars.vue # 文档右上角在线头像（过滤自己）
+│   │   ├── OrgTree.vue         # 组织架构树（折叠 / 增删改 / 移动 / 导入入口由 TeamsView 承载）
 │   │   ├── NotificationBell.vue # 通知铃铛（静默时段、按类型图标）
 │   │   ├── ImageExportModal.vue # 笔记导出图片预览弹层
 │   │   ├── IconPicker.vue      # 页面图标（emoji / Lucide / 上传 / 外链）
 │   │   ├── CoverPicker.vue     # 页面封面（渐变预设 / 图库 / 上传 / Unsplash / AI）
 │   │   ├── PinLock.vue         # PIN 锁屏层
-│   │   └── GnSelect.vue        # 项目自定义下拉
+│   │   └── GnSelect.vue        # 项目自定义下拉（空间不足自动上翻）
 │   ├── views/           # 路由级页面
 │   │   ├── NoteView.vue        # 主笔记页（最重文件，布局偏好 50-90%、字号、字体、疏密）
 │   │   ├── HomeView.vue        # 首页仪表盘
@@ -118,6 +126,8 @@ ginkgoNotes/
 │   │   ├── AuthView.vue        # 登录/注册/2FA/GitHub OAuth
 │   │   ├── ProfileView.vue     # 个人中心
 │   │   ├── SharedNoteView.vue  # 共享给我（只读/可编辑按角色）
+│   │   ├── FriendsView.vue     # 好友中心（搜索 / 申请 / 好友列表 / 行内确认）
+│   │   ├── TeamsView.vue       # 团队空间（左侧竖向空间导航 + 组织树 + 成员）
 │   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录、只读代码块工具栏）
 │   │   └── settings/           # 10 个设置子组件
 │   ├── utils/           # 通用工具、导入导出与只读渲染
@@ -201,17 +211,28 @@ ginkgoNotes/
 | 57 | 拖拽交互修复（自绘指针拖拽） | ✅ | **原生 HTML5 拖拽在 `dragstart` 里隐藏手柄（拖拽源）会被浏览器直接取消整个拖拽** → 改为 `mousedown` + document `mousemove/mouseup` 自绘拖拽，不依赖 dragstart/dragover/drop；5px 阈值区分「点击开菜单」与「拖动」；拖拽中跟随指针显示「并排成栏/新建栏/移入此栏/上下移动」胶囊，靠近上下边缘自动滚动。**`target instanceof HTMLElement` 对 SVG 手柄恒为 false**（SVGElement 不是 HTMLElement），指针移到手柄就会把手柄隐藏、mousedown 落到 `.nv-inner` → 改用 `Element`。分栏落点改从 columns 节点 DOM 取 `.gn-columns-row`（指针在容器边框/内边距上时 `elementFromPoint` 命中的是 `.gn-columns` 本身）。栏内块有独立手柄（`tryResolveColumnChild`），可单独拖出/拖到另一栏，源栏空了自动消失；删除统一走 `safeDeleteRange`（覆盖整列内容时扩大为整列，避免 `column` 变空导致 schema 非法） |
 | 58 | 拖拽落点改「侧带」判定 | ✅ | 修掉「拖到另一行的左侧/右侧分不了栏」：旧实现要求指针必须**压在正文上**（`posAtCoords` 能命中）且 y 落在行的中间 63%，真实拖动时指针常在行的外侧（装订线/行尾留白）或贴住行的上下沿 → 判定落空、退回排序。改为 ①`columnsPosAtPoint` 用 `elementFromPoint` 找最内层 `.gn-columns`，指针在分栏边框/内边距上也能正确入栏；②`computeRowColumnDrop` 完全脱离 `posAtCoords`，按 y 遍历 `pm.children` 锁定行、按 x 侧带决定左/右，指针允许在行外 ±96px；③交界处按「离指针垂直中心最近」选行并跳过与拖拽范围重叠的行（原来取最矮会选中拖拽源自己）；④目标是已存在分栏且指针在其外侧时新建一列。拖拽胶囊细分为「在左侧成栏 / 在右侧成栏 / 新建栏 / 移入此栏 / 上下移动」 |
 | 59 | 清单条目级并排成栏 | ✅ | 拖待办/列表里的**某一条**到另一条的左侧或右侧即可分栏：目标条目从原清单切出单独成列，原清单按位置拆成「前面的条目 + 分栏 + 后面的条目」（`makeColumnsWithListItem`），两列各自按原列表类型与属性回包、`taskItem` 的 `checked` 保留；列表只剩一条时天然退化为整体替换，不留空列表。落点先按 y 用 `posAtCoords` 锁定具体条目，再用该条目的矩形做左右侧带（22%，夹取 48–200px），中间区域仍走上下重排。此前整张清单被当作目标、与拖拽源重叠而被跳过，表现为「怎么拖都是上下移动」 |
+| 60 | 好友关系 | ✅ | 申请/同意/拒绝/拉黑/用户搜索；好友只是「可被邀请」白名单，不自动获得任何文档权限 |
+| 61 | 个人空间与团队空间 | ✅ | `owner` 提升为空间 id：个人空间 id 复用用户 id（存量零迁移）、团队空间 `sp_*`；`X-Space` 头切换个人/团队/公共 |
+| 62 | 团队组织树 | ✅ | 部门/团队多层、物化路径 `path` + `depth`、成员挂节点并向子树继承角色；节点改名/移动（防环）/删除（成员与授权迁回上级） |
+| 63 | 组织架构导入 | ✅ | CSV（`部门路径,用户名,角色`，支持 `/ \ > ＞` 分隔）与 JSON（扁平 `key/parentKey` 或嵌套 `children`）；同父同名复用、重复导入幂等、错误清单不中断整批 |
+| 64 | 统一 ACL | ✅ | `acl_entries` 支持 user / org_node / space 三种主体；优先级 deny → 资源显式 → 组织继承 → 空间基线；个人笔记可邀请好友或同团队成员 |
+| 65 | 实时在线状态 | ✅ | SSE 下行 + 25s 心跳；同用户多窗口合并、60s 过期剔除；文档右上角只显示他人（过滤自己）；按当前空间隔离 |
+| 66 | 并发编辑 | ✅ | 编辑占用 `doc_locks`（60s 租约 + 30s 清理）+ `pages.version` 乐观锁 CAS；冲突返回 `409 version_conflict`，前端转只读提示 |
+| 67 | 分享人员多选 | ✅ | `PeoplePicker` 单一人员下拉：好友/团队成员分组、多团队切换、搜索、多选、标签删除、同人去重 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
-| — | 无 | — | 当前所有已开始的模块都已闭环 |
+| 1 | 好友页 / 团队页视觉 | ⚠️ | 接口与交互已闭环，但布局、留白、列表密度经多轮截图反馈仍未定稿；接手时按「UI 一致性」约定做结构重排，不要只调 padding |
+| 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` 文案仍是中文硬编码，未接三语 |
+| 3 | 好友共享页在线状态 | ⚠️ | presence 按当前空间隔离，`/shared` 个人笔记共享页暂不显示在线头像 |
 
 ### P2 — 尚未开始
 
 | # | 模块 | 说明 |
 |---|---|---|
-| — | 无 | — |
+| 1 | Yjs 实时协同（P3） | 需先确认「多人实时同敲」是否为硬需求；与「Markdown 是唯一事实源」冲突，不能直接替换现有写保护 |
+| 2 | 多实例协作广播 | presence 房间与编辑占用目前在单进程内存 + `doc_locks`；多实例部署需要 Redis pub/sub 或独立 presence 服务 |
 
 ---
 
@@ -276,8 +297,54 @@ ginkgoNotes/
 | GET/POST | `/admin/feedback[/:id/reply]` | 管理员看全部/回复 | requireAdmin |
 | POST | `/admin/import` | 导入公共原稿 | requireAdmin |
 
-### `X-Space: public` 头
-管理员可在任意请求中加此头，切换读写到公共空间（`owner = 'public'`）。
+### 好友 (`server/friends.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/friends` | 已接受的好友列表 | 会话/令牌 |
+| GET | `/friends/search?q=` | 搜索用户（附带关系状态） | 会话/令牌 |
+| GET | `/friends/requests` | 收到的待处理申请 | 会话/令牌 |
+| GET | `/friends/requests/sent` | 已发出的申请 | 会话/令牌 |
+| POST | `/friends/requests` | 发起申请（互相申请自动成为好友） | 会话/令牌 |
+| POST | `/friends/requests/:id/accept` / `decline` | 处理申请 | 会话/令牌 |
+| DELETE | `/friends/:id` | 解除好友 | 会话/令牌 |
+| POST | `/friends/:id/block` | 拉黑 | 会话/令牌 |
+
+### 团队空间 (`server/spaces.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/spaces` | 我的空间（个人 + 已加入团队） | 会话/令牌 |
+| POST | `/spaces` | 创建团队（自动建根节点「全员」） | 会话/令牌 |
+| GET / PATCH | `/spaces/:id` | 详情 / 改名 | 空间成员 / admin |
+| GET | `/spaces/:id/org` | 组织树 + 成员 | 空间成员 |
+| POST | `/spaces/:id/org/nodes` | 新建部门 / 团队 | 空间 admin |
+| PATCH / DELETE | `/spaces/:id/org/nodes/:nodeId` | 移动/改名 / 删除（成员与授权迁回上级） | 空间 admin |
+| POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
+| GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
+| PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出 | 空间 admin |
+| GET / POST | `/spaces/:id/invites` | 邀请列表 / 发起邀请 | 空间 admin |
+| GET | `/spaces/invites` | 我收到的团队邀请 | 会话/令牌 |
+| POST | `/spaces/invites/:id/accept` / `decline` | 处理邀请 | 被邀请人 |
+
+### 统一 ACL (`server/acl.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/acl/:type/:id` | 资源授权列表 + 我的有效角色（page/database） | 有读权限 |
+| PUT | `/acl/:type/:id` | 新增/更新授权（user / org_node / space，支持 deny、inherit） | 资源 admin |
+| DELETE | `/acl/:type/:id/:entryId` | 撤销授权（作者或被授权人自己） | 资源 admin / 本人 |
+
+### 在线状态与编辑占用 (`server/presence.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/presence/page/:id` | 当前在线快照 | 有读权限 |
+| GET | `/presence/page/:id/stream` | SSE 在线状态流（`event: hello / presence`） | 有读权限 |
+| POST | `/presence/page/:id/heartbeat` | 心跳上报（25s 一次，60s 过期） | 有读权限 |
+| POST / DELETE | `/presence/page/:id/claim-edit` | 申请 / 释放编辑占用 | 有写权限 |
+
+### `X-Space` 空间头
+请求头 `X-Space` 决定本次请求读写的空间（即 `authOf(res).owner`）：
+- 不传：个人空间（`owner = 当前用户 id`）
+- `sp_xxx`：团队空间，要求在该空间 `space_members` 中存在且 `status = active`
+- `public`：公共原稿，仅管理员可写
 
 ---
 
@@ -342,10 +409,18 @@ ginkgoNotes/
 | 53 | `0af3d08` | fix(editor) | 拖拽建栏彻底修好：自绘指针拖拽替代原生 HTML5 拖拽、SVG 手柄命中修复、栏内块独立手柄、safeDeleteRange |
 | 54 | `7ff049d` | fix(editor) | 拖到任意行的左右侧都能并排成栏：落点改按 Y 锁行 + X 侧带，指针可在行外、交界处取最近行 |
 | 55 | `15d6563` | feat(editor) | 清单条目级并排成栏（makeColumnsWithListItem + 按条目矩形判左右侧带） |
+| 56 | `57f24e9` | feat(server) | 空间/组织/ACL/好友/在线状态数据模型 + pages 版本列与存量迁移 |
+| 57 | `c9e225e` | feat(server) | ACL、好友、团队空间、组织架构导入与在线状态接口 |
+| 58 | `005aee9` | feat(server) | 页面与表格接入资源级权限、baseVersion 冲突检测与同团队分享 |
+| 59 | `4514e2a` | feat(core) | 协作域接口、SSE 订阅与前端仓储版本冲突 |
+| 60 | `f52de15` | feat(ui) | 人员选择/组织树/在线头像组件 + 分享弹窗人员多选 |
+| 61 | `0c1a731` | feat(core) | 侧栏空间切换与好友、团队入口 |
+| 62 | `c904780` | feat(ui) | 好友中心与团队空间页面 |
+| 63 | `2845d88` | feat(ui) | 笔记页在线成员与编辑占用 |
 
-> 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
+> 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `15d6563` — feat(editor): 清单条目也能拖到左右侧并排成栏
+**HEAD**: `2845d88` — feat(ui): 笔记页展示在线成员并处理编辑占用
 
 ---
 
@@ -378,6 +453,9 @@ pnpm start            # node server/index.ts  (Express 同时托管 dist)
 
 # 类型检查
 pnpm typecheck        # vue-tsc + tsc -p server
+
+# 本地演示数据（幂等，不改已有账号密码）
+node scripts/seed-demo-friends.mjs   # 为管理员建 5 个演示好友，并加入首个团队 AMTeam
 ```
 
 环境变量（全部可选）：
@@ -397,14 +475,21 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 | `users` | 用户名（唯一）、密码哈希、role、profile、totpSecret、pinHash、githubId |
 | `sessions` | 用户会话（token 哈希、UA、创建/过期时间） |
 | `api_tokens` | 个人访问令牌（sha256 哈希、scope、最后使用时间） |
-| `pages` | id / owner / title / content(Markdown) / excerpt / icon / cover / parent / order / locked / deleted |
+| `pages` | id / owner(空间 id) / title / content(Markdown) / excerpt / icon / cover / parent / order / locked / deleted / version(乐观锁) |
 | `databases` | id / owner / title / fields(JSON) / views(JSON) |
 | `db_rows` | id / databaseId / owner / values(JSON) / order |
 | `assets` | id / owner / name / mime / size / blob |
 | `settings` | 全局设置（键值） |
 | `user_settings` | 用户级设置（键值） |
 | `shares` | token / pageId / password / expiresAt / includeChildren |
-| `page_grants` | pageId / userId / role(viewer/editor) |
+| `page_grants` | pageId / userId / role(viewer/editor)；旧表，启动时迁移进 `acl_entries`，新写入走 `acl_entries` |
+| `spaces` | id / type(personal/team/public) / name / ownerUserId；个人空间 id = 用户 id |
+| `org_nodes` | spaceId / parentId / type(department/team) / name / path(物化路径) / depth / sort / leadUserId |
+| `space_members` | spaceId / userId / orgNodeId / role(owner/admin/editor/viewer/guest) / status |
+| `acl_entries` | spaceId / resourceType(page/database) / resourceId / subjectType(user/org_node/space) / subjectId / role / deny / inherit |
+| `friendships` | userLow / userHigh（归一化用户对，唯一）/ status / requestedBy / message |
+| `invites` | spaceId / orgNodeId / role / inviteeId / token / status / expiresAt |
+| `doc_locks` | pageId / spaceId / userId / sessionId / expiresAt（编辑占用，30s 清理过期） |
 | `webhooks` | url / secret / events(JSON) / lastEvent / lastStatus |
 | `notifications` | userId / type / title / body / link / createdAt / read |
 | `feedback` | userId / content / reply / createdAt |
@@ -437,6 +522,11 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 22. **删除范围可能让 `column` 变空**：`column` 的 content 是 `block+`，把某列唯一内容删掉会留下非法空列，ProseMirror 直接抛错。所有「移动/删除块」的位置都要先过 `safeDeleteRange(doc, from, to)`：范围覆盖整列内容时扩大为整列，只剩这一列时扩大为整个 `columns`。
 23. **拖拽落点别依赖「指针压在正文上」**：用 `view.posAtCoords()` 或 `resolveBlock()` 判定拖拽目标行，会隐含要求指针命中正文元素与文本位置。用户「拖到某行的左侧/右侧」时，指针往往已经在行的外面（左侧装订线、行尾留白），`posAtCoords` 直接返回 null → 整条分栏判定链断开 → 退回普通重排，表现为「怎么拖都只是换位置」。正确做法：**按 y 遍历 `view.dom.children` 的矩形锁行，按 x 判左右侧带**，两者都不依赖命中。另外两条随之而来的坑：①行与行是紧贴的，指针停在交界处会同时命中上下两行，按「高度最小」选会选中拖拽源自己，必须按「离指针垂直中心最近」选并跳过与拖拽范围重叠的行；②分栏内的判定也别用 `closest('.gn-column')` 反查 pos，改用 `elementFromPoint` 拿到 `.gn-columns` 元素后与 `view.nodeDOM(pos)` 比对，这样指针落在容器边框/内边距上也能正确入栏。
 24. **清单行是「一个块」，但分栏要按「条目」粒度**：`view.dom.children` 里整张 `ul/ol` 只占一行 DOM，`resolveRowBlockPos` 对列表永远返回**第一条**的 pos。若直接把这行当目标，会得到「整张清单」——它必然与拖拽源重叠（源就在同一张清单里）而被跳过，表现就是拖待办项时怎么拖都只显示「上下移动」。正确做法：先用 `posAtCoords({left: 列表左侧, top: 指针 y})` 定位到**具体那一条**，再用这一条的 `li` 矩形做左右侧带判定；落位时不能把整张清单换成一列（那会把所有条目塞进同一列），要把目标条目从清单里切出来单独成列，原清单按位置拆成「前面的条目 + 分栏 + 后面的条目」（见 `makeColumnsWithListItem`），拆分前必须先删除拖拽源并用 `tr.mapping.map` 重新定位目标条目——源和目标常常在同一张清单里，删掉源之后索引会变。
+25. **`owner` 现在是空间 id，不再是用户 id**：个人空间 id 复用用户 id，团队空间是 `sp_*`。所有读写必须用 `authOf(res).owner` / `auth.spaceId`，不要再假设 owner 一定对应某个用户；跨空间的 `ginkgo-db` / `ginkgo-page` / asset 引用会被 ACL 拒绝。
+26. **ACL 计算顺序不能改**：deny 优先短路 → 资源显式 → 组织节点继承（用 `org_nodes.path` 前缀判断祖先）→ 空间基线；`owner/admin` 不会被降级成 editor。新增资源类型时必须同时接入 `assertAccess`，否则团队 viewer 可以绕过接口写入。
+27. **页面写入只有带 `baseVersion` 才走 CAS**：不传时仍走 `putPage`（版本递增但属于后写覆盖）；前端 `savePage/saveContent` 传 `cur.version`，冲突会抛 `VersionConflictError`，`NoteView` 捕获后转只读。不要在服务端把 409 吞成 200。
+28. **presence 按空间隔离**：SSE `/presence/page/:id/stream` 用当前 `X-Space` 校验；`/shared` 个人笔记共享页不在该空间上下文，所以暂时没有在线头像。编辑占用由 `doc_locks` 维护，心跳同时续租，30s 定时清理过期锁。
+29. **协作页面 UI 约定（交接重点）**：下拉一律 `GnSelect`（空间不足自动上翻）、确认用行内二次确认而非 `window.confirm`、内容上限 1560px、好友/团队两列断点 1024px、滚动条走 `gn-scroll` 细条、团队切换用左侧竖向导航（208px、sticky）、人员选择只用 `PeoplePicker`（好友/团队分组 + 同人去重）。好友页/团队页目前仍有用户未认可的视觉问题，接手时优先重排布局骨架，不要继续微调 padding。
 
 ---
 
