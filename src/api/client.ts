@@ -8,16 +8,18 @@
 
 const TOKEN_KEY = 'ginkgo-token'
 
-export type Space = 'me' | 'public'
+export type Space = 'me' | 'public' | (string & {})
 
 let currentSpace: Space = 'me'
 let unauthorizedHandler: (() => void) | null = null
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  data: unknown
+  constructor(status: number, message: string, data?: unknown) {
     super(message)
     this.status = status
+    this.data = data
   }
 }
 
@@ -50,15 +52,22 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   const h: Record<string, string> = { ...extra }
   const token = getToken()
   if (token) h.Authorization = `Bearer ${token}`
-  if (currentSpace === 'public') h['X-Space'] = 'public'
+  // me 表示个人空间（不传头，后端按用户 id 归属）；其余为 public 或团队空间 id
+  if (currentSpace !== 'me') h['X-Space'] = currentSpace
   return h
+}
+
+/** 供 SSE / 裸 fetch 复用鉴权与空间头 */
+export function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return headers(extra)
 }
 
 async function raise(res: Response): Promise<never> {
   let message = `请求失败（${res.status}）`
+  let data: unknown = null
   try {
-    const data = await res.json()
-    if (data?.error) message = data.error
+    data = await res.json()
+    if ((data as { error?: string })?.error) message = (data as { error: string }).error
   } catch {
     /* 非 JSON 响应 */
   }
@@ -66,7 +75,7 @@ async function raise(res: Response): Promise<never> {
     setToken(null)
     unauthorizedHandler?.()
   }
-  throw new ApiError(res.status, message)
+  throw new ApiError(res.status, message, data)
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {

@@ -1,5 +1,16 @@
-import { api, apiBlob, apiMaybe, apiUpload } from '@/api/client'
+import { ApiError, api, apiBlob, apiMaybe, apiUpload } from '@/api/client'
 import type { Asset, Page, TreeNode } from '@/types'
+
+/** 服务端版本已变：把当前版本与内容交给上层决定覆盖 / 另存 / 放弃 */
+export class VersionConflictError extends Error {
+  currentVersion: number | null
+  current: Page | null
+  constructor(currentVersion: number | null, current: Page | null) {
+    super('文档已被他人修改')
+    this.currentVersion = currentVersion
+    this.current = current
+  }
+}
 
 export function uid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
@@ -85,8 +96,17 @@ export async function getPage(id: string): Promise<Page | undefined> {
   return apiMaybe<Page>('GET', `/pages/${encodeURIComponent(id)}`)
 }
 
-async function putPage(page: Page): Promise<void> {
-  await api('PUT', `/pages/${encodeURIComponent(page.id)}`, page)
+async function putPage(page: Page, baseVersion?: number): Promise<void> {
+  const body = baseVersion !== undefined ? { ...page, baseVersion } : page
+  try {
+    await api('PUT', `/pages/${encodeURIComponent(page.id)}`, body)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 409) {
+      const data = err.data as { currentVersion?: number; current?: Page } | null
+      throw new VersionConflictError(data?.currentVersion ?? null, data?.current ?? null)
+    }
+    throw err
+  }
 }
 
 async function batchPages(upsert: Page[], remove: string[] = []): Promise<void> {
@@ -134,7 +154,7 @@ export function savePage(id: string, patch: Partial<Page>): Promise<void> {
         if (t) next.title = t
       }
     }
-    await putPage(next)
+    await putPage(next, cur.version)
   })
 }
 
@@ -144,13 +164,16 @@ export function saveContent(id: string, content: string, title?: string): Promis
     const cur = await getPage(id)
     if (!cur) return ''
     const excerpt = await excerptOf(content)
-    await putPage({
-      ...cur,
-      content,
-      excerpt,
-      title: title !== undefined ? title : cur.title,
-      updatedAt: Date.now(),
-    })
+    await putPage(
+      {
+        ...cur,
+        content,
+        excerpt,
+        title: title !== undefined ? title : cur.title,
+        updatedAt: Date.now(),
+      },
+      cur.version,
+    )
     return excerpt
   })
 }

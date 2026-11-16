@@ -19,6 +19,8 @@ export interface Page {
   comments?: PageComment[]
   /** 锁定后页面只读，不可编辑 */
   locked?: boolean
+  /** 服务端乐观锁版本；读取时由后端注入 */
+  version?: number
 }
 
 export interface PageComment {
