@@ -233,7 +233,7 @@ spacesRouter.post('/spaces/invites/:id/accept', (req, res) => {
       `INSERT INTO space_members (space_id, user_id, org_node_id, role, status, joined_at)
        VALUES (?, ?, ?, ?, 'active', ?)
        ON CONFLICT(space_id, user_id, org_node_id) DO UPDATE SET role = excluded.role, status = 'active'`,
-    )    .run(inv.space_id, user.id, inv.org_node_id, inv.role, now)
+    ).run(inv.space_id, user.id, inv.org_node_id, inv.role, now)
     db.prepare("UPDATE invites SET status = 'accepted' WHERE id = ?").run(inv.id)
     syncSoleLead(inv.space_id, [inv.org_node_id])
   })
