@@ -29,6 +29,8 @@
   --gn-bg-sidebar: #f8f8f6;
   --gn-bg-hover: #f1f1ef;
   --gn-bg-active: #eaeae7;
+  /* 比 bg 深一档的浅底：行悬停、表单块、内嵌面板 */ 
+  --gn-bg-soft: #f8f8f6;
   --gn-bg-code: #f7f6f3;
   --gn-text: #252523;
   --gn-text-soft: #5f5f5c;
@@ -80,6 +82,7 @@ html.dark {
   --gn-bg-sidebar: #161615;
   --gn-bg-hover: #2a2a28;
   --gn-bg-active: #343431;
+  --gn-bg-soft: #232322;
   --gn-bg-code: #232322;
   --gn-text: #ececea;
   --gn-text-soft: #b3b3ad;

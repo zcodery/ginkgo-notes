@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronRight, Pencil, Plus, Trash2 } from 'lucide-vue-next'
 import {
   createOrgNode,
@@ -17,7 +17,15 @@ const props = defineProps<{
   selectedId?: string
 }>()
 
-const emit = defineEmits<{ (e: 'changed'): void; (e: 'select', id: string): void }>()
+const emit = defineEmits<{
+  (e: 'changed'): void
+  (e: 'select', id: string): void
+  /** 右侧成员被拖到某个节点上：把成员的归属改到该节点 */
+  (e: 'assign-member', payload: { userId: string; nodeId: string }): void
+}>()
+
+/** 成员拖拽用的私有 MIME，和节点排序的 text/plain 分开，互不干扰 */
+const MEMBER_MIME = 'application/x-ginkgo-member'
 
 const collapsed = ref<string[]>([])
 const err = ref('')
@@ -173,8 +181,18 @@ type DropZone = 'before' | 'after' | 'inside'
 const dragId = ref('')
 const dropHint = ref<{ id: string; zone: DropZone } | null>(null)
 const rootZone = ref(false)
+/** 正在拖成员时命中的节点 id（只做高亮，不参与节点排序逻辑） */
+const memberHintId = ref('')
 // 拖完松手时浏览器有时仍会补一个 click，用它把紧跟其后的点击吞掉
 let dragEndAt = 0
+
+function isMemberDrag(e: DragEvent) {
+  return !!e.dataTransfer?.types.includes(MEMBER_MIME)
+}
+
+function clearMemberHint() {
+  memberHintId.value = ''
+}
 
 /** 点行 = 选中该节点，右侧成员列表跟着过滤；点的是按钮/输入框则交给它们自己处理 */
 function onRowClick(node: OrgNodeInfo, e: MouseEvent) {
@@ -208,6 +226,16 @@ function onRowDragStart(node: OrgNodeInfo, e: DragEvent) {
 }
 
 function onRowDragOver(node: OrgNodeInfo, e: DragEvent) {
+  // 拖的是右侧成员：整行都是落点，直接把成员挂到该节点
+  if (isMemberDrag(e)) {
+    if (!props.canManage) return
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+    dropHint.value = null
+    rootZone.value = false
+    memberHintId.value = node.id
+    return
+  }
   if (!dragId.value) return
   if (blockedTarget(node.id)) {
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
@@ -229,18 +257,28 @@ function onRowDragLeave(node: OrgNodeInfo, e: DragEvent) {
   const to = e.relatedTarget as Node | null
   if (to && (e.currentTarget as HTMLElement).contains(to)) return
   if (dropHint.value?.id === node.id) dropHint.value = null
+  if (memberHintId.value === node.id) memberHintId.value = ''
 }
 
 function resetDrag() {
   dragId.value = ''
   dropHint.value = null
   rootZone.value = false
+  clearMemberHint()
   dragEndAt = Date.now()
 }
 
 function onRowDrop(node: OrgNodeInfo, e: DragEvent) {
   e.preventDefault()
   e.stopPropagation()
+  // 成员落点：发出归属变更，由团队页调接口
+  if (isMemberDrag(e)) {
+    const userId = e.dataTransfer?.getData(MEMBER_MIME) ?? ''
+    clearMemberHint()
+    dragEndAt = Date.now()
+    if (userId) emit('assign-member', { userId, nodeId: node.id })
+    return
+  }
   const hint = dropHint.value
   const moving = dragId.value
   resetDrag()
@@ -298,6 +336,17 @@ async function doMove(nodeId: string, parentId: string | null, beforeId: string 
 function doDelete(id: string) {
   void apply(() => deleteOrgNode(props.spaceId, id))
 }
+
+// 拖拽源在右侧成员列表，松手/取消时树这边收不到 dragend，用全局事件兜底清高亮
+onMounted(() => {
+  document.addEventListener('dragend', clearMemberHint)
+  document.addEventListener('drop', clearMemberHint)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('dragend', clearMemberHint)
+  document.removeEventListener('drop', clearMemberHint)
+})
 
 /* ---------------- 行出现/消失的高度动画 ---------------- */
 // TransitionGroup 只能过渡有具体数值的属性，进入/离开时先把高度定死再改成 0，
@@ -383,6 +432,7 @@ function onRowLeave(el: Element) {
               editing: editingId === row.node.id,
               on: selectedId === row.node.id,
               dragging: dragId === row.node.id,
+              'member-drop': memberHintId === row.node.id,
               'drop-before': dropHint?.id === row.node.id && dropHint.zone === 'before',
               'drop-after': dropHint?.id === row.node.id && dropHint.zone === 'after',
               'drop-inside': dropHint?.id === row.node.id && dropHint.zone === 'inside',
@@ -471,7 +521,13 @@ function onRowLeave(el: Element) {
       @dragleave="rootZone = false"
       @drop="onRootDrop"
     >
-      {{ dragId ? '松手 → 移到最外层（根节点）' : '按住节点可拖动调整层级' }}
+      {{
+        dragId
+          ? '松手 → 移到最外层（根节点）'
+          : memberHintId
+            ? '松手 → 把成员挂到该节点下'
+            : '按住节点可拖动调整层级'
+      }}
     </div>
 
     <p v-if="err" class="ot-err">{{ err }}</p>
@@ -570,6 +626,16 @@ function onRowLeave(el: Element) {
   outline: 2px dashed var(--gn-accent);
   outline-offset: -2px;
   background: var(--gn-accent-soft);
+}
+/* 成员拖到这一行上：整行作落点，实线描边区别于节点排序的插入线 */
+.ot-row.member-drop,
+.ot-row.member-drop:hover {
+  background: var(--gn-accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--gn-accent);
+}
+.ot-row.member-drop .ot-name,
+.ot-row.member-drop .ot-count {
+  color: var(--gn-accent);
 }
 .ot-row.drop-inside:hover {
   background: var(--gn-accent-soft);

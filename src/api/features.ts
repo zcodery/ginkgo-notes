@@ -437,6 +437,11 @@ export const updateSpaceMember = (
 ) => api('PATCH', `/spaces/${spaceId}/members/${userId}`, body)
 export const removeSpaceMember = (spaceId: string, userId: string) =>
   api('DELETE', `/spaces/${spaceId}/members/${userId}`)
+/** 代注册：账号与初始密码都是手机号；手机号已有账号时直接加入团队 */
+export const registerSpaceMember = (
+  spaceId: string,
+  body: { phone: string; name?: string; role: string; orgNodeId?: string },
+) => api<SpaceMemberInfo & { created: boolean }>('POST', `/spaces/${spaceId}/members/register`, body)
 export const inviteToSpace = (spaceId: string, body: { username: string; role: string; orgNodeId?: string }) =>
   api<{ id: string }>('POST', `/spaces/${spaceId}/invites`, body)
 export const listSpaceInvites = (spaceId: string) =>

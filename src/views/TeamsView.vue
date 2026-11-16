@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { ArrowRight, ChevronRight, FolderTree, Plus, Upload, UserPlus, Users, X } from 'lucide-vue-next'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import {
+  ArrowRight,
+  ChevronRight,
+  FolderTree,
+  GripVertical,
+  Plus,
+  Upload,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-vue-next'
 import GnSelect from '@/components/GnSelect.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
@@ -12,6 +22,7 @@ import {
   inviteToSpace,
   listSpaces,
   listSpaceInvites,
+  registerSpaceMember,
   removeSpaceMember,
   updateSpaceMember,
   type BackendRole,
@@ -34,7 +45,19 @@ const err = ref('')
 const newSpace = ref('')
 const navCreateOpen = ref(false)
 const inviteDraft = ref({ usernames: [] as string[], role: 'viewer', orgNodeId: '' })
+/** 添加成员：邀请已有账号 / 代注册新账号 */
+const inviteMode = ref<'pick' | 'create'>('pick')
+const createDraft = ref({ phone: '', name: '', role: 'viewer', orgNodeId: '' })
 const confirmingMember = ref('')
+
+/** 一次性提示（移动成员、建号成功等），2.6s 自动消失 */
+const notice = ref('')
+let noticeTimer: ReturnType<typeof setTimeout> | undefined
+function flash(text: string) {
+  notice.value = text
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => (notice.value = ''), 2600)
+}
 
 const importOpen = ref(false)
 const importText = ref('')
@@ -73,17 +96,24 @@ async function refreshSpaces() {
   spaces.value = await listSpaces()
 }
 
-async function select(space: SpaceInfo) {
+/**
+ * 真正拉数据的那一层。select 里套 run 会撞上忙碌保护，
+ * 所以增删改之后在 run 内部刷新必须直接调 load，否则界面不更新。
+ */
+async function load(space: SpaceInfo) {
   // 换空间才清掉成员筛选；同一空间内的增删改刷新不能把用户选的节点丢掉
   if (current.value?.id !== space.id) scopeId.value = ''
   current.value = space
-  await run(async () => {
-    const org = await getSpaceOrg(space.id)
-    nodes.value = org.nodes
-    members.value = org.members
-    pending.value = canManage.value ? await listSpaceInvites(space.id) : []
-    resolveScope()
-  })
+  const org = await getSpaceOrg(space.id)
+  nodes.value = org.nodes
+  members.value = org.members
+  pending.value = canManage.value ? await listSpaceInvites(space.id) : []
+  resolveScope()
+}
+
+async function select(space: SpaceInfo) {
+  if (busy.value) return
+  await run(() => load(space))
 }
 
 function create() {
@@ -94,7 +124,7 @@ function create() {
     newSpace.value = ''
     navCreateOpen.value = false
     await refreshSpaces()
-    await select(space)
+    await load(space)
   })
 }
 
@@ -120,7 +150,7 @@ function invite() {
       }
     }
     inviteDraft.value.usernames = []
-    await select(current.value!)
+    await load(current.value!)
     if (errors.length) err.value = errors.join('；')
   })
 }
@@ -129,7 +159,77 @@ function changeRole(member: SpaceMemberInfo, role: string) {
   if (!current.value) return
   return run(async () => {
     await updateSpaceMember(current.value!.id, member.id, { role })
-    await select(current.value!)
+    await load(current.value!)
+  })
+}
+
+/* ---------------- 拖成员到部门节点 ---------------- */
+
+/** 和 OrgTree 约定的私有 MIME：避免和节点排序的 text/plain 混在一起 */
+const MEMBER_MIME = 'application/x-ginkgo-member'
+const draggingMemberId = ref('')
+
+function onMemberDragStart(member: SpaceMemberInfo, e: DragEvent) {
+  if (!canManage.value) {
+    e.preventDefault()
+    return
+  }
+  draggingMemberId.value = member.id
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData(MEMBER_MIME, member.id)
+  }
+}
+
+function onMemberDragEnd() {
+  draggingMemberId.value = ''
+}
+
+/** 树上的节点接了成员：改归属后刷新，人少的节点会从列表里消失，所以不改变当前筛选 */
+function assignMember(payload: { userId: string; nodeId: string }) {
+  if (!current.value) return
+  const member = members.value.find((m) => m.id === payload.userId)
+  if (!member) return
+  if (memberNodeId(member.orgNodeId) === payload.nodeId) return
+  draggingMemberId.value = ''
+  const target = nodeMap.value.get(payload.nodeId)
+  return run(async () => {
+    await updateSpaceMember(current.value!.id, payload.userId, { orgNodeId: payload.nodeId })
+    await load(current.value!)
+    flash(`已把 ${member.name || member.username} 移到「${target?.name ?? '该节点'}」`)
+  })
+}
+
+/* ---------------- 代注册成员 ---------------- */
+
+const phoneValid = computed(() => /^1[3-9]\d{9}$/.test(createDraft.value.phone.trim()))
+
+function setInviteMode(mode: 'pick' | 'create') {
+  inviteMode.value = mode
+  // 正在看某个部门时，默认把新成员建到那个部门下
+  if (mode === 'create' && scopeId.value && !createDraft.value.orgNodeId) {
+    createDraft.value.orgNodeId = scopeId.value
+  }
+}
+
+function createMember() {
+  if (!current.value || !phoneValid.value) return
+  const draft = { ...createDraft.value }
+  const phone = draft.phone.trim()
+  return run(async () => {
+    const res = await registerSpaceMember(current.value!.id, {
+      phone,
+      name: draft.name.trim() || undefined,
+      role: draft.role,
+      orgNodeId: draft.orgNodeId || undefined,
+    })
+    createDraft.value = { phone: '', name: '', role: draft.role, orgNodeId: draft.orgNodeId }
+    await load(current.value!)
+    flash(
+      res.created
+        ? `已创建 ${phone}，初始密码为手机号`
+        : `${phone} 已有账号，已直接加入团队`,
+    )
   })
 }
 
@@ -138,7 +238,7 @@ function removeMember(member: SpaceMemberInfo) {
   confirmingMember.value = ''
   return run(async () => {
     await removeSpaceMember(current.value!.id, member.id)
-    await select(current.value!)
+    await load(current.value!)
   })
 }
 
@@ -282,7 +382,7 @@ function doImport() {
           }
     }
     importResult.value = await importOrg(current.value!.id, payload)
-    await select(current.value!)
+    await load(current.value!)
   })
 }
 
@@ -298,6 +398,10 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onBeforeUnmount(() => {
+  if (noticeTimer) clearTimeout(noticeTimer)
 })
 </script>
 
@@ -366,6 +470,7 @@ onMounted(async () => {
                   :selected-id="scopeId"
                   @select="selectNode"
                   @changed="reloadOrg"
+                  @assign-member="assignMember"
                 />
 
                 <div v-if="canManage" class="tm-import">
@@ -450,8 +555,23 @@ onMounted(async () => {
                     v-for="m in g.members"
                     :key="m.id"
                     class="tm-member"
-                    :class="{ 'is-grouped': g.segs.length }"
+                    :class="{
+                      'is-grouped': g.segs.length,
+                      'is-draggable': canManage,
+                      'is-dragging': draggingMemberId === m.id,
+                    }"
+                    :draggable="canManage"
+                    @dragstart="onMemberDragStart(m, $event)"
+                    @dragend="onMemberDragEnd"
                   >
+                    <span
+                      v-if="canManage"
+                      class="tm-grip"
+                      aria-hidden="true"
+                      v-tooltip="'拖到左侧组织节点上即可改归属'"
+                    >
+                      <GripVertical :size="12" />
+                    </span>
                     <div class="tm-avatar">{{ (m.name || '?').slice(0, 1) }}</div>
                     <div class="tm-member-main">
                       <div class="tm-member-name">{{ m.name }}</div>
@@ -500,36 +620,101 @@ onMounted(async () => {
               </div>
 
               <div v-if="canManage" class="tm-invite">
-                <div class="tm-subtitle">添加成员</div>
-                <PeoplePicker
-                  v-model="inviteDraft.usernames"
-                  source="both"
-                  :space-id="current.id"
-                  :spaces="teamSpaces"
-                  placeholder="选择好友或团队成员"
-                />
-                <div class="tm-inline tm-wrap">
-                  <GnSelect
-                    v-model="inviteDraft.role"
-                    :options="roleOptions"
-                    :min-width="92"
-                    v-tooltip="'邀请后授予的角色'"
-                  />
-                  <GnSelect
-                    v-model="inviteDraft.orgNodeId"
-                    :options="orgOptions"
-                    :min-width="150"
-                    v-tooltip="'挂到哪个节点，成员会继承该节点权限'"
-                  />
-                  <button
-                    type="button"
-                    class="tm-btn primary"
-                    :disabled="busy || !inviteDraft.usernames.length"
-                    @click="invite"
-                  >
-                    <UserPlus :size="13" />邀请{{ inviteDraft.usernames.length ? `（${inviteDraft.usernames.length}）` : '' }}
-                  </button>
+                <div class="tm-invite-head">
+                  <div class="tm-tabs">
+                    <button
+                      type="button"
+                      :class="{ on: inviteMode === 'pick' }"
+                      @click="setInviteMode('pick')"
+                    >
+                      邀请加入
+                    </button>
+                    <button
+                      type="button"
+                      :class="{ on: inviteMode === 'create' }"
+                      @click="setInviteMode('create')"
+                    >
+                      新建成员
+                    </button>
+                  </div>
+                  <span class="tm-invite-tip">
+                    {{ inviteMode === 'create' ? '账号与初始密码都是手机号' : '从好友或团队成员里选' }}
+                  </span>
                 </div>
+
+                <template v-if="inviteMode === 'pick'">
+                  <PeoplePicker
+                    v-model="inviteDraft.usernames"
+                    source="both"
+                    :space-id="current.id"
+                    :spaces="teamSpaces"
+                    placeholder="选择好友或团队成员"
+                  />
+                  <div class="tm-inline tm-wrap">
+                    <GnSelect
+                      v-model="inviteDraft.role"
+                      :options="roleOptions"
+                      :min-width="92"
+                      v-tooltip="'邀请后授予的角色'"
+                    />
+                    <GnSelect
+                      v-model="inviteDraft.orgNodeId"
+                      :options="orgOptions"
+                      :min-width="150"
+                      v-tooltip="'挂到哪个节点，成员会继承该节点权限'"
+                    />
+                    <button
+                      type="button"
+                      class="tm-btn primary"
+                      :disabled="busy || !inviteDraft.usernames.length"
+                      @click="invite"
+                    >
+                      <UserPlus :size="13" />邀请{{ inviteDraft.usernames.length ? `（${inviteDraft.usernames.length}）` : '' }}
+                    </button>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="tm-inline">
+                    <input
+                      v-model="createDraft.phone"
+                      class="tm-input"
+                      inputmode="numeric"
+                      maxlength="11"
+                      placeholder="手机号"
+                      @keydown.enter.prevent="createMember"
+                    />
+                    <input
+                      v-model="createDraft.name"
+                      class="tm-input"
+                      maxlength="24"
+                      placeholder="姓名（可选）"
+                      @keydown.enter.prevent="createMember"
+                    />
+                  </div>
+                  <div class="tm-inline tm-wrap">
+                    <GnSelect
+                      v-model="createDraft.role"
+                      :options="roleOptions"
+                      :min-width="78"
+                      v-tooltip="'新成员的角色'"
+                    />
+                    <GnSelect
+                      v-model="createDraft.orgNodeId"
+                      :options="orgOptions"
+                      :min-width="120"
+                      v-tooltip="'建号后直接挂到这个节点'"
+                    />
+                    <button
+                      type="button"
+                      class="tm-btn primary"
+                      :disabled="busy || !phoneValid"
+                      @click="createMember"
+                    >
+                      <UserPlus :size="13" />建号并加入
+                    </button>
+                  </div>
+                </template>
               </div>
             </section>
           </div>
@@ -549,6 +734,10 @@ onMounted(async () => {
         <p v-if="err" class="tm-err">{{ err }}</p>
       </main>
     </div>
+
+    <Transition name="tm-notice">
+      <div v-if="notice" class="tm-notice">{{ notice }}</div>
+    </Transition>
   </section>
 </template>
 
@@ -970,6 +1159,27 @@ onMounted(async () => {
   padding: 6px 8px;
   border-radius: 8px;
 }
+.tm-member.is-draggable {
+  cursor: grab;
+}
+.tm-member.is-dragging {
+  opacity: 0.45;
+}
+/* 拖拽手柄：常驻占位、仅悬停显形，避免每次 hover 都跳一下 */
+.tm-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  flex: 0 0 10px;
+  margin: 0 -5px 0 -3px;
+  color: var(--gn-text-muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.tm-member:hover .tm-grip {
+  opacity: 0.6;
+}
 .tm-member + .tm-member {
   margin-top: 2px;
 }
@@ -1046,6 +1256,88 @@ onMounted(async () => {
 }
 .tm-invite .tm-subtitle {
   margin: 0;
+}
+.tm-invite-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.tm-invite-tip {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--gn-text-muted);
+}
+.tm-tabs {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--gn-bg-hover);
+}
+.tm-tabs button {
+  height: 22px;
+  padding: 0 9px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--gn-text-soft);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.tm-tabs button.on {
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  box-shadow: var(--gn-shadow-sm);
+}
+.tm-input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--gn-border);
+  border-radius: 7px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 12.5px;
+  font-family: inherit;
+  outline: none;
+}
+.tm-input:focus {
+  border-color: var(--gn-accent);
+}
+.tm-input::placeholder {
+  color: var(--gn-text-muted);
+}
+/* 一次性提示：底部居中的小胶囊 */
+.tm-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 900;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 7px 14px;
+  border-radius: 99px;
+  background: var(--gn-text);
+  color: var(--gn-bg);
+  font-size: 12.5px;
+  box-shadow: var(--gn-shadow-md);
+  transform: translateX(-50%);
+}
+.tm-notice-enter-active,
+.tm-notice-leave-active {
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+.tm-notice-enter-from,
+.tm-notice-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
 }
 /* PeoplePicker 默认带 flex:1 1 220px，在纵向容器里会被撑成 220px 高，这里收掉 */
 .tm-invite :deep(.pp) {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Router } from 'express'
-import { authOf, findUserById, findUserByName, type SpaceRole } from './auth.ts'
+import { authOf, createUser, findUserById, findUserByName, updateUserProfile, type SpaceRole } from './auth.ts'
 import { effectiveSpaceRole, roleRank } from './acl.ts'
 import { db, getSpace, listSpacesFor, transaction, type SpaceRow } from './db.ts'
 import { HttpError, param, str } from './http.ts'
@@ -703,6 +703,46 @@ spacesRouter.post('/spaces/:id/members', (req, res) => {
   ).run(space.id, target.id, orgNodeId, role, Date.now())
   notify(target.id, 'member', `${user.nickname || user.username} 邀请你加入「${space.name}」`, `角色：${role}`, '/teams')
   res.status(201).json({ ...publicUser(target.id), role, orgNodeId })
+})
+
+/**
+ * 代注册成员：人事或部门负责人直接建号并挂到组织节点。
+ *
+ * 约定账号 = 手机号、初始密码 = 手机号；手机号已存在时不重复建号，
+ * 直接把该账号加入团队（相当于免邀请直接入组）。
+ */
+spacesRouter.post('/spaces/:id/members/register', (req, res) => {
+  const { user } = authOf(res)
+  const space = requireSpace(param(req, 'id'))
+  const actor = requireAdmin(space.id, user.id)
+  const phone = str(req.body?.phone, '手机号', 20).replace(/[\s-]/g, '')
+  if (!/^1[3-9]\d{9}$/.test(phone)) throw new HttpError(400, '请填写 11 位手机号')
+  const name = req.body?.name === undefined ? '' : str(req.body.name, '姓名', 24)
+  const role = assertAssignable(actor, req.body?.role)
+  const orgNodeId = orgNodeOf(space.id, req.body?.orgNodeId)
+
+  let target = findUserByName(phone)
+  let created = false
+  if (target) {
+    if (target.id === space.owner_user_id) throw new HttpError(409, '该手机号是团队所有者')
+    const member = db
+      .prepare("SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ? AND status = 'active'")
+      .get(space.id, target.id)
+    if (member) throw new HttpError(409, '该手机号已是团队成员')
+  } else {
+    // 用户名规则允许纯数字，手机号本身就能当账号；密码按约定也用手机号
+    target = createUser(phone, phone)
+    updateUserProfile(target.id, { phone, nickname: name || null })
+    created = true
+  }
+
+  db.prepare(
+    `INSERT INTO space_members (space_id, user_id, org_node_id, role, status, joined_at)
+     VALUES (?, ?, ?, ?, 'active', ?)
+     ON CONFLICT(space_id, user_id, org_node_id) DO UPDATE SET role = excluded.role, status = 'active'`,
+  ).run(space.id, target.id, orgNodeId, role, Date.now())
+
+  res.status(201).json({ ...publicUser(target.id), role, orgNodeId, created })
 })
 
 spacesRouter.patch('/spaces/:id/members/:userId', (req, res) => {
