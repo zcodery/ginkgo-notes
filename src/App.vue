@@ -30,6 +30,7 @@ import {
   toggleTheme,
   reloadPages,
   reloadGutterTuningPref,
+  reloadSidebarWidthPref,
 } from '@/store'
 import { createPage } from '@/db/repo'
 import { t } from '@/i18n'
@@ -189,6 +190,7 @@ watch(
 onMounted(async () => {
   await initTheme()
   await initEditorPrefs()
+  await reloadSidebarWidthPref()
   migrateLegacyHash()
   store.route = parseRoute()
   if (!isPublicShare.value) {

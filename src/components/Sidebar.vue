@@ -40,11 +40,16 @@ import {
   logout,
   switchSpace,
   reloadPages,
+  setSidebarWidth,
+  saveSidebarWidth,
+  resetSidebarWidth,
 } from '@/store'
 import { countLegacyPages, importLegacyToPublic, legacyAlreadyImported } from '@/db/legacy'
 import { t } from '@/i18n'
 
 const treeRef = ref<InstanceType<typeof PageTree> | null>(null)
+/** 拖拽条元素，用于把指示线位置写到 CSS 变量 */
+const resizerEl = ref<HTMLElement | null>(null)
 
 /** 与我共享：按授权根页面展开成带层级的扁平列表 */
 const sharedItems = computed(() => {
@@ -127,13 +132,68 @@ function onGlobalDown(e: MouseEvent) {
   }
 }
 
+/* ---------------- 侧边栏宽度拖拽 ---------------- */
+
+/** 拖拽起点：记录鼠标 X 与当前宽度 */
+let resizeStartX = 0
+let resizeStartWidth = 0
+let resizing = false
+
+/** 让指示线跟随鼠标高度，hover 与拖拽时都给出位置反馈 */
+function setGripY(clientY: number) {
+  const el = resizerEl.value
+  if (!el) return
+  const rect = el.parentElement?.getBoundingClientRect()
+  if (!rect || rect.height <= 0) return
+  const y = Math.min(rect.height - 20, Math.max(20, clientY - rect.top))
+  el.style.setProperty('--sb-grip-y', `${y}px`)
+}
+
+function onResizeMove(e: MouseEvent) {
+  if (!resizing) return
+  // 鼠标右移 → 侧栏变宽；左移 → 变窄
+  setSidebarWidth(resizeStartWidth + (e.clientX - resizeStartX))
+  setGripY(e.clientY)
+}
+
+function onResizeUp() {
+  if (!resizing) return
+  resizing = false
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+  document.body.classList.remove('sb-resizing')
+  // 松手后落盘
+  saveSidebarWidth()
+}
+
+function startResize(e: MouseEvent) {
+  if (store.isMobile) return
+  resizing = true
+  resizeStartX = e.clientX
+  resizeStartWidth = store.sidebarWidth
+  setGripY(e.clientY)
+  document.addEventListener('mousemove', onResizeMove)
+  document.addEventListener('mouseup', onResizeUp)
+  // 拖拽期间禁用文本选中，并保持 col-resize 光标
+  document.body.classList.add('sb-resizing')
+}
+
+/** hover 拖拽条时也让指示线跟随鼠标 */
+function onResizerMove(e: MouseEvent) {
+  if (!resizing) setGripY(e.clientY)
+}
+
 watch(() => store.user?.id, () => void checkLegacy())
 
 onMounted(() => {
   document.addEventListener('mousedown', onGlobalDown)
   void checkLegacy()
 })
-onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
+onBeforeUnmount(() => {
+  document.removeEventListener('mousedown', onGlobalDown)
+  document.removeEventListener('mousemove', onResizeMove)
+  document.removeEventListener('mouseup', onResizeUp)
+})
 </script>
 
 <template>
@@ -293,19 +353,71 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
         </button>
       </div>
     </div>
+
+    <!-- 右侧拖拽条：左右拖动自定义侧边栏宽度（窄屏为浮层，不显示） -->
+    <div
+      v-if="!store.isMobile"
+      ref="resizerEl"
+      class="sb-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      :aria-label="t('sidebar.resize')"
+      :title="t('sidebar.resizeTip')"
+      @mousemove="onResizerMove"
+      @mousedown.prevent="startResize"
+      @dblclick="resetSidebarWidth()"
+    >
+      <span class="sb-resizer-grip" />
+    </div>
   </aside>
 </template>
 
 <style scoped>
 .sidebar {
-  width: 248px;
-  flex: 0 0 248px;
+  position: relative;
+  width: var(--gn-sidebar-w, 248px);
+  flex: 0 0 var(--gn-sidebar-w, 248px);
   height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--gn-bg-sidebar);
   border-right: 1px solid var(--gn-border);
   user-select: none;
+}
+/* 右侧拖拽条：左右拖动自定义宽度，双击复位 */
+.sb-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 7px;
+  z-index: 5;
+  cursor: col-resize;
+}
+.sb-resizer-grip {
+  position: absolute;
+  top: var(--sb-grip-y, 50%);
+  left: 50%;
+  width: 2px;
+  height: 34px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--gn-accent);
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.sb-resizer:hover .sb-resizer-grip {
+  opacity: 0.55;
+}
+/* 拖拽过程中保持光标与禁用选中，避免拖动时误选文字 */
+.sb-resizing,
+.sb-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+.sb-resizing .sb-resizer-grip {
+  opacity: 0.9;
 }
 .sb-head {
   display: flex;
