@@ -540,11 +540,12 @@ ginkgoNotes/
 | 95 | `a17586c` | feat(core) | 管理后台路由接入（/admin、goAdmin）与管理员守卫（身份异步到位后判定） |
 | 96 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
 | 97 | `ca88d76` | fix(ui) | 管理员后台人员明细表左侧列排版：td 恢复表格语义 + 内层容器承载 flex，昵称/联系方式行距与头像尺寸放宽 |
+| 98 | `c70c231` | fix(ui) | 主色按钮 hover 变白字白底修复（`:not(:disabled)` 提升特异性）+ 人员明细表展示真实上传头像 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `ca88d76` — fix(ui): 管理员后台人员明细表左侧列排版拥挤
-> 最新**功能**提交：`ca88d76` — fix(ui): 管理员后台人员明细表左侧列排版拥挤（本地已提交，待推送）
+**HEAD**: `c70c231` — fix(ui): 修复主色按钮 hover 变白字白底、人员头像不显示
+> 最新**功能**提交：`c70c231` — fix(ui): 修复主色按钮 hover 变白字白底、人员头像不显示（本地已提交，待推送）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -588,7 +589,9 @@ ginkgoNotes/
 
 **后续修复**：`ca88d76` fix(ui) — 人员明细表左侧列排版拥挤。根因是 `<td class="ad-td-user">` 上直接写了 `display:flex`，`<td>` 脱离表格布局后 `padding` 失效（头像贴死左边缘）且列宽分配失真（实测人员列被撑到 607px，把后列全挤走）。改为 `<td>` 保持 `table-cell`、内层 `.ad-user-cell` 承担 flex，并放宽行距与头像尺寸（陷阱 86）。
 
-> 验证：真机 Chrome E2E **32/32 通过**（概览卡片、趋势图、搜索防抖、角色筛选、排序、详情抽屉、导出下载、明暗主题、普通用户被拦、侧栏入口、控制台无报错）；导出文件用真实 Excel 打开验证为「人员统计」工作表 21 行 × 22 列。
+**后续修复 2**：`c70c231` fix(ui) — 两个问题。① 主色按钮 hover 后文字消失：`.ad-btn:hover:not(:disabled)` 特异性 (0,3,0) 压过 `.ad-btn.primary` (0,2,0)，底色被换成浅灰而文字仍是白色 → 白字白底；修法是在主色 hover 规则里显式重设 `background`（陷阱 87）。② 人员上传的头像未展示：后端 `avatar` 字段本就有值（base64 data URL），前端只渲染首字色块；改为 `<img v-if="avatar">` + 无头像回退首字，列表、详情抽屉、好友名册三处统一，头像容器补 `overflow:hidden` + `object-fit:cover`。
+
+> 验证：真机 Chrome E2E **36/36 通过**（新增 4 条专项断言：hover 后底色不变、hover 后文字与底色对比明显、真实头像图片渲染、头像图片已加载且尺寸正常）；导出文件用真实 Excel 打开验证为「人员统计」工作表 21 行 × 22 列。
 
 ---
 
@@ -764,6 +767,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 84. **前端路由守卫要等身份回来再判**：`parseRoute()` 只看 URL，不知道用户是不是管理员；而 `restoreSession()` 是异步的，首次加载时 `syncRoute()` 早于它执行，此刻 `store.user` 还是 null，守卫条件 `role !== 'admin'` 会因为 role 为空而放行，普通用户能停在 `/admin` 上。修法是**同时监听 `store.user?.role` 和 `store.route.view`**（`watch` 配 `immediate: true`），身份到位后重新判定并 `goHome()` 送回首页；服务端仍要有 `requireAdmin` 兜底，前端守卫只是体验层。
 85. **E2E 里多个身份要各开独立 context**：同一个 `browser.newContext()` 里换 `localStorage` 里的 token 会串味——后开的页面覆盖了前一个页面的登录态，测「普通用户被拦」时测到的其实是管理员。正确做法是每个身份 `newContext()` 单独开页，测完 `close()`。另外给带入场动画的元素截图前要先 `waitForTimeout`，否则拍到半透明的中间帧（详情抽屉 0.2s 的 `ad-slide-in`），会误判成「背景透出」。
 86. **`<td>` 上写 `display:flex` 会让单元格脱离表格布局**：`display` 改成 `flex` 后 `<td>` 不再是 `table-cell`，表格布局算法对它的处理方式全变了——最直接的后果是同一类里的 `padding` 失效、内容贴死单元格边缘，而且列宽分配会失真（实测人员列被撑到 607px，把后面所有列都挤走）。正确做法是**`<td>` 保持 `table-cell`，把 flex 放进内层容器**：`<td class="ad-td"><div class="xx-cell">…</div></td>`。同理不要在 `<td>`/`<th>` 上写 `width: 100%`，那会让该列吞掉表格剩余全部宽度。排查这类「看起来拥挤」的问题不要只调 `padding`/`gap`，先用 `getBoundingClientRect()` 量一下内层元素与单元格左边缘的实际距离——零距离就说明 `padding` 被 `display` 顶掉了。
+87. **`:not(:disabled)` 会偷偷提升选择器特异性，把主色按钮的 hover 变成白字白底**：`.ad-btn:hover:not(:disabled)` 的特异性是 (0,3,0)，比 `.ad-btn.primary` 的 (0,2,0) **更高**，所以主色按钮一 hover，底色就被换成 `--gn-bg-hover`（浅灰），而 `.ad-btn.primary:hover:not(:disabled)` 里只改了 `color: #fff` 没改背景 → **白字白底，按钮上的字彻底消失**。修法是在主色的 hover 规则里**显式重设 `background`**（`filter: brightness()` 只能改亮度不能补回被覆盖的背景）。注意这不一定每个页面都有：本项目里 `ProfileView` 的 `.pf-btn.primary:hover:not(:disabled)` 因为显式写了 `background` 所以没事，`TeamsView`/`FriendsView` 的 `.tm-btn:hover`（无 `:not()`，特异性仅 0,2,0）也没事——只有同时满足「基础 hover 带 `:not(:disabled)`」+「主色 hover 没重设 background」这两个条件才会踩坑。遇到「按钮 hover 后文字消失」先量 `getComputedStyle` 的 `backgroundColor` 与 `color`，两者相同就是这个问题。
 
 
 ---
