@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   UserRound,
   Users,
+  BarChart3,
 } from 'lucide-vue-next'
 import PageTree from './PageTree.vue'
 import PageIcon from './PageIcon.vue'
@@ -33,6 +34,7 @@ import {
   goShared,
   goFriends,
   goTeams,
+  goAdmin,
   toggleTheme,
   isAdmin,
   logout,
@@ -280,6 +282,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onGlobalDown))
             <span>{{
               importing ? t('sidebar.importing') : t('sidebar.importLegacy', { n: legacyCount })
             }}</span>
+          </button>
+          <button :class="{ on: store.route.view === 'admin' }" @click="userMenuOpen = false; goAdmin()">
+            <BarChart3 :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.adminConsole') }}</span>
           </button>
         </template>
         <div class="sb-menu-sep"></div>
