@@ -15,8 +15,10 @@ const props = withDefaults(
     disabled?: boolean
     /** 触发器最小宽度 */
     minWidth?: number
+    /** 放在确认弹窗等高层容器里时要抬高层级 */
+    zIndex?: number
   }>(),
-  { disabled: false, minWidth: 108 },
+  { disabled: false, minWidth: 108, zIndex: 1200 },
 )
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
@@ -56,6 +58,7 @@ function place() {
   // 右对齐触发器，再夹到视口内
   const left = Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE)
   const style: Record<string, string> = {
+    zIndex: String(props.zIndex),
     left: `${Math.round(left)}px`,
     width: `${Math.round(width)}px`,
     maxHeight: `${Math.round(Math.min(want, room))}px`,

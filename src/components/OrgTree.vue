@@ -142,6 +142,17 @@ function saveAdd() {
   )
 }
 
+/**
+ * 新建行失焦：什么都没填就当用户放弃，直接收掉这一行，
+ * 免得点别处后留下一个空输入框挂在树里。填了内容则保留（还能继续改）。
+ * 确定 / 取消按钮都加了 `@mousedown.prevent`，点它们时输入框不会先失焦。
+ */
+function onAddBlur() {
+  if (addingParentId.value === undefined) return
+  if (addingName.value.trim()) return
+  resetInline()
+}
+
 function startRename(node: OrgNodeInfo) {
   resetInline()
   editingId.value = node.id
@@ -424,11 +435,20 @@ function onRowLeave(el: Element) {
             :disabled="busy"
             @keydown.enter.prevent="saveAdd"
             @keydown.esc.prevent="resetInline"
+            @blur="onAddBlur"
           />
-          <button type="button" class="ot-btn primary sm" :disabled="busy || !addingName.trim()" @click="saveAdd">
+          <button
+            type="button"
+            class="ot-btn primary sm"
+            :disabled="busy || !addingName.trim()"
+            @mousedown.prevent
+            @click="saveAdd"
+          >
             确定
           </button>
-          <button type="button" class="ot-btn sm" :disabled="busy" @click="resetInline">取消</button>
+          <button type="button" class="ot-btn sm" :disabled="busy" @mousedown.prevent @click="resetInline">
+            取消
+          </button>
         </div>
 
         <div v-else class="ot-item">

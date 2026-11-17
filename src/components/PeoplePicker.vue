@@ -3,7 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Check, ChevronDown, ChevronRight, Folder, Search, X } from 'lucide-vue-next'
 import {
   getSpaceOrg,
+  listFriendGroups,
   listFriends,
+  type FriendGroupInfo,
   type FriendInfo,
   type OrgNodeInfo,
   type SpaceMemberInfo,
@@ -45,6 +47,8 @@ interface Person {
   username: string
   name: string
   avatar: string | null
+  /** 好友在我这边的分组；团队成员没有这个概念 */
+  groupId: string | null
 }
 
 /** 团队成员 = 人 + 他挂在哪个组织节点上 */
@@ -57,9 +61,15 @@ const FRIENDS_TAB = '__friends__'
 
 const open = ref(false)
 const dropUp = ref(false)
+/** 面板 teleport 到 body 后按触发器坐标 fixed 定位，避免被卡片滚动容器裁掉 */
+const panelStyle = ref<Record<string, string>>({})
 const keyword = ref('')
 const rootRef = ref<HTMLElement | null>(null)
+/** 面板 teleport 到 body：点面板内部（切 tab / 选人）不能再被当成点外部而关掉 */
+const panelRef = ref<HTMLElement | null>(null)
 const friends = ref<Person[]>([])
+const friendGroups = ref<FriendGroupInfo[]>([])
+const friendGroupOpen = ref<Record<string, boolean>>({})
 const friendsLoaded = ref(false)
 /** 按空间缓存，切换 tab 不重复请求 */
 const membersBySpace = ref<Record<string, Entry[]>>({})
@@ -133,10 +143,34 @@ const currentTabLabel = computed(
   () => tabs.value.find((t) => t.key === activeTab.value)?.label ?? '成员',
 )
 
-/** 好友 tab 的扁平列表 */
+/** 好友 tab 的可见名单（已剔掉团队里的人） */
 const friendList = computed<Person[]>(() =>
   friends.value.filter((p) => !excludeSet.value.has(p.username)).filter(matches),
 )
+
+/**
+ * 好友按我设定的分组展示，和团队 tab 的组织树口径一致。
+ * 没建过分组时 name 为空，模板就不渲染分组头，保持原来的扁平列表。
+ */
+const friendSections = computed<{ key: string; name: string; people: Person[] }[]>(() => {
+  const visible = friendList.value
+  if (!friendGroups.value.length) return [{ key: '__all__', name: '', people: visible }]
+  const out = friendGroups.value.map((g) => ({
+    key: g.id,
+    name: g.name,
+    people: visible.filter((p) => p.groupId === g.id),
+  }))
+  const known = new Set(friendGroups.value.map((g) => g.id))
+  const rest = visible.filter((p) => !p.groupId || !known.has(p.groupId))
+  // 没建过分组时全体好友都在未分组；空了就别显示这个头
+  if (rest.length) out.push({ key: '__none__', name: '未分组', people: rest })
+  return out
+})
+
+const isFriendGroupOpen = (key: string) => friendGroupOpen.value[key] !== false
+function toggleFriendGroup(key: string) {
+  friendGroupOpen.value = { ...friendGroupOpen.value, [key]: !isFriendGroupOpen(key) }
+}
 
 /** 团队 tab 的部门树：按 parent_id 建树（GET /org 是层序，不能按 depth 堆） */
 const treeRows = computed<PickerRow[]>(() => {
@@ -258,15 +292,22 @@ function indent(depth: number) {
 }
 
 function toPerson(v: FriendInfo | SpaceMemberInfo): Person {
-  return { id: v.id, username: v.username, name: v.name, avatar: v.avatar }
+  return {
+    id: v.id,
+    username: v.username,
+    name: v.name,
+    avatar: v.avatar,
+    groupId: 'groupId' in v ? v.groupId : null,
+  }
 }
 
 async function loadFriends() {
   if (friendsLoaded.value || props.source === 'team') return
   friendsLoaded.value = true
   try {
-    const rows = await listFriends()
+    const [rows, gs] = await Promise.all([listFriends(), listFriendGroups()])
     friends.value = rows.filter((r) => r.username).map(toPerson)
+    friendGroups.value = gs
   } catch {
     friendsLoaded.value = false
   }
@@ -364,8 +405,23 @@ function measureDrop() {
   const el = rootRef.value
   if (!el) return
   const r = el.getBoundingClientRect()
-  const below = window.innerHeight - r.bottom
-  dropUp.value = below < 300 && r.top > below
+  const GAP = 4
+  const EDGE = 8
+  const want = 300 // tab 行 + 列表 268 + 内边距
+  const below = window.innerHeight - r.bottom - GAP - EDGE
+  const above = r.top - GAP - EDGE
+  dropUp.value = below < want && above > below
+  const width = Math.max(r.width, 288)
+  const left = Math.min(Math.max(EDGE, r.right - width), window.innerWidth - width - EDGE)
+  const room = Math.max(96, dropUp.value ? above : below)
+  const style: Record<string, string> = {
+    left: `${Math.round(left)}px`,
+    width: `${Math.round(width)}px`,
+    '--pp-list-max': `${Math.round(Math.min(268, room - 42))}px`,
+  }
+  if (dropUp.value) style.bottom = `${Math.round(window.innerHeight - r.top + GAP)}px`
+  else style.top = `${Math.round(r.bottom + GAP)}px`
+  panelStyle.value = style
 }
 
 /**
@@ -396,7 +452,8 @@ function remove(username: string) {
 
 function onDocDown(e: MouseEvent) {
   if (!open.value) return
-  if (rootRef.value?.contains(e.target as Node)) return
+  const node = e.target as Node
+  if (rootRef.value?.contains(node) || panelRef.value?.contains(node)) return
   open.value = false
 }
 
@@ -455,7 +512,8 @@ watch(
       <ChevronDown :size="13" class="pp-caret" :class="{ flip: open }" />
     </div>
 
-    <div v-if="open" class="pp-panel gn-pop" :class="{ up: dropUp }">
+    <Teleport to="body">
+      <div v-if="open" ref="panelRef" class="pp-panel gn-pop" :style="panelStyle">
       <div v-if="tabs.length > 1" class="pp-tabs">
         <button
           v-for="t in tabs"
@@ -471,27 +529,46 @@ watch(
         </button>
       </div>
 
-      <div class="pp-list">
-        <!-- 好友：没有组织层级，扁平列表 -->
+      <div class="pp-list gn-scroll">
+        <!-- 好友：按我设定的分组展示，和团队 tab 的组织树口径一致 -->
         <template v-if="!isTeamTab">
-          <button
-            v-for="p in friendList"
-            :key="p.username"
-            type="button"
-            class="pp-row"
-            :class="{ on: selected.includes(p.username) }"
-            @click="toggle(p.username)"
-          >
-            <span class="pp-check">
-              <Check v-if="selected.includes(p.username)" :size="11" :stroke-width="2.6" />
-            </span>
-            <span class="pp-avatar">
-              <img v-if="p.avatar" :src="p.avatar" alt="" />
-              <span v-else>{{ (p.name || '?').slice(0, 1) }}</span>
-            </span>
-            <span class="pp-name">{{ p.name }}</span>
-            <span class="pp-sub">@{{ p.username }}</span>
-          </button>
+          <template v-for="sec in friendSections" :key="sec.key">
+            <button
+              v-if="sec.name"
+              type="button"
+              class="pp-dept pp-friend-group"
+              @click="toggleFriendGroup(sec.key)"
+            >
+              <ChevronRight
+                :size="12"
+                class="pp-chev"
+                :class="{ on: isFriendGroupOpen(sec.key) }"
+              />
+              <Folder :size="12" class="pp-folder" />
+              <span class="pp-name">{{ sec.name }}</span>
+              <span class="pp-dept-count">{{ sec.people.length }}</span>
+            </button>
+            <template v-if="isFriendGroupOpen(sec.key)">
+              <button
+                v-for="p in sec.people"
+                :key="p.username"
+                type="button"
+                class="pp-row pp-person"
+                :class="{ on: selected.includes(p.username) }"
+                @click="toggle(p.username)"
+              >
+                <span class="pp-check">
+                  <Check v-if="selected.includes(p.username)" :size="11" :stroke-width="2.6" />
+                </span>
+                <span class="pp-avatar">
+                  <img v-if="p.avatar" :src="p.avatar" alt="" />
+                  <span v-else>{{ (p.name || '?').slice(0, 1) }}</span>
+                </span>
+                <span class="pp-name">{{ p.name }}</span>
+                <span class="pp-sub">@{{ p.username }}</span>
+              </button>
+            </template>
+          </template>
           <div v-if="!friendList.length" class="pp-empty">{{ emptyText }}</div>
         </template>
 
@@ -556,7 +633,8 @@ watch(
           <div v-if="!treeRows.length" class="pp-empty">{{ emptyText }}</div>
         </template>
       </div>
-    </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -645,22 +723,15 @@ watch(
   transform: rotate(180deg);
 }
 .pp-panel {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  z-index: 60;
+  position: fixed;
+  z-index: 1200;
   display: flex;
   flex-direction: column;
-  width: max(100%, 288px);
   padding: 4px;
   border: 1px solid var(--gn-border);
   border-radius: 8px;
   background: var(--gn-bg);
   box-shadow: var(--gn-shadow-md);
-}
-.pp-panel.up {
-  top: auto;
-  bottom: calc(100% + 4px);
 }
 .pp-tabs {
   display: flex;
@@ -722,8 +793,9 @@ watch(
   color: var(--gn-accent);
 }
 .pp-list {
-  max-height: 268px;
+  max-height: var(--pp-list-max, 268px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0 1px;
 }
 .pp-row {

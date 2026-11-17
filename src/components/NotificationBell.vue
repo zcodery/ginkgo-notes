@@ -93,7 +93,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
         <button type="button" class="gn-icon-btn" v-tooltip="tr('全部已读')" :disabled="!userState.unread" @click="readAll">
           <CheckCheck :size="14" />
         </button>
-        <button type="button" class="gn-icon-btn" v-tooltip="tr('清空')" :disabled="!userState.notifications.length" @click="clearAll">
+        <button type="button" class="gn-icon-btn danger" v-tooltip="tr('清空')" :disabled="!userState.notifications.length" @click="clearAll">
           <Trash2 :size="14" />
         </button>
         <button type="button" class="nb-link" @click="open = false; goProfile('notify')">{{ tr('设置') }}</button>

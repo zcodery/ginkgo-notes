@@ -23,6 +23,10 @@ const props = withDefaults(
     tone?: 'primary' | 'danger'
     /** 图标：提醒用 alert，删除类用 trash */
     icon?: 'alert' | 'trash'
+    /** 需要放预览表格等内容时加宽弹窗 */
+    wide?: boolean
+    /** 没有可确认内容时禁用确认按钮 */
+    confirmDisabled?: boolean
   }>(),
   {
     message: '',
@@ -31,6 +35,8 @@ const props = withDefaults(
     cancelText: '取消',
     tone: 'primary',
     icon: 'alert',
+    wide: false,
+    confirmDisabled: false,
   },
 )
 
@@ -71,7 +77,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
   <Teleport to="body">
     <Transition name="gcf">
       <div v-if="open" class="gcf-mask" @mousedown.self="emit('cancel')">
-        <div class="gcf-card" :class="tone" role="dialog" aria-modal="true" :aria-label="title">
+        <div class="gcf-card" :class="[tone, { wide }]" role="dialog" aria-modal="true" :aria-label="title">
           <div class="gcf-card-main">
             <span class="gcf-icon" :class="tone"><component :is="iconComp" :size="15" /></span>
             <div class="gcf-text">
@@ -80,11 +86,19 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
               <p v-if="detail" class="gcf-detail">{{ detail }}</p>
             </div>
           </div>
+          <div v-if="$slots.body" class="gcf-body"><slot name="body" /></div>
           <div class="gcf-ops">
             <button ref="cancelRef" type="button" class="gcf-btn" @click="emit('cancel')">
               {{ cancelText }}
             </button>
-            <button ref="okRef" type="button" class="gcf-btn" :class="tone" @click="emit('confirm')">
+            <button
+              ref="okRef"
+              type="button"
+              class="gcf-btn"
+              :class="tone"
+              :disabled="confirmDisabled"
+              @click="emit('confirm')"
+            >
               {{ confirmText }}
             </button>
           </div>
@@ -114,6 +128,12 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
   border-radius: 12px;
   background: var(--gn-bg);
   box-shadow: var(--gn-shadow-lg);
+}
+.gcf-card.wide {
+  max-width: 540px;
+}
+.gcf-body {
+  margin-top: 12px;
 }
 .gcf-card-main {
   display: flex;
@@ -184,6 +204,10 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
 }
 .gcf-btn:hover {
   background: var(--gn-bg-hover);
+}
+.gcf-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .gcf-btn.primary {
   border-color: transparent;

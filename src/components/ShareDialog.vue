@@ -305,7 +305,7 @@ onMounted(async () => {
               v-tooltip="'这个人拿到的权限'"
               @update:model-value="changeRole(g, $event)"
             />
-            <button type="button" class="gn-icon-btn" v-tooltip="'移除'" :disabled="busy" @click="removeMember(g)"><X :size="14" /></button>
+            <button type="button" class="gn-icon-btn danger" v-tooltip="'移除'" :disabled="busy" @click="removeMember(g)"><X :size="14" /></button>
           </div>
         </div>
         <div v-else class="pf-empty">还没有邀请任何成员</div>
