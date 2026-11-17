@@ -154,6 +154,7 @@ ginkgoNotes/
 │   ├── reset-to-base.cjs   # 撤回 origin/main 之后的全部 commit，保留工作区改动
 │   ├── seed-demo-friends.mjs # 幂等演示数据：管理员 + 5 个好友 + 加入首个团队
 │   ├── export-accounts.mjs # 把所有账号导成 Excel（含明文密码，候选口令校验还原）
+│   ├── backfill-public-templates.mjs # 给存量代注册账号补发公共原稿（默认预览，--apply 才写入）
 │   └── probe-passwords.mjs # 只读探测：报告每个账号的真实密码能否被还原
 ├── package.json
 ├── vite.config.ts       # @tailwindcss/vite + vue-tsc
@@ -291,6 +292,8 @@ ginkgoNotes/
 | 118 | 主色按钮 hover 变白字白底修复 | ✅ | `.ad-btn:hover:not(:disabled)` 特异性 (0,3,0) 压过 `.ad-btn.primary` (0,2,0)，hover 时底色变浅灰而文字仍是白色 → 文字彻底消失；主色 hover 规则显式重设 `background`（陷阱 87） |
 | 119 | 人员明细表展示真实上传头像 | ✅ | 后端 `avatar` 字段本就返回 base64 data URL，前端改为 `<img v-if>` + 无头像回退首字色块；列表、详情抽屉、好友名册三处统一，头像容器补 `overflow:hidden` + `object-fit:cover` |
 | 120 | 侧边栏宽度可拖拽自定义 | ✅ | 侧栏右边缘加拖拽条，左右拖动实时改宽度（CSS 变量 `--gn-sidebar-w` 驱动），双击恢复默认 248px；范围钳制 200–460px，按设备持久化到 `ginkgo-meta:sidebarWidth`；窄屏浮层模式下不显示拖拽条 |
+| 121 | 代注册账号补发初始公共页面 | ✅ | 「批量建号」路径 `POST /spaces/:id/members/register` 漏了 `copyTemplatesToUser`，新账号登录后是空空间（陷阱 89）；已在建号分支补下发，并用 `scripts/backfill-public-templates.mjs` 给存量 41 个代注册账号追平（筛选：手机号用户名 + 团队活跃成员 + 零页面，`demo_*` 种子账号自动排除） |
+| 122 | 成员权限标签按管辖范围裁剪 | ✅ | `GET /spaces/:id/org` 与 `GET /spaces/:id/members` 的 `role` 字段改为**后端裁剪**：owner/admin 看全部，部门负责人只看得见自己负责节点（含整棵子树）里的成员，普通成员只看得见自己，其余返回 `null`；前端对 `null` 渲染「—」占位符而不是「可编辑 / 可查看」（陷阱 90） |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -395,14 +398,14 @@ ginkgoNotes/
 | GET | `/spaces` | 我的空间（个人 + 已加入团队） | 会话/令牌 |
 | POST | `/spaces` | 创建团队（自动建根节点「全员」） | 会话/令牌 |
 | GET / PATCH | `/spaces/:id` | 详情 / 改名 | 空间成员 / admin |
-| GET | `/spaces/:id/org` | 组织树 + 成员 | 空间成员 |
+| GET | `/spaces/:id/org` | 组织树 + 成员（成员的 `role` 按管辖范围裁剪：范围外返回 `null`） | 空间成员 |
 | POST | `/spaces/:id/org/nodes` | 新建组织节点（body：`{ name, parentId? }`；建根级节点仅空间 admin） | 空间 admin 或上级节点负责人 |
 | PATCH | `/spaces/:id/org/nodes/:nodeId` | 改名 / 换上级（`{ name?, parentId? }`；不能挂到自身或自身子树） | 空间 admin 或该节点负责人 |
 | POST | `/spaces/:id/org/nodes/:nodeId/move` | 拖拽移动：`{ parentId, beforeId? }`，`beforeId` 决定同级插入位（空 = 末尾），事务内重排兄弟 `sort` 并只在父级真变时重写子树 `path/depth` | 空间 admin 或该节点负责人 |
 | DELETE | `/spaces/:id/org/nodes/:nodeId` | 删除（成员与授权迁回上级） | 空间 admin 或该节点负责人 |
 | POST | `/spaces/:id/org/import` | 组织架构导入（`format: 'csv' \| 'json'`；CSV 载荷同时兼容 Excel / Word 解析出的文本） | 空间 admin |
-| GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin 或目标节点负责人 |
-| POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin 或目标节点负责人 |
+| GET / POST | `/spaces/:id/members` | 成员列表（`role` 同样按管辖范围裁剪）/ 直接添加 | 成员 / admin 或目标节点负责人 |
+| POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组；**新建号会同时下发公共原稿**） | 空间 admin 或目标节点负责人 |
 | POST | `/spaces/:id/members/phone-check` | 导入预览用：批量查手机号（`{ phones: string[] }`，返回 `hasAccount / inTeam / isOwner`；只读，不建号） | 空间成员 |
 | PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销）；部门只剩 1 人时由服务端自动任命；变更后把通知推给该节点整棵子树的成员，被替换者另收一条 | 空间 admin 或该节点负责人 |
 | PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出（负责人只能在本子树内调动、角色封顶 `editor`） | 空间 admin 或该节点负责人 |
@@ -642,6 +645,10 @@ node scripts/export-accounts.mjs --reset     # 候选口令未命中的账号统
 
 # 密码探测（只读，报告每个账号的真实密码能否用候选表还原）
 node scripts/probe-passwords.mjs
+
+# 给存量代注册账号补发公共原稿（默认预览，--apply 才写库）
+node scripts/backfill-public-templates.mjs
+node scripts/backfill-public-templates.mjs --apply
 ```
 
 环境变量（全部可选）：
@@ -776,6 +783,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 86. **`<td>` 上写 `display:flex` 会让单元格脱离表格布局**：`display` 改成 `flex` 后 `<td>` 不再是 `table-cell`，表格布局算法对它的处理方式全变了——最直接的后果是同一类里的 `padding` 失效、内容贴死单元格边缘，而且列宽分配会失真（实测人员列被撑到 607px，把后面所有列都挤走）。正确做法是**`<td>` 保持 `table-cell`，把 flex 放进内层容器**：`<td class="ad-td"><div class="xx-cell">…</div></td>`。同理不要在 `<td>`/`<th>` 上写 `width: 100%`，那会让该列吞掉表格剩余全部宽度。排查这类「看起来拥挤」的问题不要只调 `padding`/`gap`，先用 `getBoundingClientRect()` 量一下内层元素与单元格左边缘的实际距离——零距离就说明 `padding` 被 `display` 顶掉了。
 87. **`:not(:disabled)` 会偷偷提升选择器特异性，把主色按钮的 hover 变成白字白底**：`.ad-btn:hover:not(:disabled)` 的特异性是 (0,3,0)，比 `.ad-btn.primary` 的 (0,2,0) **更高**，所以主色按钮一 hover，底色就被换成 `--gn-bg-hover`（浅灰），而 `.ad-btn.primary:hover:not(:disabled)` 里只改了 `color: #fff` 没改背景 → **白字白底，按钮上的字彻底消失**。修法是在主色的 hover 规则里**显式重设 `background`**（`filter: brightness()` 只能改亮度不能补回被覆盖的背景）。注意这不一定每个页面都有：本项目里 `ProfileView` 的 `.pf-btn.primary:hover:not(:disabled)` 因为显式写了 `background` 所以没事，`TeamsView`/`FriendsView` 的 `.tm-btn:hover`（无 `:not()`，特异性仅 0,2,0）也没事——只有同时满足「基础 hover 带 `:not(:disabled)`」+「主色 hover 没重设 background」这两个条件才会踩坑。遇到「按钮 hover 后文字消失」先量 `getComputedStyle` 的 `backgroundColor` 与 `color`，两者相同就是这个问题。
 88. **拖拽调宽的三件事：mousedown 后监听要挂到 document、宽度要钳制、要区分「拖拽中」和「已松手」**：① `mousedown` 只在把手元素上触发，后续 `mousemove` / `mouseup` 必须 `document.addEventListener`，挂在把手上会在鼠标移出把手时丢失；② 宽度必须 clamp（侧栏 200–460px），否则能拖出视口或窄到内容全挤爆；③ 拖拽过程中要给 `body` 加一个类（如 `sb-resizing`）统一控制 `cursor: col-resize` 与 `user-select: none`，否则拖过文字会误选中一片，且光标会变回箭头。宽度持久化用项目现成的本机偏好通道 `getMeta` / `setMeta`（`ginkgo-meta:` 前缀，**按设备保存、跨账号保留**，适合宽度/主题这类设备相关偏好，而不是放服务端 profile meta）。另外父容器 `position: relative` 是绝对定位把手的前提；指示线要跟随鼠标高度就用 CSS 变量传 Y 坐标，别写死 `top: 50%`（写死会固定在垂直中央，与鼠标脱节）。
+89. **建号路径不止一条，「新用户有初始页面」要在每条路径上都补**：普通注册 `POST /auth/register` 一直调了 `copyTemplatesToUser`，但团队「批量建号」`POST /spaces/:id/members/register` 里 `createUser(phone, phone)` 之后漏了这一句，于是这批账号登录后是空空间（左侧「还没有页面」、首页 0 篇）。**凡是 `createUser` 的调用点都要检查后续是否需要下发模板**——管理员建号、`ensureAdmin` 的 `createUser` 也各自有模板下发逻辑，不能只盯着注册接口。代码修好后存量账号不会自动补上，需要一次性脚本追平：筛选条件要同时满足「用户名是 11 位手机号」（只有代注册账号是这个形态）+「是团队空间的活跃成员」（排除孤立历史账号）+「名下零页面」（已发过的不重复发），否则会误伤 `demo_*` 这类本来就不该有模板的种子账号。脚本默认只预览，加 `--apply` 才写库；补发逻辑要直接复用 `copyTemplatesToUser`，不要另写一份拷贝，否则和线上实现迟早漂移。
+90. **「只读接口」也是权限泄露面，权限字段必须后端裁剪而不是前端隐藏**：部门负责人本来只能管理自己负责节点（含整棵子树）内的成员，写操作侧也确实有 `manageScope()` 把关，但 `GET /spaces/:id/org` 与 `GET /spaces/:id/members` 无条件把每个成员的 `role`（可编辑 / 可查看 / 管理员）返回给了任意空间成员——前端再隐藏也只是遮眼睛，`curl` 一下就全暴露了。**凡是返回权限/角色字段的只读接口，都要按管辖范围在服务端裁剪**：owner/admin 看全部，负责人只看自己子树内的成员，其余字段置 `null`（不是省略字段，置 `null` 才能让前端明确区分「无权限」与「没有角色」）。前端配套把 `role` 类型改成 `string | null`，对 `null` 渲染中性占位符（「—」）而不是文字标签。裁剪口径要和已有的写权限判定**用同一套语义**（本项目是 `leadCoversNode` 的节点 path 前缀匹配），否则会出现「前端能点但后端不给数据」或反过来的错位。另外注意**身份标识不等于权限信息**：「部门负责人」徽标在组织树里本来就公开显示（`leadName`），可以保留；而「完全控制」标签属于权限描述，必须跟着裁剪。
 
 
 ---
