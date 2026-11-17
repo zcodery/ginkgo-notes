@@ -226,12 +226,35 @@ db.exec(`
     status       TEXT NOT NULL DEFAULT 'pending',
     requested_by TEXT NOT NULL,
     message      TEXT,
+    -- 发起人希望对方进到自己的哪个分组，同意时直接落组
+    requester_group_id TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL,
     UNIQUE (user_low, user_high)
   );
   CREATE INDEX IF NOT EXISTS idx_friend_low ON friendships(user_low, status);
   CREATE INDEX IF NOT EXISTS idx_friend_high ON friendships(user_high, status);
+
+  -- 好友分组：纯属「我这边的视图」，同一个好友在对方那边可以有完全不同的分组
+  CREATE TABLE IF NOT EXISTS friend_groups (
+    id         TEXT PRIMARY KEY,
+    owner_id   TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    -- 新好友默认进入的分组；每个 owner 最多一个
+    is_default INTEGER NOT NULL DEFAULT 0,
+    sort       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_friend_groups_owner ON friend_groups(owner_id, sort);
+
+  -- 一个好友在自己这边只落在一个分组里（主键是一对 (我, 好友)）
+  CREATE TABLE IF NOT EXISTS friend_group_members (
+    owner_id       TEXT NOT NULL,
+    friend_user_id TEXT NOT NULL,
+    group_id       TEXT NOT NULL,
+    PRIMARY KEY (owner_id, friend_user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_friend_group_members ON friend_group_members(owner_id, group_id);
 
   -- 空间邀请
   CREATE TABLE IF NOT EXISTS invites (
@@ -281,6 +304,18 @@ for (const col of [
 // 乐观锁版本：物理表存 JSON，版本必须独立成列才能做原子 CAS
 try {
   db.exec('ALTER TABLE pages ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
+} catch {
+  /* 列已存在 */
+}
+
+// 好友分组：默认组 + 加好友时预选的分组
+try {
+  db.exec('ALTER TABLE friend_groups ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0')
+} catch {
+  /* 列已存在 */
+}
+try {
+  db.exec('ALTER TABLE friendships ADD COLUMN requester_group_id TEXT NOT NULL DEFAULT \'\'')
 } catch {
   /* 列已存在 */
 }
