@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Activity,
   BarChart3,
@@ -279,26 +279,84 @@ async function doExport() {
 
 /* ---------------- 趋势图 ---------------- */
 
-const TREND_W = 680
-const TREND_H = 120
+/** 趋势图画布高度（px）。宽度按容器实际像素宽动态计算。 */
+const TREND_H = 84
+/**
+ * viewBox 与像素 1:1 映射（宽=容器像素宽，高=TREND_H）。
+ * 之前用固定的 680×120 + preserveAspectRatio="none"，非等比拉伸会把
+ * 峰值圆点压成椭圆、虚线间距错乱；1:1 之后圆是圆的、描边也是等宽的。
+ */
+const trendWidth = ref(680)
 
-/** 把趋势序列画成折线 + 面积，返回 SVG path */
-function trendPaths(series: { count: number }[]) {
-  if (!series.length) return { line: '', area: '', max: 0 }
+/**
+ * Catmull-Rom 转三次贝塞尔：把折线拐点替换成切线连续的曲线，
+ * 让趋势线呈现自然的波动而不是生硬折角。
+ * 端点处做镜像延拓，避免首尾段被拉直。
+ */
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ''
+  const p = (i: number) => pts[Math.max(0, Math.min(pts.length - 1, i))]
+  let d = `M${pts[0].x.toFixed(1)},${pts[0].y.toFixed(1)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = p(i - 1)
+    const p1 = p(i)
+    const p2 = p(i + 1)
+    const p3 = p(i + 2)
+    // 张力系数：过大会让曲线在峰值处鼓包，过小则接近原折线
+    const k = 0.18
+    const c1x = p1.x + ((p2.x - p0.x) / 6) * k * 3
+    const c1y = p1.y + ((p2.y - p0.y) / 6) * k * 3
+    const c2x = p2.x - ((p3.x - p1.x) / 6) * k * 3
+    const c2y = p2.y - ((p3.y - p1.y) / 6) * k * 3
+    d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`
+  }
+  return d
+}
+
+/** 把趋势序列画成平滑曲线 + 面积，返回 SVG path */
+function trendPaths(series: { count: number }[], width: number) {
+  if (!series.length) return { line: '', area: '', max: 0, pts: [] as { x: number; y: number }[] }
   const max = Math.max(1, ...series.map((s) => s.count))
-  const step = series.length > 1 ? TREND_W / (series.length - 1) : TREND_W
+  const step = series.length > 1 ? width / (series.length - 1) : width
   const pts = series.map((s, i) => {
     const x = i * step
     const y = TREND_H - (s.count / max) * (TREND_H - 8) - 4
     return { x, y, count: s.count }
   })
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
-  const area = `${line} L${TREND_W},${TREND_H} L0,${TREND_H} Z`
+  const line = smoothPath(pts)
+  // 面积沿用同一条平滑曲线的起点/终点，闭合到基线
+  const area = `${line} L${width},${TREND_H} L0,${TREND_H} Z`
   return { line, area, max, pts }
 }
 
-const signupTrend = computed(() => trendPaths(overview.value?.signup ?? []))
-const activeTrend = computed(() => trendPaths(overview.value?.active ?? []))
+const signupTrend = computed(() => trendPaths(overview.value?.signup ?? [], trendWidth.value))
+const activeTrend = computed(() => trendPaths(overview.value?.active ?? [], trendWidth.value))
+
+/** 量出图表容器实际像素宽，让 viewBox 与像素 1:1 对齐 */
+const trendSvgRef = ref<SVGSVGElement | null>(null)
+let trendResizeObserver: ResizeObserver | null = null
+
+/**
+ * SVG 在 loading 结束前不会渲染（外层是 v-if），
+ * 所以 onMounted 时 ref 还是 null，必须等 ref 真正拿到元素后再挂 ResizeObserver。
+ */
+watch(trendSvgRef, (el) => {
+  trendResizeObserver?.disconnect()
+  trendResizeObserver = null
+  if (!el || typeof ResizeObserver === 'undefined') return
+  const sync = () => {
+    const w = Math.round(el.clientWidth)
+    if (w > 0 && w !== trendWidth.value) trendWidth.value = w
+  }
+  sync()
+  trendResizeObserver = new ResizeObserver(sync)
+  trendResizeObserver.observe(el)
+})
+
+onUnmounted(() => {
+  trendResizeObserver?.disconnect()
+  trendResizeObserver = null
+})
 
 /** 今日与趋势首日的对比 */
 const trendDates = computed(() => {
@@ -401,9 +459,25 @@ onMounted(async () => {
               <span class="ad-trend-title">近 30 天注册</span>
               <span class="ad-trend-meta">{{ trendDates.signupFirst }} ~ {{ trendDates.signupLast }} · 峰值 {{ signupTrend.max }}</span>
             </div>
-            <svg class="ad-trend-svg" :viewBox="`0 0 ${TREND_W} ${TREND_H}`" preserveAspectRatio="none">
+            <svg
+              ref="trendSvgRef"
+              class="ad-trend-svg"
+              :viewBox="`0 0 ${trendWidth} ${TREND_H}`"
+              preserveAspectRatio="none"
+            >
               <path :d="signupTrend.area" class="ad-trend-area" />
               <path :d="signupTrend.line" class="ad-trend-line" />
+              <!-- 流光层：同一条路径用虚线沿路径循环推进，制造"波动的动态效果"。
+                   pathLength="1" 把路径长度归一化成 1，dash 比例就精确对应路径本身，
+                   不受视口对角线（SVG 规范里百分比基准是它）干扰。 -->
+              <path :d="signupTrend.line" class="ad-trend-flow" pathLength="1" />
+              <circle
+                v-if="signupTrend.pts.length"
+                :cx="signupTrend.pts[signupTrend.pts.length - 1]!.x"
+                :cy="signupTrend.pts[signupTrend.pts.length - 1]!.y"
+                r="3"
+                class="ad-trend-peak"
+              />
             </svg>
           </div>
           <div class="ad-trend-card">
@@ -411,9 +485,17 @@ onMounted(async () => {
               <span class="ad-trend-title">近 30 天活跃</span>
               <span class="ad-trend-meta">{{ trendDates.activeFirst }} ~ {{ trendDates.activeLast }} · 峰值 {{ activeTrend.max }}</span>
             </div>
-            <svg class="ad-trend-svg" :viewBox="`0 0 ${TREND_W} ${TREND_H}`" preserveAspectRatio="none">
+            <svg class="ad-trend-svg" :viewBox="`0 0 ${trendWidth} ${TREND_H}`" preserveAspectRatio="none">
               <path :d="activeTrend.area" class="ad-trend-area alt" />
               <path :d="activeTrend.line" class="ad-trend-line alt" />
+              <path :d="activeTrend.line" class="ad-trend-flow alt" pathLength="1" />
+              <circle
+                v-if="activeTrend.pts.length"
+                :cx="activeTrend.pts[activeTrend.pts.length - 1]!.x"
+                :cy="activeTrend.pts[activeTrend.pts.length - 1]!.y"
+                r="3"
+                class="ad-trend-peak alt"
+              />
             </svg>
           </div>
         </section>
@@ -878,6 +960,64 @@ onMounted(async () => {
 }
 .ad-trend-area.alt {
   fill: color-mix(in srgb, var(--gn-text-muted) 12%, transparent);
+}
+/* 流光层：沿路径循环推进的亮线，叠在主线上形成"波动的动态效果"。
+   pathLength="1" 把路径长度归一化，dash 值就是路径本身的占比：
+   0.16 = 前 16% 路径画亮线，0.84 = 空 84% 路径，两者合计正好一个完整周期。
+   亮线用近白色而不是主色本身——同色叠加在深色背景上几乎看不出差别。 */
+.ad-trend-flow {
+  fill: none;
+  stroke: color-mix(in srgb, var(--gn-accent) 20%, #ffffff);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 0.16 0.84;
+  stroke-dashoffset: 0;
+  opacity: 0.95;
+  vector-effect: non-scaling-stroke;
+  animation: ad-trend-flow 4.2s linear infinite;
+  pointer-events: none;
+}
+.ad-trend-flow.alt {
+  stroke: color-mix(in srgb, var(--gn-text-muted) 20%, #ffffff);
+  animation-duration: 5.4s;
+}
+@keyframes ad-trend-flow {
+  from {
+    /* offset 越负，亮段越靠路径末端；从 -1 递到 -0.05 才是"起点 → 终点"正向流动 */
+    stroke-dashoffset: -1;
+  }
+  to {
+    stroke-dashoffset: -0.05;
+  }
+}
+/* 末端峰值点：呼吸脉动，提示"最新一天" */
+.ad-trend-peak {
+  fill: var(--gn-accent);
+  stroke: var(--gn-bg);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  animation: ad-trend-peak 2.4s ease-in-out infinite;
+}
+.ad-trend-peak.alt {
+  fill: var(--gn-text-muted);
+}
+@keyframes ad-trend-peak {
+  0%,
+  100% {
+    opacity: 1;
+    r: 3;
+  }
+  50% {
+    opacity: 0.55;
+    r: 4.2;
+  }
+}
+/* 用户在系统里关掉了动效：静态呈现，不再有流光与脉动 */
+@media (prefers-reduced-motion: reduce) {
+  .ad-trend-flow,
+  .ad-trend-peak {
+    animation: none;
+  }
 }
 
 /* ---------- 列表卡 ---------- */
