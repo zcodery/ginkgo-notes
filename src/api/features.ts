@@ -331,7 +331,22 @@ export interface FriendInfo {
   name: string
   avatar: string | null
   since: number
+  /** 我这边给他归到哪个分组；null = 未分组 */
+  groupId: string | null
 }
+
+/** 好友分组：只属于我自己的视图，不影响对方 */
+export interface FriendGroupInfo {
+  id: string
+  name: string
+  sort: number
+  /** 新好友默认进入的分组 */
+  isDefault: boolean
+  count: number
+}
+
+/** 分组选择器的「未分组」选项值（空串在后端表示「没选」，会落默认组） */
+export const UNGROUPED = '__none__'
 
 export interface FriendRequestInfo {
   id: string
@@ -354,12 +369,28 @@ export const listFriends = () => api<FriendInfo[]>('GET', '/friends')
 export const searchUsers = (q: string) => api<UserSearchItem[]>('GET', `/friends/search?q=${encodeURIComponent(q)}`)
 export const listFriendRequests = () => api<FriendRequestInfo[]>('GET', '/friends/requests')
 export const listSentFriendRequests = () => api<FriendRequestInfo[]>('GET', '/friends/requests/sent')
-export const sendFriendRequest = (username: string, message?: string) =>
-  api('POST', '/friends/requests', { username, message })
-export const acceptFriendRequest = (id: string) => api('POST', `/friends/requests/${id}/accept`)
+export const sendFriendRequest = (username: string, message?: string, groupId?: string) =>
+  api('POST', '/friends/requests', { username, message, groupId })
+export const acceptFriendRequest = (id: string, groupId?: string) =>
+  api('POST', `/friends/requests/${id}/accept`, { groupId })
 export const declineFriendRequest = (id: string) => api('POST', `/friends/requests/${id}/decline`)
 export const removeFriend = (id: string) => api('DELETE', `/friends/${id}`)
 export const blockFriend = (id: string) => api('POST', `/friends/${id}/block`)
+export const listFriendGroups = () => api<FriendGroupInfo[]>('GET', '/friends/groups')
+export const createFriendGroup = (name: string, friendIds?: string[]) =>
+  api<FriendGroupInfo>('POST', '/friends/groups', { name, friendIds })
+export const renameFriendGroup = (id: string, name: string) =>
+  api('PATCH', `/friends/groups/${id}`, { name })
+export const setDefaultFriendGroup = (id: string, isDefault: boolean) =>
+  api('PATCH', `/friends/groups/${id}`, { isDefault })
+export const mergeFriendGroup = (id: string, targetGroupId: string) =>
+  api<{ ok: boolean; moved: number; targetGroupId: string }>('POST', `/friends/groups/${id}/merge`, {
+    targetGroupId,
+  })
+export const deleteFriendGroup = (id: string) => api('DELETE', `/friends/groups/${id}`)
+/** groupId 传 null 表示移回未分组 */
+export const setFriendGroup = (friendId: string, groupId: string | null) =>
+  api('PUT', `/friends/${friendId}/group`, { groupId })
 
 /* ---------------- 空间 / 组织 / 成员 ---------------- */
 
@@ -451,6 +482,11 @@ export const registerSpaceMember = (
   spaceId: string,
   body: { phone: string; name?: string; role: string; orgNodeId?: string },
 ) => api<SpaceMemberInfo & { created: boolean }>('POST', `/spaces/${spaceId}/members/register`, body)
+/** 导入预览用：批量查手机号是否已存在 / 是否已在团队 */
+export const checkMemberPhones = (spaceId: string, phones: string[]) =>
+  api<{
+    results: { phone: string; hasAccount: boolean; inTeam: boolean; isOwner: boolean }[]
+  }>('POST', `/spaces/${spaceId}/members/phone-check`, { phones })
 export const inviteToSpace = (spaceId: string, body: { username: string; role: string; orgNodeId?: string }) =>
   api<{ id: string }>('POST', `/spaces/${spaceId}/invites`, body)
 export const listSpaceInvites = (spaceId: string) =>
