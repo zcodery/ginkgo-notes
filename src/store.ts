@@ -22,7 +22,16 @@ export interface User {
 }
 
 /** publicShare：/s/:token 公开分享页（pageId 存 token）；shared：/shared/:id 别人共享给我的页面 */
-export type ViewKind = 'note' | 'empty' | 'trash' | 'profile' | 'publicShare' | 'shared' | 'friends' | 'teams'
+export type ViewKind =
+  | 'note'
+  | 'empty'
+  | 'trash'
+  | 'profile'
+  | 'publicShare'
+  | 'shared'
+  | 'friends'
+  | 'teams'
+  | 'admin'
 /** 笔记正文宽度：auto 铺满可用区域；fixed 按比例限制 max-width */
 /** 主题主色（与浅色 / 深色无关，只换强调色） */
 export type AccentId = 'pine' | 'indigo' | 'violet' | 'amber' | 'rose' | 'teal'
@@ -628,7 +637,7 @@ export function setGutterTuning(on: boolean) {
 
 /* ---------------- History 路由（/、/trash、/:pageId） ---------------- */
 
-const RESERVED_PATHS = new Set(['trash', 'profile', 's', 'shared', 'friends', 'teams'])
+const RESERVED_PATHS = new Set(['trash', 'profile', 's', 'shared', 'friends', 'teams', 'admin'])
 
 /** 旧版 `#/p/:id`、`#/trash` 一次性迁到 pathname，避免书签失效 */
 export function migrateLegacyHash() {
@@ -658,6 +667,7 @@ export function parseRoute(): { view: ViewKind; pageId: string | null } {
   if (path === '/profile') return { view: 'profile', pageId: null }
   if (path === '/friends') return { view: 'friends', pageId: null }
   if (path === '/teams') return { view: 'teams', pageId: null }
+  if (path === '/admin') return { view: 'admin', pageId: null }
   const share = /^\/s\/([A-Za-z0-9_-]+)$/.exec(path)
   if (share) return { view: 'publicShare', pageId: share[1]! }
   const shared = /^\/shared\/([A-Za-z0-9_-]+)$/.exec(path)
@@ -710,6 +720,11 @@ export function goFriends() {
 
 export function goTeams() {
   pushPath('/teams')
+}
+
+/** 管理后台：仅管理员可进，普通用户会被挡在服务端 403 */
+export function goAdmin() {
+  pushPath('/admin')
 }
 
 /** 站内链接（通知里的 /xxx）走前端路由，外部链接新窗口打开 */

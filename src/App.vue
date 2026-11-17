@@ -11,6 +11,7 @@ import HomeView from '@/views/HomeView.vue'
 import TrashView from '@/views/TrashView.vue'
 import FriendsView from '@/views/FriendsView.vue'
 import TeamsView from '@/views/TeamsView.vue'
+import AdminView from '@/views/AdminView.vue'
 import ProfileView from '@/views/ProfileView.vue'
 import AuthView from '@/views/AuthView.vue'
 import PinLock from '@/components/PinLock.vue'
@@ -53,6 +54,10 @@ function syncRoute() {
   store.route = parseRoute()
   if (store.route.view === 'note' && !pageExists.value && store.loaded) {
     // 页面已被删除或不存在
+    goHome()
+  }
+  // 管理后台只对管理员开放，普通用户直接送回首页
+  if (store.route.view === 'admin' && store.user && store.user.role !== 'admin') {
     goHome()
   }
 }
@@ -149,6 +154,19 @@ watch(
   },
 )
 
+/**
+ * 管理后台只对管理员开放。
+ * 初次加载时 syncRoute 早于 restoreSession，用户身份尚未回来，
+ * 所以身份到位后要再查一次，否则普通用户能停在 /admin 上看到空壳。
+ */
+watch(
+  () => [store.user?.role, store.route.view] as const,
+  ([role, view]) => {
+    if (view === 'admin' && role && role !== 'admin') goHome()
+  },
+  { immediate: true },
+)
+
 watch(
   () => !!store.user?.hasPin,
   (on) => setPinIdleWatch(on),
@@ -236,6 +254,7 @@ onBeforeUnmount(() => {
       <TrashView v-else-if="store.route.view === 'trash'" />
       <FriendsView v-else-if="store.route.view === 'friends'" />
       <TeamsView v-else-if="store.route.view === 'teams'" />
+      <AdminView v-else-if="store.route.view === 'admin' && store.user?.role === 'admin'" />
       <HomeView v-else />
     </main>
     <SearchModal />
