@@ -10,7 +10,6 @@ import {
   Sun,
   LogOut,
   Globe,
-  NotebookPen,
   Import,
   ShieldCheck,
   UserRound,
@@ -21,6 +20,7 @@ import PageTree from './PageTree.vue'
 import PageIcon from './PageIcon.vue'
 import UserAvatar from './UserAvatar.vue'
 import NotificationBell from './NotificationBell.vue'
+import SpaceSwitcher from './SpaceSwitcher.vue'
 import { userState } from '@/userState'
 import { tr } from '@/i18n/phrases'
 import {
@@ -29,11 +29,9 @@ import {
   favoritePages,
   goToPage,
   goTrash,
-  goHome,
   goProfile,
   goShared,
   goFriends,
-  goTeams,
   goAdmin,
   toggleTheme,
   isAdmin,
@@ -84,16 +82,6 @@ function onNew() {
 async function checkLegacy() {
   legacyCount.value = isAdmin.value && !legacyAlreadyImported() ? await countLegacyPages() : 0
 }
-
-const teamSpaces = computed(() => store.spaces.filter((s) => s.type === 'team'))
-
-/** 侧栏顶部显示当前空间名：个人空间用设置里的名字，团队用团队名 */
-const workspaceName = computed(() => {
-  if (store.space !== 'me' && store.space !== 'public') {
-    return store.spaces.find((s) => s.id === store.space)?.name || t('app.name')
-  }
-  return userState.space.name || t('app.name')
-})
 
 async function toSpace(space: string) {
   userMenuOpen.value = false
@@ -199,10 +187,7 @@ onBeforeUnmount(() => {
 <template>
   <aside class="sidebar">
     <div class="sb-head">
-      <button class="sb-workspace" @click="goHome">
-        <span class="sb-logo"><PageIcon :icon="userState.space.icon || '🍃'" :size="16" /></span>
-        <span class="sb-name">{{ workspaceName }}</span>
-      </button>
+      <SpaceSwitcher />
       <NotificationBell />
       <button class="gn-icon-btn" v-tooltip="t('sidebar.collapse')" @click="store.sidebarOpen = false">
         <PanelLeftClose :size="15" :stroke-width="1.8" />
@@ -315,28 +300,8 @@ onBeforeUnmount(() => {
         <button @click="userMenuOpen = false; goFriends()">
           <Users :size="14" :stroke-width="1.8" /><span>好友</span>
         </button>
-        <button @click="userMenuOpen = false; goTeams()">
-          <Users :size="14" :stroke-width="1.8" /><span>团队</span>
-        </button>
-        <template v-if="teamSpaces.length">
-          <div class="sb-menu-sep"></div>
-          <button
-            v-for="s in teamSpaces"
-            :key="s.id"
-            :class="{ on: store.space === s.id }"
-            @click="toSpace(s.id)"
-          >
-            <Users :size="14" :stroke-width="1.8" /><span>{{ s.name }}</span>
-          </button>
-        </template>
         <template v-if="isAdmin">
           <div class="sb-menu-sep"></div>
-          <button :class="{ on: store.space === 'me' }" @click="toSpace('me')">
-            <NotebookPen :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.myNotes') }}</span>
-          </button>
-          <button :class="{ on: store.space === 'public' }" @click="toSpace('public')">
-            <Globe :size="14" :stroke-width="1.8" /><span>{{ t('sidebar.publicDraft') }}</span>
-          </button>
           <button v-if="legacyCount > 0" :disabled="importing" @click="importLegacy">
             <Import :size="14" :stroke-width="1.8" />
             <span>{{
@@ -424,36 +389,6 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 2px;
   padding: 9px 8px 5px 10px;
-}
-.sb-workspace {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 28px;
-  padding: 0 6px;
-  border: none;
-  border-radius: 5px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-.sb-workspace:hover {
-  background: var(--gn-bg-hover);
-}
-.sb-logo {
-  font-size: 15px;
-  line-height: 1;
-}
-.sb-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--gn-text);
-  letter-spacing: -0.01em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .sb-actions {
   padding: 2px 8px 6px;
