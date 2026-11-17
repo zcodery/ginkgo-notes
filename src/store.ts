@@ -24,6 +24,27 @@ export interface User {
 /** publicShare：/s/:token 公开分享页（pageId 存 token）；shared：/shared/:id 别人共享给我的页面 */
 export type ViewKind = 'note' | 'empty' | 'trash' | 'profile' | 'publicShare' | 'shared' | 'friends' | 'teams'
 /** 笔记正文宽度：auto 铺满可用区域；fixed 按比例限制 max-width */
+/** 主题主色（与浅色 / 深色无关，只换强调色） */
+export type AccentId = 'pine' | 'indigo' | 'violet' | 'amber' | 'rose' | 'teal'
+export interface AccentPreset {
+  id: AccentId
+  /** 在设置页展示的中文名，i18n 用 settings.accent<Id> */
+  label: string
+  light: string
+  lightSoft: string
+  dark: string
+  darkSoft: string
+}
+/** 每个主色都给明暗两套值：暗色下直接用浅色调，会亮得刺眼 */
+export const ACCENT_PRESETS: AccentPreset[] = [
+  { id: 'pine', label: '松绿', light: '#2f6b4f', lightSoft: '#eaf3ed', dark: '#6cb894', darkSoft: '#22362c' },
+  { id: 'indigo', label: '靛蓝', light: '#3b5fbf', lightSoft: '#e9eefb', dark: '#8aa9f0', darkSoft: '#202b42' },
+  { id: 'violet', label: '紫罗兰', light: '#7550b5', lightSoft: '#f0eafb', dark: '#b493e8', darkSoft: '#2b233c' },
+  { id: 'amber', label: '暖橙', light: '#b56a25', lightSoft: '#fbf0e3', dark: '#e3a866', darkSoft: '#39291c' },
+  { id: 'rose', label: '玫瑰', light: '#b8465f', lightSoft: '#fbeaee', dark: '#e792a5', darkSoft: '#3b242b' },
+  { id: 'teal', label: '青蓝', light: '#237f8c', lightSoft: '#e3f4f6', dark: '#6fc3d0', darkSoft: '#1d3338' },
+]
+
 export type NoteWidthMode = 'auto' | 'fixed'
 export type NoteWidthRatio = 50 | 60 | 70 | 80 | 90
 /** 正文基础字号（px） */
@@ -99,6 +120,8 @@ interface State {
   pages: Page[]
   route: { view: ViewKind; pageId: string | null }
   theme: 'light' | 'dark'
+  /** 主题主色，独立于明暗主题 */
+  accent: AccentId
   sidebarOpen: boolean
   searchOpen: boolean
   /** 设置弹窗是否打开 */
@@ -137,6 +160,7 @@ export const store = reactive<State>({
   pages: [],
   route: { view: 'empty', pageId: null },
   theme: 'light',
+  accent: 'pine',
   sidebarOpen: true,
   searchOpen: false,
   settingsOpen: false,
@@ -337,13 +361,34 @@ export async function switchSpace(space: Space) {
 }
 
 export async function initTheme() {
-  const saved = await getMeta<'light' | 'dark'>('theme', 'light')
+  const [saved, savedAccent] = await Promise.all([
+    getMeta<'light' | 'dark'>('theme', 'light'),
+    getMeta<AccentId>('accentColor', 'pine'),
+  ])
+  store.accent = ACCENT_PRESETS.some((p) => p.id === savedAccent) ? savedAccent : 'pine'
+  applyAccent()
   setTheme(saved)
+}
+
+/** 把主色写成根节点内联变量，覆盖 CSS 里明暗两套默认值 */
+function applyAccent() {
+  const preset = ACCENT_PRESETS.find((p) => p.id === store.accent) ?? ACCENT_PRESETS[0]!
+  const dark = store.theme === 'dark'
+  const root = document.documentElement.style
+  root.setProperty('--gn-accent', dark ? preset.dark : preset.light)
+  root.setProperty('--gn-accent-soft', dark ? preset.darkSoft : preset.lightSoft)
+}
+
+export function setAccent(id: AccentId) {
+  store.accent = id
+  applyAccent()
+  void setMeta('accentColor', id)
 }
 
 function applyTheme(theme: 'light' | 'dark') {
   store.theme = theme
   document.documentElement.classList.toggle('dark', theme === 'dark')
+  applyAccent()
   void setMeta('theme', theme)
 }
 

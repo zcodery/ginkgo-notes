@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
         <RefreshCw :size="13" :stroke-width="2" />
         <span>{{ tr('发现新版本 {v}，刷新后即可使用', { v: newVersion }) }}</span>
         <button type="button" class="app-update-btn" @click="reloadApp">{{ tr('刷新') }}</button>
-        <button type="button" class="gn-icon-btn" @click="newVersion = ''"><X :size="13" /></button>
+        <button type="button" class="gn-icon-btn danger" @click="newVersion = ''"><X :size="13" /></button>
       </div>
     </Transition>
   </div>
