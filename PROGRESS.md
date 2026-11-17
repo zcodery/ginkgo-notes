@@ -539,11 +539,12 @@ ginkgoNotes/
 | 94 | `3864dc1` | feat(ui) | 管理员后台页面：6 张指标卡 + 双折线趋势图 + 人员明细表（搜索/筛选/排序/分页）+ 详情抽屉 + 导出 |
 | 95 | `a17586c` | feat(core) | 管理后台路由接入（/admin、goAdmin）与管理员守卫（身份异步到位后判定） |
 | 96 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
+| 97 | `ca88d76` | fix(ui) | 管理员后台人员明细表左侧列排版：td 恢复表格语义 + 内层容器承载 flex，昵称/联系方式行距与头像尺寸放宽 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `be9e3d2` — feat(ui): 侧栏管理员菜单接入管理后台入口
-> 最新**功能**提交：`be9e3d2` — feat(ui): 侧栏管理员菜单接入管理后台入口（本地已提交，待推送）
+**HEAD**: `ca88d76` — fix(ui): 管理员后台人员明细表左侧列排版拥挤
+> 最新**功能**提交：`ca88d76` — fix(ui): 管理员后台人员明细表左侧列排版拥挤（本地已提交，待推送）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -584,6 +585,8 @@ ginkgoNotes/
 | 7 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
 
 **顺序约束同上一轮，但有一处例外**：`utils` → `api` → `i18n` → **`views`** → `core` → `components`。本轮 `core`（`App.vue` 挂载 `AdminView`）依赖 `views` 层的产物，所以 views 必须排在 core 之前——这是「每个提交自身可编译」规范的硬要求，顺序反了 `a17586c` 就会报 `Cannot find module '@/views/AdminView.vue'`。
+
+**后续修复**：`ca88d76` fix(ui) — 人员明细表左侧列排版拥挤。根因是 `<td class="ad-td-user">` 上直接写了 `display:flex`，`<td>` 脱离表格布局后 `padding` 失效（头像贴死左边缘）且列宽分配失真（实测人员列被撑到 607px，把后列全挤走）。改为 `<td>` 保持 `table-cell`、内层 `.ad-user-cell` 承担 flex，并放宽行距与头像尺寸（陷阱 86）。
 
 > 验证：真机 Chrome E2E **32/32 通过**（概览卡片、趋势图、搜索防抖、角色筛选、排序、详情抽屉、导出下载、明暗主题、普通用户被拦、侧栏入口、控制台无报错）；导出文件用真实 Excel 打开验证为「人员统计」工作表 21 行 × 22 列。
 
@@ -760,6 +763,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 83. **好友关系是双向的，计数要两端各加一次**：`friendships` 用 `user_low / user_high` 归一化避免重复存，但「张三有几个好友」得把每条 accepted 关系给两端各计 1，不能只查 `user_low`。同理「最后活跃时间」取 `sessions` 里 `revoked = 0` 的 `MAX(last_seen)`，撤销的设备不该算活跃。
 84. **前端路由守卫要等身份回来再判**：`parseRoute()` 只看 URL，不知道用户是不是管理员；而 `restoreSession()` 是异步的，首次加载时 `syncRoute()` 早于它执行，此刻 `store.user` 还是 null，守卫条件 `role !== 'admin'` 会因为 role 为空而放行，普通用户能停在 `/admin` 上。修法是**同时监听 `store.user?.role` 和 `store.route.view`**（`watch` 配 `immediate: true`），身份到位后重新判定并 `goHome()` 送回首页；服务端仍要有 `requireAdmin` 兜底，前端守卫只是体验层。
 85. **E2E 里多个身份要各开独立 context**：同一个 `browser.newContext()` 里换 `localStorage` 里的 token 会串味——后开的页面覆盖了前一个页面的登录态，测「普通用户被拦」时测到的其实是管理员。正确做法是每个身份 `newContext()` 单独开页，测完 `close()`。另外给带入场动画的元素截图前要先 `waitForTimeout`，否则拍到半透明的中间帧（详情抽屉 0.2s 的 `ad-slide-in`），会误判成「背景透出」。
+86. **`<td>` 上写 `display:flex` 会让单元格脱离表格布局**：`display` 改成 `flex` 后 `<td>` 不再是 `table-cell`，表格布局算法对它的处理方式全变了——最直接的后果是同一类里的 `padding` 失效、内容贴死单元格边缘，而且列宽分配会失真（实测人员列被撑到 607px，把后面所有列都挤走）。正确做法是**`<td>` 保持 `table-cell`，把 flex 放进内层容器**：`<td class="ad-td"><div class="xx-cell">…</div></td>`。同理不要在 `<td>`/`<th>` 上写 `width: 100%`，那会让该列吞掉表格剩余全部宽度。排查这类「看起来拥挤」的问题不要只调 `padding`/`gap`，先用 `getBoundingClientRect()` 量一下内层元素与单元格左边缘的实际距离——零距离就说明 `padding` 被 `display` 顶掉了。
 
 
 ---
