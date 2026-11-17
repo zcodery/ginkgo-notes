@@ -1,34 +1,155 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { Plus, Upload, Download, Sparkles, Clock, ArrowRight, Search } from 'lucide-vue-next'
 import {
-  Plus,
-  Upload,
-  Clock,
-  ArrowRight,
-  Download,
-  Sparkles,
-} from 'lucide-vue-next'
-import { store, recentPages, goToPage, reloadPages } from '@/store'
-import { createPage, listPages } from '@/db/repo'
-import { exportDatabaseData, importDatabaseData } from '@/db/databases'
+  store,
+  recentPages,
+  goToPage,
+  reloadPages,
+  favoritePages,
+  trashedPages,
+  displayName,
+} from '@/store'
+import { createPage } from '@/db/repo'
 import PageIcon from '@/components/PageIcon.vue'
+import ProfileCard from '@/components/home/ProfileCard.vue'
+import ActivityCalendar from '@/components/home/ActivityCalendar.vue'
+import StatCards from '@/components/home/StatCards.vue'
+import QuickStart from '@/components/home/QuickStart.vue'
+import ActivityHeatmap from '@/components/home/ActivityHeatmap.vue'
 import { t } from '@/i18n'
+import { locale } from '@/i18n'
+import { userState } from '@/userState'
+import { QUICK_TEMPLATES, todayStamp } from '@/home/templates'
+import { importFiles, exportBackup } from '@/home/backup'
+import {
+  collectDayStats,
+  countCreatedLastMonth,
+  countCreatedLastWeek,
+  countCreatedThisMonth,
+  countCreatedThisWeek,
+  dayKey,
+  recentDailyCreated,
+  recentMonthlyCreated,
+  startOfDay,
+} from '@/home/metrics'
 
 const importInput = ref<HTMLInputElement | null>(null)
 const busy = ref(false)
+const heatYear = ref(new Date().getFullYear())
+const selectedDay = ref<number | null>(null)
 
-const totalPages = computed(() => store.pages.filter((p) => !p.trashed).length)
-const totalWords = computed(() =>
-  store.pages
-    .filter((p) => !p.trashed)
-    .reduce((n, p) => n + p.excerpt.length, 0),
-)
+/** 当前空间里的页面（不含回收站） */
+const livePages = computed(() => store.pages.filter((p) => !p.trashed))
+const stats = computed(() => collectDayStats(store.pages))
 
-async function newPage() {
-  const page = await createPage({ parentId: null })
+/* ---------------- 左栏：个人卡片 ---------------- */
+
+/** 近 30 天每日活跃次数（柱状图） */
+const activity = computed(() => {
+  const today = startOfDay(Date.now())
+  const out: { key: string; count: number }[] = []
+  for (let i = 29; i >= 0; i--) {
+    const ts = today - i * 86400000
+    out.push({ key: dayKey(ts), count: stats.value.get(dayKey(ts))?.active ?? 0 })
+  }
+  return out
+})
+
+const monthActive = computed(() => {
+  const prefix = dayKey(Date.now()).slice(0, 7)
+  let days = 0
+  let count = 0
+  for (const [key, s] of stats.value) {
+    if (!key.startsWith(prefix)) continue
+    if (s.active > 0) days++
+    count += s.active
+  }
+  return { days, count }
+})
+
+/** 左栏概览：笔记数 / 收藏数 / 正文字数 */
+const overview = computed(() => ({
+  pages: livePages.value.length,
+  favorite: favoritePages.value.length,
+  words: livePages.value.reduce((n, p) => n + p.excerpt.length, 0),
+}))
+
+/* ---------------- 中栏：统计 ---------------- */
+
+const weekStat = computed(() => ({
+  current: countCreatedThisWeek(livePages.value),
+  previous: countCreatedLastWeek(livePages.value),
+  points: recentDailyCreated(livePages.value, 7),
+}))
+
+const monthStat = computed(() => ({
+  current: countCreatedThisMonth(livePages.value),
+  previous: countCreatedLastMonth(livePages.value),
+  points: recentMonthlyCreated(livePages.value, 12),
+}))
+
+const inboxStat = computed(() => ({
+  unread: userState.unread,
+  total: userState.notifications.length,
+}))
+
+const ideaStat = computed(() => ({
+  total: favoritePages.value.length,
+  pages: livePages.value.length,
+}))
+
+const draftStat = computed(() => ({
+  total: trashedPages.value.length,
+  pages: livePages.value.length,
+}))
+
+/* ---------------- 快捷模板 ---------------- */
+
+/** 新建一篇空白笔记 */
+async function createBlank() {
+  const page = await createPage({ icon: '📝' })
   await reloadPages()
   goToPage(page.id)
 }
+
+async function createFromTemplate(id: string) {
+  const tpl = QUICK_TEMPLATES.find((x) => x.id === id)
+  if (!tpl) return
+  const stamp = todayStamp(locale.value)
+  const page = await createPage({
+    title: tpl.title[locale.value](stamp),
+    content: tpl.body[locale.value],
+    icon: '📝',
+  })
+  await reloadPages()
+  goToPage(page.id)
+}
+
+/* ---------------- 导入 / 备份 ---------------- */
+
+async function onImport(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (!files?.length) return
+  busy.value = true
+  try {
+    await importFiles(Array.from(files))
+  } finally {
+    input.value = ''
+    busy.value = false
+  }
+}
+
+/* ---------------- 选中某天：列出当天笔记 ---------------- */
+
+const dayPages = computed(() => {
+  if (selectedDay.value == null) return []
+  const key = dayKey(selectedDay.value)
+  return store.pages
+    .filter((p) => dayKey(p.updatedAt) === key)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+})
 
 function timeAgo(ts: number) {
   const diff = Date.now() - ts
@@ -42,147 +163,118 @@ function timeAgo(ts: number) {
   const date = new Date(ts)
   return t('time.monthDay', { m: date.getMonth() + 1, d: date.getDate() })
 }
-
-async function onImport(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files
-  if (!files?.length) return
-  busy.value = true
-  for (const file of Array.from(files)) {
-    if (file.name.endsWith('.json')) {
-      try {
-        const data = JSON.parse(await file.text())
-        if (Array.isArray(data.databases) && data.databases.length) {
-          await importDatabaseData(data.databases, Array.isArray(data.dbRows) ? data.dbRows : [])
-        }
-        if (Array.isArray(data.pages)) {
-          for (const p of data.pages) {
-            await createPage({
-              title: p.title ?? '',
-              icon: p.icon ?? '',
-              content: p.content ?? '',
-              parentId: null,
-            })
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      continue
-    }
-    const text = await file.text()
-    const name = file.name.replace(/\.(md|markdown|txt)$/i, '')
-    let title = name
-    let content = text
-    // 以 H1 开头的 Markdown 文件，把这个 H1 收作页面标题，避免和页面标题重复
-    const m = /^#\s+(.+?)\s*\n+/.exec(text)
-    if (m) {
-      title = m[1].replace(/[*_`~]/g, '').trim() || name
-      content = text.slice(m[0].length)
-    }
-    await createPage({ title, content })
-  }
-  input.value = ''
-  await reloadPages()
-  busy.value = false
-}
-
-async function exportAll() {
-  const pages = await listPages()
-  const dbData = await exportDatabaseData()
-  const payload = {
-    app: 'ginkgo-notes',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    pages: pages.filter((p) => !p.trashed),
-    databases: dbData.databases,
-    dbRows: dbData.rows,
-  }
-  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `ginkgo-notes-backup-${new Date().toISOString().slice(0, 10)}.json`
-  a.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
 </script>
 
 <template>
   <div class="home">
     <div class="home-scroll gn-scroll">
       <div class="home-inner">
-        <div class="home-hero">
-          <div class="home-hero-text">
-            <h1>{{ store.space === 'public' ? t('home.publicTitle') : t('home.title') }}</h1>
+        <!-- 顶部标题栏 -->
+        <header class="dh-head">
+          <div class="dh-head-text">
+            <h1>
+              {{ store.space === 'public' ? t('home.publicTitle') : t('home.dashboardTitle') }}
+            </h1>
             <p v-if="store.space === 'public'">
-              {{ t('home.publicSubtitle', { n: totalPages }) }}
+              {{ t('home.publicSubtitle', { n: livePages.length }) }}
             </p>
             <p v-else>
-              {{ t('home.subtitle', { name: store.user?.nickname || store.user?.username || '', n: totalPages }) }}
+              {{ t('home.subtitle', { name: displayName || '', n: livePages.length }) }}
             </p>
           </div>
-          <div class="home-hero-actions">
-            <button class="gn-btn gn-btn-primary" @click="newPage">
+          <div class="dh-head-actions">
+            <button class="gn-btn gn-btn-primary" @click="createBlank">
               <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
             </button>
             <button class="gn-btn" @click="importInput?.click()">
               <Upload :size="14" :stroke-width="1.8" />{{ t('home.import') }}
             </button>
-            <button class="gn-btn" @click="exportAll">
+            <button class="gn-btn" @click="exportBackup">
               <Download :size="14" :stroke-width="1.8" />{{ t('home.backup') }}
             </button>
           </div>
-        </div>
+        </header>
 
-        <div class="home-stats">
-          <div class="stat">
-            <span class="stat-num">{{ totalPages }}</span>
-            <span class="stat-label">{{ t('home.statPages') }}</span>
+        <!-- 仪表盘三栏 -->
+        <div class="dh-grid">
+          <div class="dh-col dh-col-left">
+            <ProfileCard
+              :activity="activity"
+              :active-days="monthActive.days"
+              :active-count="monthActive.count"
+              :overview="overview"
+            />
           </div>
-          <div class="stat">
-            <span class="stat-num">{{ totalWords.toLocaleString() }}</span>
-            <span class="stat-label">{{ t('home.statWords') }}</span>
+
+          <div class="dh-col dh-col-mid">
+            <ActivityCalendar :stats="stats" @pick="selectedDay = $event" />
+            <StatCards
+              :week="weekStat"
+              :month="monthStat"
+              :inbox="inboxStat"
+              :idea="ideaStat"
+              :draft="draftStat"
+            />
           </div>
-          <div class="stat">
-            <span class="stat-num">{{ store.pages.filter((p) => p.favorite).length }}</span>
-            <span class="stat-label">{{ t('home.statFav') }}</span>
+
+          <div class="dh-col dh-col-right">
+            <QuickStart :create="createFromTemplate" />
+            <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
+
+            <!-- 选中日期当天写下的笔记 -->
+            <section v-if="selectedDay != null" class="dh-day">
+              <header class="dh-day-head">
+                <Clock :size="13" :stroke-width="2" />
+                <span>{{ dayKey(selectedDay) }}</span>
+                <span class="dh-day-count">{{ dayPages.length }}</span>
+              </header>
+              <div v-if="dayPages.length" class="dh-day-list">
+                <button
+                  v-for="p in dayPages"
+                  :key="p.id"
+                  class="dh-day-item"
+                  @click="goToPage(p.id)"
+                >
+                  <span class="dh-day-icon"><PageIcon :icon="p.icon" :size="14" /></span>
+                  <span class="dh-day-title">{{ p.title || t('app.untitled') }}</span>
+                  <span class="dh-day-time">{{ timeAgo(p.updatedAt) }}</span>
+                  <ArrowRight :size="12" class="dh-day-arrow" />
+                </button>
+              </div>
+              <p v-else class="dh-day-empty">{{ t('home.dayEmpty') }}</p>
+            </section>
+
+            <!-- 最近编辑 -->
+            <section class="dh-recent">
+              <header class="dh-recent-head">
+                <Clock :size="13" :stroke-width="2" />
+                <span>{{ t('home.recent') }}</span>
+                <button class="dh-recent-more" @click="store.searchOpen = true">
+                  <Search :size="12" :stroke-width="2" />{{ t('home.findMore') }}
+                </button>
+              </header>
+              <div v-if="recentPages.length" class="dh-recent-grid">
+                <button
+                  v-for="p in recentPages"
+                  :key="p.id"
+                  class="dh-recent-card"
+                  @click="goToPage(p.id)"
+                >
+                  <span class="dh-recent-icon"><PageIcon :icon="p.icon" :size="16" /></span>
+                  <span class="dh-recent-title">{{ p.title || t('app.untitled') }}</span>
+                  <span class="dh-recent-time">{{ timeAgo(p.updatedAt) }}</span>
+                </button>
+              </div>
+              <div v-else class="dh-empty">
+                <Sparkles :size="20" :stroke-width="1.5" />
+                <p>{{ t('home.empty') }}</p>
+                <button class="gn-btn gn-btn-primary" @click="createBlank">
+                  <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
+                </button>
+              </div>
+            </section>
           </div>
         </div>
-
-        <div class="home-section-head">
-          <Clock :size="13" :stroke-width="2" />
-          <span>{{ t('home.recent') }}</span>
-        </div>
-
-        <div v-if="recentPages.length" class="home-grid">
-          <button
-            v-for="p in recentPages"
-            :key="p.id"
-            class="card"
-            @click="goToPage(p.id)"
-          >
-            <div class="card-top">
-              <span class="card-icon">
-                <PageIcon :icon="p.icon" :size="18" />
-              </span>
-              <ArrowRight :size="13" class="card-arrow" />
-            </div>
-            <div class="card-title">{{ p.title || t('app.untitled') }}</div>
-            <div class="card-excerpt">{{ p.excerpt || t('home.excerptEmpty') }}</div>
-            <div class="card-foot">{{ timeAgo(p.updatedAt) }}</div>
-          </button>
-        </div>
-
-        <div v-else class="home-empty">
-          <div class="home-empty-icon"><Sparkles :size="22" :stroke-width="1.5" /></div>
-          <p>{{ t('home.empty') }}</p>
-          <button class="gn-btn gn-btn-primary" @click="newPage">
-            <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
-          </button>
-        </div>
-
-        <div class="home-tip">{{ t('home.tip') }}</div>
       </div>
     </div>
 
@@ -211,173 +303,220 @@ async function exportAll() {
   overflow-y: auto;
 }
 .home-inner {
-  max-width: 900px;
+  max-width: 1360px;
   margin: 0 auto;
-  padding: 48px 40px 60px;
+  padding: 26px 28px 40px;
 }
-.home-hero {
+.dh-head {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
+  margin-bottom: 18px;
 }
-.home-hero h1 {
-  font-size: 27px;
+.dh-head h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
   font-weight: 680;
   letter-spacing: -0.025em;
-  margin: 0 0 6px;
+  color: var(--gn-text);
 }
-.home-hero p {
+.dh-head p {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 12.5px;
   color: var(--gn-text-muted);
 }
-.home-hero p strong {
-  color: var(--gn-text-soft);
-  font-weight: 600;
-}
-.home-hero-actions {
+.dh-head-actions {
   display: flex;
   gap: 6px;
   align-items: center;
 }
-.home-stats {
-  display: flex;
-  gap: 8px;
-  margin: 26px 0 30px;
+.dh-grid {
+  display: grid;
+  grid-template-columns: 232px minmax(280px, 340px) minmax(360px, 1fr);
+  gap: 14px;
+  align-items: start;
 }
-.stat {
-  flex: 1 1 0;
+.dh-col {
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
+  gap: 12px;
+  min-width: 0;
+}
+.dh-col-left {
+  position: sticky;
+  top: 0;
+}
+.dh-day {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px 14px 12px;
   border: 1px solid var(--gn-border);
-  border-radius: 9px;
-  background: var(--gn-bg-sidebar);
+  border-radius: 12px;
+  background: var(--gn-bg);
 }
-.stat-num {
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-  color: var(--gn-text);
-}
-.stat-label {
-  font-size: 11.5px;
-  color: var(--gn-text-muted);
-}
-.home-section-head {
+.dh-day-head {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--gn-text-muted);
-  margin-bottom: 10px;
 }
-.home-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 10px;
+.dh-day-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gn-text-muted);
 }
-.card {
+.dh-day-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 13px 14px 12px;
-  border: 1px solid var(--gn-border);
-  border-radius: 10px;
-  background: var(--gn-bg);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease;
-  min-height: 132px;
+  gap: 2px;
 }
-.card:hover {
-  border-color: var(--gn-border-strong);
-  box-shadow: var(--gn-shadow-sm);
-  transform: translateY(-1px);
-}
-.card-top {
+.dh-day-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s ease;
 }
-.card-icon {
+.dh-day-item:hover {
+  background: var(--gn-bg-hover);
+}
+.dh-day-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
   border: 1px solid var(--gn-border);
-  font-size: 14px;
-  color: var(--gn-text-muted);
+  border-radius: 6px;
+  font-size: 12px;
 }
-.card-arrow {
-  color: var(--gn-border-strong);
-  opacity: 0;
-  transition: opacity 0.14s ease;
-}
-.card:hover .card-arrow {
-  opacity: 1;
-  color: var(--gn-text-muted);
-}
-.card-title {
-  font-size: 14px;
-  font-weight: 600;
+.dh-day-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
   color: var(--gn-text);
-  letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.card-excerpt {
-  font-size: 12.2px;
-  line-height: 1.55;
+.dh-day-time {
+  font-size: 10.5px;
   color: var(--gn-text-muted);
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
 }
-.card-foot {
-  font-size: 11px;
+.dh-day-arrow {
   color: var(--gn-text-muted);
-  opacity: 0.8;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
-.home-empty {
-  padding: 48px 0;
-  text-align: center;
-  color: var(--gn-text-muted);
+.dh-day-item:hover .dh-day-arrow {
+  opacity: 1;
 }
-.home-empty-icon {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 10px;
-  opacity: 0.6;
-}
-.home-empty p {
-  margin: 0 0 14px;
-  font-size: 13.5px;
-}
-.home-tip {
-  margin-top: 34px;
-  padding-top: 16px;
-  border-top: 1px solid var(--gn-border);
+.dh-day-empty {
+  margin: 0;
   font-size: 12px;
   color: var(--gn-text-muted);
-  line-height: 1.8;
 }
-.home-tip kbd {
-  font-family: var(--gn-font);
-  border: 1px solid var(--gn-border-strong);
-  border-radius: 4px;
-  padding: 0 4px;
+.dh-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 13px 14px 12px;
+  border: 1px solid var(--gn-border);
+  border-radius: 12px;
+  background: var(--gn-bg);
+}
+.dh-recent-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gn-text-muted);
+}
+.dh-recent-more {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: none;
+  border-radius: 6px;
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
   font-size: 11px;
+  cursor: pointer;
+}
+.dh-recent-more:hover {
+  color: var(--gn-text);
+}
+.dh-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+.dh-recent-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--gn-border);
+  border-radius: 9px;
+  background: var(--gn-bg);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.14s ease, transform 0.14s ease;
+}
+.dh-recent-card:hover {
+  border-color: var(--gn-border-strong);
+  transform: translateY(-1px);
+}
+.dh-recent-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--gn-border);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--gn-text-muted);
+}
+.dh-recent-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gn-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dh-recent-time {
+  font-size: 10.5px;
+  color: var(--gn-text-muted);
+}
+.dh-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 0;
+  color: var(--gn-text-muted);
+}
+.dh-empty p {
+  margin: 0;
+  font-size: 12.5px;
 }
 .home-busy {
   position: absolute;
@@ -391,26 +530,29 @@ async function exportAll() {
   font-size: 12.5px;
 }
 
+@media (max-width: 1180px) {
+  .dh-grid {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+  .dh-col-right {
+    grid-column: 1 / -1;
+  }
+  .dh-col-left {
+    position: static;
+  }
+}
 @media (max-width: 768px) {
-  /* 顶部给左上角「展开侧边栏」按钮让位 */
   .home-inner {
-    padding: 52px 16px 40px;
+    padding: 22px 14px 32px;
   }
-  .home-hero h1 {
-    font-size: 23px;
+  .dh-head h1 {
+    font-size: 21px;
   }
-  .home-hero-actions {
+  .dh-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dh-head-actions {
     flex-wrap: wrap;
-  }
-  .home-stats {
-    gap: 6px;
-    margin: 18px 0 22px;
-  }
-  .stat {
-    padding: 10px;
-  }
-  .home-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   }
 }
 </style>

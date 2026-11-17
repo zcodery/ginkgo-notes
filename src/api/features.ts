@@ -195,8 +195,9 @@ export const clearNotifications = () => api('DELETE', '/notifications')
 
 /* ---------------- 用户设置 / 存储 ---------------- */
 
-export const getUserSetting = <T>(key: 'space' | 'notify' | 'shortcuts') => api<T | null>('GET', `/settings/${key}`)
-export const putUserSetting = (key: 'space' | 'notify' | 'shortcuts', value: unknown) =>
+export const getUserSetting = <T>(key: 'space' | 'notify' | 'shortcuts' | 'profile') =>
+  api<T | null>('GET', `/settings/${key}`)
+export const putUserSetting = (key: 'space' | 'notify' | 'shortcuts' | 'profile', value: unknown) =>
   api('PUT', `/settings/${key}`, value)
 
 export interface StorageInfo {

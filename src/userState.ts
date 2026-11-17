@@ -3,6 +3,7 @@ import {
   getUserSetting,
   listNotifications,
   listSharedWithMe,
+  putUserSetting,
   type NotificationItem,
   type SharedPageItem,
   type SharedRoot,
@@ -26,6 +27,11 @@ export interface NotifyPrefs {
   email: boolean
 }
 
+/** 首页个人卡片：可编辑的个人签名 */
+export interface ProfileInfo {
+  bio: string
+}
+
 export const DEFAULT_NOTIFY_PREFS: NotifyPrefs = {
   quiet: { enabled: false, start: '22:00', end: '08:00' },
   types: { share: true, member: true, feedback: true, webhook: true, system: true },
@@ -39,6 +45,7 @@ export const userState = reactive({
   unread: 0,
   space: { name: '', icon: '' } as SpaceInfo,
   notifyPrefs: structuredClone(DEFAULT_NOTIFY_PREFS) as NotifyPrefs,
+  profile: { bio: '' } as ProfileInfo,
 })
 
 export async function loadShared() {
@@ -87,6 +94,22 @@ export async function loadNotifyPrefs() {
   }
 }
 
+/** 拉取个人签名（首页个人卡片上可编辑） */
+export async function loadProfile() {
+  try {
+    const p = await getUserSetting<ProfileInfo>('profile')
+    userState.profile = { bio: p?.bio ?? '' }
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 保存个人签名 */
+export async function saveProfileBio(bio: string) {
+  userState.profile = { bio }
+  await putUserSetting('profile', { bio } satisfies ProfileInfo)
+}
+
 /** 当前是否处在免打扰时段（支持跨零点，如 22:00-08:00） */
 export function inQuietHours(now = new Date()): boolean {
   const q = userState.notifyPrefs.quiet
@@ -108,6 +131,7 @@ export function initUserState() {
   void loadNotifications()
   void loadSpaceInfo()
   void loadNotifyPrefs()
+  void loadProfile()
   if (pollTimer) window.clearInterval(pollTimer)
   pollTimer = window.setInterval(() => {
     if (document.visibilityState === 'visible') void loadNotifications()
@@ -123,4 +147,5 @@ export function resetUserState() {
   userState.unread = 0
   userState.space = { name: '', icon: '' }
   userState.notifyPrefs = structuredClone(DEFAULT_NOTIFY_PREFS)
+  userState.profile = { bio: '' }
 }

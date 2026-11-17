@@ -114,7 +114,7 @@ featuresRouter.delete('/notifications', (_req, res) => {
 
 /* ---------------- 用户设置：空间信息 / 通知偏好 ---------------- */
 
-const SETTING_KEYS = new Set(['space', 'notify', 'shortcuts'])
+const SETTING_KEYS = new Set(['space', 'notify', 'shortcuts', 'profile'])
 
 featuresRouter.get('/settings/:key', (req, res) => {
   const key = String(req.params.key)
