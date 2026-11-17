@@ -15,6 +15,7 @@ import { aclRouter } from './acl.ts'
 import { friendsRouter } from './friends.ts'
 import { spacesRouter } from './spaces.ts'
 import { presenceRouter } from './presence.ts'
+import { adminRouter } from './admin.ts'
 import { shareRouter, sharePublicRouter } from './share.ts'
 import { oauthPublicRouter } from './account.ts'
 import {
@@ -59,6 +60,7 @@ featuresRouter.use(aclRouter)
 featuresRouter.use(friendsRouter)
 featuresRouter.use(spacesRouter)
 featuresRouter.use(presenceRouter)
+featuresRouter.use(adminRouter)
 
 /* ---------------- 消息通知 ---------------- */
 
