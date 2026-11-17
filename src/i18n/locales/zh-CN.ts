@@ -65,6 +65,7 @@ export default {
     backToMine: '返回我的笔记',
     importLegacy: '导入本机旧笔记（{n}）',
     importing: '导入中…',
+    adminConsole: '管理后台',
   },
   home: {
     title: '银杏笔记',

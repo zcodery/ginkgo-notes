@@ -67,6 +67,7 @@ const zhTW: Messages = {
     backToMine: '返回我的筆記',
     importLegacy: '匯入本機舊筆記（{n}）',
     importing: '匯入中…',
+    adminConsole: '管理後臺',
   },
   home: {
     title: '銀杏筆記',

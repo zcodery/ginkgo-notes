@@ -68,6 +68,7 @@ const en: Messages = {
     backToMine: 'Back to my notes',
     importLegacy: 'Import local notes ({n})',
     importing: 'Importing…',
+    adminConsole: 'Admin console',
   },
   home: {
     title: 'Ginkgo Notes',
