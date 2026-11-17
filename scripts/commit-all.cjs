@@ -293,18 +293,22 @@ function summarizeChanges(filePath, ext, role, stem, patch, addedNames, removedN
 
 // ------- 模块分组 -------
 const MODULES = [
-  { name: 'infra',               label: '基础设施',                            type: 'chore',        globList: ['scripts/', 'run.bat', 'package.json', 'pnpm-lock.yaml', 'vite.config.ts', 'tsconfig.json', 'server/tsconfig.json', 'index.html', '.gitattributes', '.gitignore'] },
+  { name: 'infra',               label: '基础设施',                            type: 'chore',        globList: ['run.bat', 'package.json', 'pnpm-lock.yaml', 'vite.config.ts', 'tsconfig.json', 'server/tsconfig.json', 'index.html', '.gitattributes', '.gitignore'] },
+  { name: 'scripts',             label: '维护与测试脚本',                       type: 'chore(tools)',  globList: ['scripts/'] },
   { name: 'server-core',         label: '后端核心（DB/认证/HTTP）',           type: 'feat(server)', globList: ['server/db.ts', 'server/http.ts', 'server/auth.ts', 'server/totp.ts', 'server/index.ts'] },
   { name: 'server-api',          label: '后端 API 路由',                      type: 'feat(server)', globList: ['server/routes.ts', 'server/features.ts', 'server/account.ts'] },
+  { name: 'server-collaboration', label: '后端协作域（好友分组 / 团队空间）',  type: 'feat(server)', globList: ['server/friends.ts', 'server/spaces.ts', 'server/acl.ts', 'server/presence.ts'] },
   { name: 'server-integrations', label: '后端集成（共享/协作/AI/MCP/Webhook/通知）', type: 'feat(server)', globList: ['server/share.ts', 'server/members.ts', 'server/ai.ts', 'server/mcp.ts', 'server/webhooks.ts', 'server/notify.ts', 'server/mailer.ts', 'server/templates.ts'] },
   { name: 'editor-kernel',       label: '编辑器内核',                          type: 'feat(editor)', globList: ['src/editor/'] },
   { name: 'blocks',              label: '高级块（代码/图表/多维表格/页面卡片）', type: 'feat(blocks)', globList: ['src/blocks/'] },
-  { name: 'components',          label: '通用组件（侧栏/搜索/分享/目录等）',   type: 'feat(ui)',     globList: ['src/components/'] },
-  { name: 'views',               label: '路由页面',                            type: 'feat(ui)',     globList: ['src/views/'] },
-  { name: 'i18n',                label: '国际化',                              type: 'feat(i18n)',   globList: ['src/i18n/'] },
+  // 以下三组必须在 components / views 之前：它们各自提供被下游 import 的符号，
+  // 顺序反了会导致中间提交自身无法通过 vue-tsc（每个提交都要可编译运行）。
   { name: 'utils',               label: '导入导出与只读渲染',                  type: 'feat(utils)',  globList: ['src/utils/'] },
   { name: 'api-db',              label: '前端 API 层与数据仓储',               type: 'feat(data)',   globList: ['src/api/', 'src/db/'] },
+  { name: 'i18n',                label: '国际化',                              type: 'feat(i18n)',   globList: ['src/i18n/'] },
   { name: 'app-shell',           label: '应用外壳与全局状态',                  type: 'feat(core)',   globList: ['src/App.vue', 'src/main.ts', 'src/store.ts', 'src/types.ts', 'src/style.css', 'src/env.d.ts', 'src/shortcuts.ts', 'src/userState.ts', 'src/pinLock.ts', 'src/directives/'] },
+  { name: 'components',          label: '通用组件（侧栏/搜索/分享/目录等）',   type: 'feat(ui)',     globList: ['src/components/'] },
+  { name: 'views',               label: '路由页面',                            type: 'feat(ui)',     globList: ['src/views/'] },
   { name: 'docs',                label: '开发文档',                            type: 'docs',         globList: ['PROGRESS.md', 'AGENTS.md'] },
   { name: 'skill',               label: '开发文档维护 skill',                   type: 'chore',        globList: ['.trae/'] },
 ];
