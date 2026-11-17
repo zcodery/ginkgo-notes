@@ -463,15 +463,17 @@ onMounted(async () => {
                   <td colspan="10">没有匹配的人员</td>
                 </tr>
                 <tr v-for="p in people" :key="p.id" class="ad-row" @click="openDetail(p.id)">
-                  <td class="ad-td-user">
-                    <span class="ad-avatar">{{ avatarText(displayName(p)) }}</span>
-                    <span class="ad-user-text">
-                      <span class="ad-user-name">
-                        {{ displayName(p) }}
-                        <span v-if="p.role === 'admin'" class="ad-tag admin">管理员</span>
+                  <td class="ad-td ad-td-user">
+                    <div class="ad-user-cell">
+                      <span class="ad-avatar">{{ avatarText(displayName(p)) }}</span>
+                      <span class="ad-user-text">
+                        <span class="ad-user-name">
+                          {{ displayName(p) }}
+                          <span v-if="p.role === 'admin'" class="ad-tag admin">管理员</span>
+                        </span>
+                        <span class="ad-user-sub">{{ p.phone || p.email || '未填写联系方式' }}</span>
                       </span>
-                      <span class="ad-user-sub">{{ p.phone || p.email || '未填写联系方式' }}</span>
-                    </span>
+                    </div>
                   </td>
                   <td class="ad-td">
                     <span class="ad-time" :class="{ dim: !p.lastActiveAt }">{{ relativeTime(p.lastActiveAt) }}</span>
@@ -987,7 +989,8 @@ onMounted(async () => {
   font-variant-numeric: tabular-nums;
 }
 .ad-th-user {
-  min-width: 190px;
+  min-width: 186px;
+  padding-left: 14px;
 }
 .ad-row {
   border-bottom: 1px solid var(--gn-border);
@@ -1006,26 +1009,31 @@ onMounted(async () => {
   color: var(--gn-text-muted);
 }
 .ad-td {
-  padding: 8px 11px;
+  padding: 7px 11px;
   color: var(--gn-text);
   white-space: nowrap;
 }
 .ad-td-user {
+  min-width: 186px;
+  padding-left: 14px;
+}
+/* 人员单元格：内层容器承担 flex，保持 td 的表格语义与内边距 */
+.ad-user-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 11px;
 }
 .ad-avatar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 620;
 }
 .ad-avatar.big {
@@ -1043,19 +1051,21 @@ onMounted(async () => {
 .ad-user-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 3px;
   min-width: 0;
 }
 .ad-user-name {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-weight: 560;
   color: var(--gn-text);
+  line-height: 1.35;
 }
 .ad-user-sub {
   font-size: 11px;
   color: var(--gn-text-muted);
+  line-height: 1.35;
 }
 .ad-time.dim {
   color: var(--gn-text-muted);
