@@ -440,7 +440,7 @@ onMounted(() => {
   border: none;
   border-radius: 8px;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   font-size: 14px;
   font-weight: 600;
   font-family: inherit;

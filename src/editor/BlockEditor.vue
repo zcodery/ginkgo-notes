@@ -2903,7 +2903,7 @@ onBeforeUnmount(() => {
   padding: 2px 8px;
   border-radius: 6px;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   font-size: 11px;
   line-height: 1.4;
   box-shadow: var(--gn-shadow-md);
@@ -2917,7 +2917,7 @@ onBeforeUnmount(() => {
   padding: 3px 9px;
   border-radius: 7px;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   font-size: 12px;
   line-height: 1.4;
   box-shadow: var(--gn-shadow-md), 0 0 0 3px color-mix(in srgb, var(--gn-accent) 18%, transparent);

@@ -139,7 +139,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocDown))
   padding: 0 3px;
   border-radius: 99px;
   background: var(--gn-danger);
-  color: #fff;
+  color: var(--gn-danger-ink);
   font-size: 9.5px;
   line-height: 14px;
   text-align: center;

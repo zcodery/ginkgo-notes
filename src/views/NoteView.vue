@@ -1855,7 +1855,7 @@ onBeforeUnmount(() => {
   border: none;
   border-radius: 6px;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   font-size: 12.5px;
   font-family: inherit;
   cursor: pointer;

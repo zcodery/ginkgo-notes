@@ -220,7 +220,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKey, true))
 .gcf-btn.danger {
   border-color: transparent;
   background: var(--gn-danger);
-  color: #fff;
+  color: var(--gn-danger-ink);
 }
 .gcf-btn.danger:hover {
   filter: brightness(1.06);

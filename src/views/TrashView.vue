@@ -241,11 +241,11 @@ function timeLabel(ts: number | null) {
 }
 .confirm-danger {
   background: var(--gn-danger);
-  color: #fff;
+  color: var(--gn-danger-ink);
 }
 .confirm-danger:hover {
   background: color-mix(in srgb, var(--gn-danger) 85%, #000);
-  color: #fff;
+  color: var(--gn-danger-ink);
 }
 
 @media (hover: none) {

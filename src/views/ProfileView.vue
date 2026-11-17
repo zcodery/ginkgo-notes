@@ -937,15 +937,17 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 }
 .pf-btn.primary {
   border-color: transparent;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--gn-accent);
+  color: var(--gn-accent-ink);
 }
 .pf-btn.primary:hover:not(:disabled) {
-  background: #2f74e6;
+  background: var(--gn-accent);
+  color: var(--gn-accent-ink);
+  filter: brightness(1.06);
 }
 .pf-btn.primary:disabled {
   opacity: 0.5;
-  color: #fff;
+  color: var(--gn-accent-ink);
 }
 .pf-btn.danger {
   color: var(--gn-danger);
@@ -1221,7 +1223,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 .pf-btn.danger.solid {
   background: var(--gn-danger);
   border-color: var(--gn-danger);
-  color: #fff;
+  color: var(--gn-danger-ink);
 }
 .pf-btn.danger.solid:disabled {
   opacity: 0.45;

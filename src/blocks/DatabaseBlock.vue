@@ -966,7 +966,7 @@ function removeSelf() {
   padding: 0 3px;
   border-radius: 7px;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   font-size: 9px;
   line-height: 13px;
   text-align: center;

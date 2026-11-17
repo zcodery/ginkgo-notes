@@ -669,7 +669,7 @@ onBeforeUnmount(() => {
 .tc-handle.on {
   border-color: var(--gn-accent);
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
 }
 
 .tc-bar {

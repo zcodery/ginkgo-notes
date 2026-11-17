@@ -412,7 +412,7 @@ function addCard(col: Column) {
 .db-card-check.on {
   background: var(--gn-accent);
   border-color: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
 }
 .db-card-meta {
   display: flex;

@@ -374,7 +374,7 @@ defineExpose({ autoPickNew })
 .db-check.on {
   background: var(--gn-accent);
   border-color: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
 }
 
 /* 日期 */

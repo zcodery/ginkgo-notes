@@ -302,8 +302,8 @@ watch([paper, theme, watermark], () => scheduleRegen())
   height: 30px;
   border: none;
   border-radius: 6px;
-  background: #3b82f6;
-  color: #fff;
+  background: var(--gn-accent);
+  color: var(--gn-accent-ink);
   font-size: 13px;
   font-weight: 520;
   font-family: inherit;
