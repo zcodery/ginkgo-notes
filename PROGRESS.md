@@ -11,7 +11,7 @@
 
 ## 一、项目概览
 
-一个基于 **Vue 3 + TipTap (ProseMirror) + Express + SQLite** 的自托管 Markdown 笔记应用，支持多维表格、Mermaid 图表、代码块、公开分享、成员协作、好友关系、团队空间与组织树、实时在线状态、AI 助手、Webhook 和 MCP 协议接入。
+一个基于 **Vue 3 + TipTap (ProseMirror) + Express + SQLite** 的自托管 Markdown 笔记应用，支持多维表格、Mermaid 图表、代码块、公开分享、成员协作、好友关系、团队空间与组织树、管理员后台人员统计、实时在线状态、AI 助手、Webhook 和 MCP 协议接入。
 
 | 维度 | 选择 |
 |---|---|
@@ -54,6 +54,7 @@ ginkgoNotes/
 │   ├── friends.ts       # 好友关系（申请/同意/拒绝/拉黑/搜索）
 │   ├── spaces.ts        # 团队空间 / 组织树 / 成员 / 邀请 / 组织架构导入
 │   ├── presence.ts      # 文档在线状态（SSE + 心跳）与编辑占用
+│   ├── admin.ts         # 管理后台：人员信息统计（概览 / 人员列表 / 单人详情）
 │   ├── ai.ts            # OpenAI 兼容转发 + SSE 流式
 │   ├── mcp.ts           # MCP Streamable HTTP 服务（JSON-RPC 2.0，个人令牌认证）
 │   ├── webhooks.ts      # 页面事件 Webhook（HMAC-SHA256 签名）
@@ -134,6 +135,7 @@ ginkgoNotes/
 │   │   ├── SharedNoteView.vue  # 共享给我（只读/可编辑按角色）
 │   │   ├── FriendsView.vue     # 好友中心（搜索 / 申请 / 好友列表 / 右侧栏按需占位）
 │   │   ├── TeamsView.vue       # 团队空间（左侧竖向空间导航 + 组织树 + 成员）
+│   │   ├── AdminView.vue       # 管理后台（概览指标 + 趋势图 + 人员明细表 + 详情抽屉）
 │   │   ├── SharedPublicView.vue # 公开分享（密码门、无登录、只读代码块工具栏）
 │   │   └── settings/           # 10 个设置子组件
 │   ├── utils/           # 通用工具、导入导出与只读渲染
@@ -141,6 +143,7 @@ ginkgoNotes/
 │   │   ├── importExport.ts     # Markdown/Notion/Zip/JSON 全链路迁移
 │   │   ├── exportPage.ts       # html2canvas → 图片 / jsPDF → PDF
 │   │   ├── memberImport.ts     # 成员批量导入：CSV/XLSX/DOCX 模板生成与解析（zip + XML）
+│   │   ├── xlsx.ts             # 通用 xlsx 写出 + CSV 导出 + 浏览器下载（管理员统计表）
 │   │   └── renderMarkdown.ts   # 只读 Markdown→HTML（白名单清洗 + 结构化代码块）
 │   ├── i18n/            # 简 / 繁 / 英三套界面语言
 │   ├── shortcuts.ts     # 快捷键定义
@@ -282,12 +285,14 @@ ginkgoNotes/
 | 112 | 分组迁移目标支持「未分组」 | ✅ | 迁移弹窗的目标组下拉补上「未分组」选项；后端 `POST /friends/groups/:id/merge` 收到 `__none__` 时删掉成员分组记录（等同移回未分组）而不是校验分组存在，随后删源组，源组是默认组时由剩下第一个组接任（陷阱 79） |
 | 113 | 组织导入格式下拉补齐 Excel / Word | ✅ | 组织架构导入面板的格式下拉从「CSV / JSON」扩到「CSV / Excel (.xlsx) / Word (.docx) / JSON」，选文件按扩展名自动识别并把格式切到对应项，xlsx 解析后回填 textarea 并显示实时概览 |
 | 114 | 「下载模板 / 导入文档」按钮垂直居中 | ✅ | `.tm-format` 原来是块级 div 包裹，自身带一条匿名行盒，把里面的按钮整体往下顶，与右侧兄弟按钮错位；改成 `display:inline-flex; align-items:center` 去掉多余行盒（陷阱 80） |
+| 115 | 管理员后台：人员信息统计 | ✅ | 新增 `/admin` 管理后台页面 + `server/admin.ts`。概览区 6 张指标卡（总人数 / 近 7 天活跃 / 笔记总量 / 正文字数 / 协作规模 / 附件占用）+ 近 30 天注册与活跃双折线趋势图；人员明细表支持搜索（账号 / 昵称 / 手机号 / 邮箱，250ms 防抖）、角色筛选、7 个维度排序、分页，点行弹出详情抽屉（13 项字段 + 所在团队 / 好友名册 / 登录设备）。统计口径见陷阱 82–85 |
+| 116 | 管理员统计表导出 | ✅ | 抽出通用 `src/utils/xlsx.ts`（`buildXlsx` / `buildCsv` / `downloadBlob`），管理员页可把当前页人员数据导成 22 列的 `.xlsx` 或带 BOM 的 `.csv`，真实 Excel 打开验证通过 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
 | 1 | 好友页 / 团队页视觉 | ⚠️ | 布局骨架（第 68 项）、右侧栏按需让位（第 83 / 90 项）、行内操作入口收敛到右键 + 弹窗（第 91 / 92 项）、好友分组全流程（第 99–114 项）均已落地，待用户最终确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
-| 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` 文案仍是中文硬编码，未接三语 |
+| 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` / `AdminView` 文案仍是中文硬编码，未接三语（`AdminView` 仅侧栏入口「管理后台」一项已接 i18n） |
 | 3 | 好友共享页在线状态 | ⚠️ | presence 按当前空间隔离，`/shared` 个人笔记共享页暂不显示在线头像 |
 | 4 | 大团队成员传输 | ⚠️ | `GET /spaces/:id` 仍一次性返回全部成员，第 81 项只省掉渲染成本；真要减首屏传输量需要给成员接口加节点维度分页 |
 | 5 | 好友分组的服务端约束 | ⚠️ | 「非空组禁删」已在 `DELETE` 拦截，「迁移到未分组」已支持；但**没有组级人数上限、组名唯一性只在 owner 内去重**，多端并发改名/删组靠单进程串行，尚无乐观锁 |
@@ -417,6 +422,13 @@ ginkgoNotes/
 | POST | `/presence/page/:id/heartbeat` | 心跳上报（25s 一次，60s 过期） | 有读权限 |
 | POST / DELETE | `/presence/page/:id/claim-edit` | 申请 / 释放编辑占用 | 有写权限 |
 
+### 管理后台 · 人员统计 (`server/admin.ts`)
+| 方法 | 路径 | 说明 | 认证 |
+|---|---|---|---|
+| GET | `/admin/overview` | 全局概览：用户 / 内容 / 协作三组指标 + 近 30 天注册与活跃趋势 | 管理员 |
+| GET | `/admin/users` | 人员列表：搜索 `q`、角色 `role`、排序 `sort`+`order`、分页 `page`+`pageSize` | 管理员 |
+| GET | `/admin/users/:id` | 单人详情：基础统计 + 所在团队 + 好友名册 + 有效会话 | 管理员 |
+
 ### `X-Space` 空间头
 请求头 `X-Space` 决定本次请求读写的空间（即 `authOf(res).owner`）：
 - 不传：个人空间（`owner = 当前用户 id`）
@@ -520,11 +532,18 @@ ginkgoNotes/
 | 87 | `b80b589` | feat(core) | 主题主色：`ACCENT_PRESETS` / `applyAccent()` 明暗双套变量与持久化；danger hover 与细滚动条样式 |
 | 88 | `0fa501e` | feat(ui) | 通用组件：`GnSelect.zIndex`、`GnConfirm` wide/confirmDisabled/body 插槽、组织树新增行失焦取消、`PeoplePicker` 面板排除外部点击 |
 | 89 | `9d7b072` | feat(ui) | 路由页面：好友分组（增删改迁/默认星标/未分组按需显隐/本地搜索过滤）、团队批量建号与导入预览确认、负责人置顶排序、组织导入 Excel/Word |
+| 90 | `91e466e` | feat(server) | 管理员后台人员统计接口（概览/人员列表/单人详情），全部走 requireAdmin |
+| 91 | `08971e7` | feat(utils) | 通用 xlsx 写出与 CSV 导出工具（复用 fflate，多列列号支持） |
+| 92 | `dc70632` | feat(data) | 前端 API 层补齐管理员统计接口与类型定义 |
+| 93 | `91f3643` | feat(i18n) | 侧栏「管理后台」入口文案三语词条 |
+| 94 | `3864dc1` | feat(ui) | 管理员后台页面：6 张指标卡 + 双折线趋势图 + 人员明细表（搜索/筛选/排序/分页）+ 详情抽屉 + 导出 |
+| 95 | `a17586c` | feat(core) | 管理后台路由接入（/admin、goAdmin）与管理员守卫（身份异步到位后判定） |
+| 96 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `605cfdd` — docs: 更新版本日期并完善组织树和成员管理功能描述（PROGRESS 第 74-79 项）
-> 最新**功能**提交：`9d7b072` — feat(ui): 路由页面（好友分组全流程 + 批量建号导入 + 组织导入 Excel/Word）（`origin/main` 已同步）
+**HEAD**: `be9e3d2` — feat(ui): 侧栏管理员菜单接入管理后台入口
+> 最新**功能**提交：`be9e3d2` — feat(ui): 侧栏管理员菜单接入管理后台入口（本地已提交，待推送）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -547,6 +566,26 @@ ginkgoNotes/
 
 > 验证方式：`git worktree` 逐个检出每个提交跑 `vue-tsc --noEmit` + `tsc -p server --noEmit`，**10/10 全部可独立编译**。
 > 注：worktree 里的 `node_modules` 是 junction 软链，Node 会把相对路径解析成主仓库的真实路径，验证脚本必须用**绝对路径**调用编译器二进制；且 `git worktree remove` 只删注册信息不删物理目录，清理时必须额外 `rm -rf`。
+
+---
+
+### ✅ 管理后台提交构成（2026-11-17，7 个分层提交）
+
+管理员后台（人员信息统计）按同样的分层规范落地：
+
+| # | Hash | 类型 | 内容 |
+|---|---|---|---|
+| 1 | `91e466e` | feat(server) | `server/admin.ts`：概览 / 人员列表 / 单人详情三个管理员接口 |
+| 2 | `08971e7` | feat(utils) | `src/utils/xlsx.ts`：通用 xlsx 写出 + CSV 导出 + 下载 |
+| 3 | `dc70632` | feat(data) | 前端 API 层：管理员统计接口与类型定义 |
+| 4 | `91f3643` | feat(i18n) | 侧栏「管理后台」入口文案三语词条 |
+| 5 | `3864dc1` | feat(ui) | `AdminView.vue`：指标卡 + 趋势图 + 人员明细表 + 详情抽屉 + 导出 |
+| 6 | `a17586c` | feat(core) | `/admin` 路由接入 + 管理员守卫（监听角色，身份到位后再判定） |
+| 7 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
+
+**顺序约束同上一轮，但有一处例外**：`utils` → `api` → `i18n` → **`views`** → `core` → `components`。本轮 `core`（`App.vue` 挂载 `AdminView`）依赖 `views` 层的产物，所以 views 必须排在 core 之前——这是「每个提交自身可编译」规范的硬要求，顺序反了 `a17586c` 就会报 `Cannot find module '@/views/AdminView.vue'`。
+
+> 验证：真机 Chrome E2E **32/32 通过**（概览卡片、趋势图、搜索防抖、角色筛选、排序、详情抽屉、导出下载、明暗主题、普通用户被拦、侧栏入口、控制台无报错）；导出文件用真实 Excel 打开验证为「人员统计」工作表 21 行 × 22 列。
 
 ---
 
@@ -717,6 +756,10 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 79. **非空断言只是编译期的**：`target!.id` 在 `target` 运行时为 null 时照样抛 `TypeError`。迁移到「未分组」的分支里目标组本来就不存在，必须写 `target ? target.id : NONE_GROUP`，别用 `!` 掩盖。写完这类分支后一定要用真实请求打一遍——前端「看起来成功」但接口 500 的情况，事务已提交、数据已改，只有看服务端日志才能发现。
 80. **flex 里的块级包装元素会带一条匿名行盒**：`.tm-format` 是 `<div>`（块级）却只为了给按钮加一个定位上下文，它自身那条行盒把里面的按钮整体往下顶，与同行兄弟按钮错位。改成 `display:inline-flex; align-items:center` 即可去掉多余行盒；凡是「只为了定位/包裹而存在」的 div，都要确认它不是块级。
 81. **密码是单向哈希，导不出明文也别试图反解**：`users.password_hash` 存的是 `scrypt$salt$hash`，不可逆。`scripts/export-accounts.mjs` 的做法不是破解，而是**用候选口令逐个校验**——本项目的账号密码有确定规律（种子账号固定口令、团队批量建号「账号=初始密码=手机号」、管理员默认 `admin123`），一张候选表就能 100% 命中。写这类导出脚本时：① 只读打开库，不要用 `node:sqlite` 的写模式去跑探测；② 候选表要覆盖「通用弱口令 + 账号本身 + 手机号 + 昵称」四类派生；③ 命中不了时**不要静默写一个假密码**，要么留空、要么显式 `--reset` 让用户知情后重置。
+82. **笔记归属有两种，统计时不能混**：`pages.owner` 在个人空间里是**用户 id**，在团队空间里是**空间 id**，公共原稿是字面量 `'public'`。写「某人有多少笔记」时若直接 `WHERE owner = ?`，团队空间里那些页面就既不算任何人的、也不算任何空间的。正确做法是分三份统计：个人页按 `owner = 用户 id` 归个人，团队页按 `pages JOIN spaces ON spaces.id = pages.owner AND spaces.type='team'` 归团队，公共原稿单列。另外回收站标记不在列上，而是页面 JSON 里的 `$.trashed`，用 `json_extract(data, '$.trashed')` 判断（`node:sqlite` 自带 JSON1，不用自己解 JSON）。
+83. **好友关系是双向的，计数要两端各加一次**：`friendships` 用 `user_low / user_high` 归一化避免重复存，但「张三有几个好友」得把每条 accepted 关系给两端各计 1，不能只查 `user_low`。同理「最后活跃时间」取 `sessions` 里 `revoked = 0` 的 `MAX(last_seen)`，撤销的设备不该算活跃。
+84. **前端路由守卫要等身份回来再判**：`parseRoute()` 只看 URL，不知道用户是不是管理员；而 `restoreSession()` 是异步的，首次加载时 `syncRoute()` 早于它执行，此刻 `store.user` 还是 null，守卫条件 `role !== 'admin'` 会因为 role 为空而放行，普通用户能停在 `/admin` 上。修法是**同时监听 `store.user?.role` 和 `store.route.view`**（`watch` 配 `immediate: true`），身份到位后重新判定并 `goHome()` 送回首页；服务端仍要有 `requireAdmin` 兜底，前端守卫只是体验层。
+85. **E2E 里多个身份要各开独立 context**：同一个 `browser.newContext()` 里换 `localStorage` 里的 token 会串味——后开的页面覆盖了前一个页面的登录态，测「普通用户被拦」时测到的其实是管理员。正确做法是每个身份 `newContext()` 单独开页，测完 `close()`。另外给带入场动画的元素截图前要先 `waitForTimeout`，否则拍到半透明的中间帧（详情抽屉 0.2s 的 `ad-slide-in`），会误判成「背景透出」。
 
 
 ---
