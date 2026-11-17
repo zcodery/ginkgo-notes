@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.3.0 | 更新于 2026-11-16
+> 版本 0.3.0 | 更新于 2026-11-17
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 
@@ -112,7 +112,7 @@ ginkgoNotes/
 │   │   ├── ShareDialog.vue     # 分享（公开链接 Tab + 人员下拉邀请）
 │   │   ├── PeoplePicker.vue    # 人员多选下拉（好友/团队成员分组、团队切换、去重）
 │   │   ├── PresenceAvatars.vue # 文档右上角在线头像（过滤自己）
-│   │   ├── OrgTree.vue         # 组织架构树（折叠 / 增删改 / 移动 / 导入入口由 TeamsView 承载）
+│   │   ├── OrgTree.vue         # 组织架构树（折叠动画 / 就地增删改名 / 拖拽调层级 / 承载成员拖入落点）
 │   │   ├── NotificationBell.vue # 通知铃铛（静默时段、按类型图标）
 │   │   ├── ImageExportModal.vue # 笔记导出图片预览弹层
 │   │   ├── IconPicker.vue      # 页面图标（emoji / Lucide / 上传 / 外链）
@@ -141,6 +141,10 @@ ginkgoNotes/
 │   ├── shortcuts.ts     # 快捷键定义
 │   ├── userState.ts    # 登录态 / 用户信息
 │   └── pinLock.ts      # PIN 状态机
+├── scripts/            # 维护脚本（node 直接跑）
+│   ├── commit-all.cjs      # 按模块分层批量提交 + 生成语义化 commit body
+│   ├── reset-to-base.cjs   # 撤回 origin/main 之后的全部 commit，保留工作区改动
+│   └── seed-demo-friends.mjs # 幂等演示数据：管理员 + 5 个好友 + 加入首个团队
 ├── package.json
 ├── vite.config.ts       # @tailwindcss/vite + vue-tsc
 └── run.bat              # Windows 一键启动脚本
@@ -151,6 +155,8 @@ ginkgoNotes/
 ## 三、已实现功能清单
 
 ### P0 — 核心闭环（均可编译运行）
+
+> 第 1–59 项为**单机笔记内核**；第 60–93 项为 2026-11-16 集中落地的**协作域**（好友 / 团队空间 / 组织树 / 统一 ACL / 在线状态 / 编辑占用）及其后的 UI 收敛，均已闭环可运行。
 
 | # | 模块 | 状态 | 说明 |
 |---|---|---|---|
@@ -230,6 +236,7 @@ ginkgoNotes/
 
 | 74 | 组织节点去掉「部门 / 团队」类型 | ✅ | 组织树只有一种节点，不再分部门/团队：新增行删掉右侧类型下拉（只剩 输入 + 确定 + 取消，三者 26px 等高）、按钮改「+ 根级节点」、占位改「根级/下级名称」；前端 `OrgNodeInfo` 去掉 `type`，`createOrgNode` body 只传 `{ name, parentId }`，`TeamsView` 邀请区文案改「不指定节点」、CSV 示例改「节点路径」。后端 `org_nodes` 建表不再带 `type` 列，老库启动时 `ALTER TABLE org_nodes DROP COLUMN type` 幂等删除（数据保留）；创建/导入/列表全部不再读写该列，导入 JSON 里遗留的 `type` 键被忽略而不是报错 |
 | 75 | 团队页一屏布局 + 卡片内部滚动 | ✅ | 团队页不再出现整页竖向滚动条：宽屏（≥1180px）下 `.tm-page` 直接 `overflow: hidden`，`.tm-main` 变成 `display:flex; flex-direction:column; min-height:0`，`.tm-cols` 用 `grid-template-rows: minmax(0,1fr)` 吃掉剩余高度，左右两张卡各自 `min-height:0` 后由 body 内部滚动；两个 body 统一挂 `.tm-scroll`（`overflow-y:auto` + `scrollbar-width:none` + `::-webkit-scrollbar{width:0}`），滚动条宽度实测 `offsetWidth === clientWidth`；成员卡的「添加成员」区固定在卡片底部不随列表滚动，`max-height:min(52vh,520px)` 在宽屏下取消改由 flex 高度决定；左侧空间导航 `max-height:100%` 后同样内部滚动且隐藏滚动条。窄屏（<1180px）仍保留整页滚动，避免上下堆叠时把两张卡压扁 |
+| 76 | 成员列表跟随组织节点筛选 | ✅ | 成员卡原来只按空间铺一整条名单，看不出谁挂在哪个部门。改为跟随左侧组织树选中节点：`includeChildren` 开关（默认开）决定口径——开时按 `subtreeOrder()` 深度优先遍历整棵子树、关时只看直属成员；渲染按**组织路径分组**，组头显示 `pathOf()` 拼出的全路径 + 该组人数，组间顺序与左侧树的「同级 sort」一致，两栏扫一眼就能对上。分组表头 `position: sticky` **粘在各自分组容器内**（多个 sticky 兄弟都写 `top:0` 会叠成一坨、后一个盖前一个，必须包一层 `.tm-group`，容器底边到了表头自然被推走），滚动容器自身的 `padding-top` 移交给首个分组，否则吸顶时上方会露出 8px 正文细条。未指定节点的成员（`org_node_id` 为空串）与树上计数统一按「全员 / 根节点」口径处理（陷阱 41）。该项后来被第 81 项收紧为「未选节点默认空」，但子树过滤、分组路径与吸顶口径沿用至今 |
 | 77 | 成员拖到节点改归属 / 代注册成员 / 下拉反色修复 | ✅ | ①**拖拽分配部门**：右侧成员行可拖（`draggable`，左侧常驻 10px ⠿ 手柄、悬停显形；`dataTransfer` 用私有 MIME `application/x-ginkgo-member`，与节点排序的 `text/plain` 隔离），组织树每一行都能接落点——命中行实线描边 + 主色文字、底部条带提示「松手 → 把成员挂到该节点下」，松手调 `PATCH /spaces/:id/members/:userId` 改 `org_node_id` 并刷新（树上人数 + 分组同步）；落到成员已所在节点直接跳过，拖拽源在右侧所以高亮由 document 的 `dragend/drop` 兜底清理。②**代注册成员**：邀请区改为「邀请加入 / 新建成员」两个 tab，新建只需手机号（11 位校验）+ 姓名（可选）+ 角色 + 部门，接口 `POST /spaces/:id/members/register` 建号（账号=手机号、初始密码=手机号）并直接入组，手机号已有账号时不重复建号而是直接加入（返回 `created: false`），成功后底部胶囊提示「初始密码为手机号」；选中某个部门后再切 tab 会自动预填目标节点。③**下拉反色**：`GnSelect` 的「上翻」布尔量原来叫 `invert`，正好撞上 Tailwind 的 `.invert{filter:invert(100%)}`，面板在视口底部上翻时整块反色（亮色主题下变成纯黑底 + 淡紫字），改名 `dropUp` / `.is-up`。④顺手修掉两处底层问题：`select()` 内部再调 `run()` 会撞上 busy 保护直接返回，导致改角色/邀请/导入后列表不刷新（拆出 `load()` 供 run 内部调用）；`--gn-bg-soft` 从未定义过，行悬停与内嵌面板一直取到透明，补上亮/暗两套值 |
 | 78 | 邀请候选剔除已在团队的人 | ✅ | `PeoplePicker` 新增 `exclude?: string[]`：命中的用户名在「好友」「团队」两个 tab 里都不再列出，tab 上的计数一并扣掉（数据仍保留在缓存里，`exclude` 变小会自动复活，不依赖重新请求）；候选全被过滤时空态改说「这些人已在团队里，新人请用「新建成员」」，而不是「暂无成员」。`TeamsView` 把当前成员用户名传进去，`load()` 时顺带把已入队的名字从 `inviteDraft.usernames` 里清掉——原来选完点邀请才逐个报「已是团队成员」，来回一趟才知道 |
 | 79 | 部门负责人（管理一个部门及整棵子树） | ✅ | `org_nodes.lead_user_id` 从「有列没用」变成真权限：成员行加皇冠按钮任命/撤销，组织树在节点名字后面显示负责人。后端新增 `PUT /spaces/:id/org/nodes/:nodeId/lead`（`{ userId }`，null 撤销；只能任命本部门或上级部门的人），并抽出 `manageScope()` 统一判定——owner/admin 管全空间，负责人凭节点 `path` 前缀管自己那棵子树：**成员**增删改 / 邀请 / 代注册 / **下级部门**增删改名移动都放行，但角色封顶 `editor`（不能自己造管理员）、不能把人调出部门、不能建根级节点、不能删自己负责的部门；**文档**侧在 `effectiveResourceRole` 里把负责的节点并进用户上下文，授权给本部门（或本部门成员）的文档直接给 `admin`——可改正文也能改授权，撤销后立刻回落到空间基线。一致性：成员调离原部门或移出团队时自动清空 `lead_user_id`；一个节点只有一个负责人，换人时提示会替代谁 |
@@ -251,9 +258,10 @@ ginkgoNotes/
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
-| 1 | 好友页 / 团队页视觉 | ⚠️ | 已按第 68 项重构布局骨架（顶部空间切换、两列卡片、紧凑列表），待用户确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
+| 1 | 好友页 / 团队页视觉 | ⚠️ | 布局骨架（第 68 项）、右侧栏按需让位（第 83 / 90 项）、行内操作入口收敛到右键 + 弹窗（第 91 / 92 项）均已落地，待用户最终确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
 | 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` 文案仍是中文硬编码，未接三语 |
 | 3 | 好友共享页在线状态 | ⚠️ | presence 按当前空间隔离，`/shared` 个人笔记共享页暂不显示在线头像 |
+| 4 | 大团队成员传输 | ⚠️ | `GET /spaces/:id` 仍一次性返回全部成员，第 81 项只省掉渲染成本；真要减首屏传输量需要给成员接口加节点维度分页 |
 
 ### P2 — 尚未开始
 
@@ -344,14 +352,17 @@ ginkgoNotes/
 | POST | `/spaces` | 创建团队（自动建根节点「全员」） | 会话/令牌 |
 | GET / PATCH | `/spaces/:id` | 详情 / 改名 | 空间成员 / admin |
 | GET | `/spaces/:id/org` | 组织树 + 成员 | 空间成员 |
-| POST | `/spaces/:id/org/nodes` | 新建组织节点（body：`{ name, parentId? }`） | 空间 admin |
-| PATCH / DELETE | `/spaces/:id/org/nodes/:nodeId` | 移动/改名 / 删除（成员与授权迁回上级） | 空间 admin |
+| POST | `/spaces/:id/org/nodes` | 新建组织节点（body：`{ name, parentId? }`；建根级节点仅空间 admin） | 空间 admin 或上级节点负责人 |
+| PATCH | `/spaces/:id/org/nodes/:nodeId` | 改名 / 换上级（`{ name?, parentId? }`；不能挂到自身或自身子树） | 空间 admin 或该节点负责人 |
+| POST | `/spaces/:id/org/nodes/:nodeId/move` | 拖拽移动：`{ parentId, beforeId? }`，`beforeId` 决定同级插入位（空 = 末尾），事务内重排兄弟 `sort` 并只在父级真变时重写子树 `path/depth` | 空间 admin 或该节点负责人 |
+| DELETE | `/spaces/:id/org/nodes/:nodeId` | 删除（成员与授权迁回上级） | 空间 admin 或该节点负责人 |
 | POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
-| GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin |
-| POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin |
+| GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin 或目标节点负责人 |
+| POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin 或目标节点负责人 |
 | PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销）；部门只剩 1 人时由服务端自动任命；变更后把通知推给该节点整棵子树的成员，被替换者另收一条 | 空间 admin 或该节点负责人 |
-| PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出 | 空间 admin |
-| GET / POST | `/spaces/:id/invites` | 邀请列表 / 发起邀请 | 空间 admin |
+| PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出（负责人只能在本子树内调动、角色封顶 `editor`） | 空间 admin 或该节点负责人 |
+| GET | `/spaces/:id/invites` | 邀请列表（负责人只看自己负责范围内的待处理邀请） | 空间成员 |
+| POST | `/spaces/:id/invites` | 发起邀请（候选人为好友或同团队的人） | 空间 admin 或该节点负责人 |
 | GET | `/spaces/invites` | 我收到的团队邀请 | 会话/令牌 |
 | POST | `/spaces/invites/:id/accept` / `decline` | 处理邀请 | 被邀请人 |
 
@@ -468,7 +479,8 @@ ginkgoNotes/
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `22a8bc0` — feat(ui): 好友页按需让位、任命/移出收敛到右键+弹窗确认，换负责人通知部门成员
+**HEAD**: `6a154f5` — docs: 记录好友页按需让位/右键确认弹窗/负责人通知（PROGRESS 第 90-93 项 + 陷阱 59-61）
+> 最新**功能**提交：`22a8bc0` — feat(ui): 好友页按需让位、任命/移出收敛到右键+弹窗确认，换负责人通知部门成员（`origin/main` 已同步）
 
 ---
 
@@ -561,9 +573,9 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 13. **任务项 DOM 特殊**：`taskItem` 是 `<li><label/><div><p/><ul/></div></li>`，子列表不在 li 的直接子级；折叠 widget、块手柄让位判断、CSS 选择器都要兼容 `> div >`。折叠注释是独立 `html_block` 且总在 `list_item_open` 之前，必须在 token 预处理阶段挂到紧随其后的列表项。
 14. **折叠动画回归要测四件事**：轨道单调变化、首行尺寸恒定、内层 padding/border 全程不变、内容真的被裁掉。只断言「轨道归零」会出现「数字全绿但视觉是坏的」。
 15. **嵌套列表的 `overflow:hidden` 会裁掉折叠箭头**：箭头是 `position:absolute; left:-26px`，落在父级 `ul` 的左边界之外；为折叠裁切给 `li > ul/ol` 加 `overflow:hidden` 会把深层箭头一起裁没，表现为「只有顶层有箭头、子级全空白」。改用 `overflow:visible` + `clip-path: inset(0 -9999px 0 -9999px)` 只裁垂直方向，并让 widget 与 gutter 色带保持 `pointer-events:auto`，鼠标进入装订区才能触发 `li:hover` 淡入。回归必须断言 widget 中心的 `elementFromPoint` 命中自身——只测 `opacity` 会完全漏掉裁剪问题。
-17. **分栏 Markdown 往返的 `splitColumns` 必须只取分隔符之间**：序列化用 `<!-- gn-columns -->` 包整体、每列用 `<!-- gn-col -->` 分隔；反序列化切分时若从位置 0 起切，首个分隔符前的填充换行会生成一个空列 chunk，导致左列内容错位到第二列。修复：仅当遇到顶层分隔符且已有一个起始点时才收尾上一段，`start` 始终指向当前分隔符之后；嵌套分栏靠 `gn-columns` 开合深度计数，不参与顶层切分。
-18. **拖块入栏的两个坐标坑**：①追加到分栏末尾时 `colStarts[idx]` 在 `idx === childCount` 处是 `undefined`，必须用 `columnsPos + node.nodeSize - 1`（分栏内容末尾）作为插入位；②同一事务里先 `tr.insert` 新列再删除源块，源块坐标必须用 `tr.mapping.map(from/to)` 映射后再 `tr.delete`，否则源在插入点之前时删除位置错位。另外 `.gn-column` 是 NodeView 渲染的跨组件元素，`scoped` 样式加不上，入栏高亮类（`.gn-col-drop-into`）必须写在全局 `style.css`。
-16. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
+16. **分栏 Markdown 往返的 `splitColumns` 必须只取分隔符之间**：序列化用 `<!-- gn-columns -->` 包整体、每列用 `<!-- gn-col -->` 分隔；反序列化切分时若从位置 0 起切，首个分隔符前的填充换行会生成一个空列 chunk，导致左列内容错位到第二列。修复：仅当遇到顶层分隔符且已有一个起始点时才收尾上一段，`start` 始终指向当前分隔符之后；嵌套分栏靠 `gn-columns` 开合深度计数，不参与顶层切分。
+17. **拖块入栏的两个坐标坑**：①追加到分栏末尾时 `colStarts[idx]` 在 `idx === childCount` 处是 `undefined`，必须用 `columnsPos + node.nodeSize - 1`（分栏内容末尾）作为插入位；②同一事务里先 `tr.insert` 新列再删除源块，源块坐标必须用 `tr.mapping.map(from/to)` 映射后再 `tr.delete`，否则源在插入点之前时删除位置错位。另外 `.gn-column` 是 NodeView 渲染的跨组件元素，`scoped` 样式加不上，入栏高亮类（`.gn-col-drop-into`）必须写在全局 `style.css`。
+18. **`display:grid` 的 `li` 会让 `counter(list-item)` 失效**：`list-item` 是内建计数器，只有 `display:list-item` 才会隐式递增；列表项为了两列布局改成 grid 后，它只保留初值（默认 0，`<ol start="5">` 则是 4）不再递增，于是每一项都渲染成 `0.`。改用自定义 counter（每个 `ol` 上 `counter-reset` 建独立作用域、`li` 上 `counter-increment`），并用 `@supports (counter-reset: x calc(attr(start number, 1) - 1))` 渐进支持 `start`。注意 `getComputedStyle(li,'::before').content` 返回的是**未求值的表达式**，不能用来断言实际编号，需配合 counter 计算值与截图视觉确认。
 19. **普通行拖拽不能只走重排**：`updateDropLine` 的落点由指针在目标块上下半区决定（取 `block.from` / `block.to`），当目标块紧邻被拖块时，落点恰好等于块自身边界（`target >= from && target <= to`）→ 直接 return，表现就是「松手后又回到原位」。要实现「拖到某一行就开一栏」，必须先在 `onDragOver` 里按 y 分区（中间区 → `cols-with`，上下窄边仍留给重排），并把落点目标提升到**顶层块**。另一个坑：拖清单条目时 `resolveBlock` 返回的是 `taskItem`/`listItem`，它们不在 `block` 组里，`column.validContent` 直接为 false——必须按原列表类型与属性回包成 `taskList`/`bulletList`/`orderedList` 才是合法列内容；而孤立的 `listItem` 不能作为目标被换成块级 `columns`（会破坏列表结构），只能先提升到整张清单。
 20. **原生 HTML5 拖拽 + 自绘手柄 = 拖不动**：在 `dragstart` 里把拖拽源（块手柄）隐藏，浏览器会判定拖拽被取消，`dragover`/`drop` 全部不再触发，表现就是「拖了没反应、松手弹回原位」，而且**不会报错**，极难排查。块拖拽一律用 `mousedown` + document `mousemove/mouseup` 自绘，别在 `dragstart` 里动拖拽源的 DOM。
 21. **`instanceof HTMLElement` 会漏掉 SVG**：lucide 图标是 `SVGElement`，`svg instanceof HTMLElement === false`。`updateBlockHandleFromPointer` 曾用它判断「指针是否在手柄上」，导致指针移到手柄那一刻就被当成悬停在正文 → 手柄被隐藏 → 随后的 `mousedown` 落到 `.nv-inner`，拖拽永远无法开始（同样不报错）。判断 DOM 归属统一用 `instanceof Element`。
