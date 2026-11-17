@@ -5,6 +5,7 @@ import { effectiveSpaceRole, leadCoversNode, roleRank } from './acl.ts'
 import { db, getSetting, getSpace, listSpacesFor, setSetting, transaction, type SpaceRow } from './db.ts'
 import { HttpError, param, str } from './http.ts'
 import { notify } from './notify.ts'
+import { copyTemplatesToUser } from './templates.ts'
 
 /**
  * 团队空间：组织树、成员与角色、邀请。
@@ -152,6 +153,26 @@ function requireMember(spaceId: string, userId: string): SpaceRole {
   const role = effectiveSpaceRole(userId, spaceId)
   if (!role) throw new HttpError(404, '空间不存在或无权访问')
   return role
+}
+
+/**
+ * 这一行成员记录（某人在某节点上的权限）能不能被请求者看到。
+ *
+ * 权限标签按管辖范围裁剪，和「谁能改」保持同一套口径：
+ * - owner / admin：整个空间都看得见；
+ * - 部门负责人：只看得到自己负责节点（含整棵子树）下挂着的成员；
+ * - 自己那行永远看得见。
+ *
+ * 范围外的成员只拿得到一个空标签，不泄露别的部门把权限设成了什么。
+ */
+function canSeeMemberRole(spaceId: string, requesterId: string, m: MemberRow): boolean {
+  if (m.user_id === requesterId) return true
+  // 空间所有者是公开信息（组织树里也写着），不属于部门权限范畴
+  if (m.role === 'owner') return true
+  const role = effectiveSpaceRole(requesterId, spaceId)
+  if (!role) return false
+  if (roleRank(role) >= roleRank('admin')) return true
+  return !!m.org_node_id && leadCoversNode(requesterId, spaceId, m.org_node_id)
 }
 
 /* ---------------- 空间 ---------------- */
@@ -303,7 +324,8 @@ spacesRouter.get('/spaces/:id/org', (req, res) => {
     })),
     members: members.map((m) => ({
       ...publicUser(m.user_id),
-      role: m.role,
+      // 权限标签按管辖范围裁剪：范围外的成员 role 返回 null，前端不渲染
+      role: canSeeMemberRole(space.id, user.id, m) ? m.role : null,
       orgNodeId: m.org_node_id,
       status: m.status,
       joinedAt: m.joined_at,
@@ -846,7 +868,8 @@ spacesRouter.get('/spaces/:id/members', (req, res) => {
   res.json(
     rows.map((m) => ({
       ...publicUser(m.user_id),
-      role: m.role,
+      // 同 /org：权限标签按管辖范围裁剪
+      role: canSeeMemberRole(space.id, user.id, m) ? m.role : null,
       orgNodeId: m.org_node_id,
       status: m.status,
       joinedAt: m.joined_at,
@@ -947,6 +970,8 @@ spacesRouter.post('/spaces/:id/members/register', (req, res) => {
   } else {
     // 用户名规则允许纯数字，手机号本身就能当账号；密码按约定也用手机号
     target = createUser(phone, phone)
+    // 代注册也是新账号，必须和普通注册一样下发公共原稿，否则登录后是空空间
+    copyTemplatesToUser(target.id)
     updateUserProfile(target.id, { phone, nickname: name || null })
     created = true
   }
