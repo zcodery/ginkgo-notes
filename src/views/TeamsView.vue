@@ -162,7 +162,8 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: '可查看',
   guest: '访客',
 }
-const roleLabel = (role: string) => ROLE_LABEL[role] ?? role
+/** role 为 null 表示这个成员的权限不在你的管辖范围内，看不到就显示占位符 */
+const roleLabel = (role: string | null | undefined) => (role ? (ROLE_LABEL[role] ?? role) : '—')
 
 const roleOptions: { value: BackendRole; label: string }[] = [
   { value: 'viewer', label: '可查看' },
@@ -1185,6 +1186,7 @@ onBeforeUnmount(() => {
                     <div class="tm-member-main">
                       <div class="tm-member-name">
                         <span class="tm-name-text">{{ m.name }}</span>
+                        <!-- 负责人是身份标识（组织树里本来就公开），不受权限裁剪影响 -->
                         <span
                           v-if="isDeptLead(m) && m.role !== 'owner'"
                           class="tm-lead-tag"
@@ -1196,7 +1198,7 @@ onBeforeUnmount(() => {
                       <div class="tm-member-sub">@{{ m.username }}</div>
                     </div>
                     <GnSelect
-                      v-if="canManageMember(m) && m.role !== 'owner' && !isDeptLead(m)"
+                      v-if="canManageMember(m) && m.role && m.role !== 'owner' && !isDeptLead(m)"
                       :model-value="m.role"
                       :options="canManage ? roleOptions : assignableRoles"
                       :min-width="92"
@@ -1204,13 +1206,22 @@ onBeforeUnmount(() => {
                       @update:model-value="changeRole(m, $event)"
                     />
                     <span
-                      v-else-if="isDeptLead(m) && m.role !== 'owner'"
+                      v-else-if="isDeptLead(m) && m.role && m.role !== 'owner'"
                       class="tm-tag tm-tag-full"
                       v-tooltip="'部门负责人：对该部门及下级的人员、文档都是完全控制，不需要再单独设角色'"
                     >
                       <ShieldCheck :size="11" />完全控制
                     </span>
-                    <span v-else class="tm-tag">{{ roleLabel(m.role) }}</span>
+                    <span
+                      v-else-if="m.role"
+                      class="tm-tag"
+                    >{{ roleLabel(m.role) }}</span>
+                    <!-- 不在你的管辖范围内：只留占位，不暴露对方部门的权限设置 -->
+                    <span
+                      v-else
+                      class="tm-tag tm-tag-masked"
+                      v-tooltip="'该成员不在你的管辖范围内，权限信息不可见'"
+                    >—</span>
                     <!-- 任命 / 移出这类不可逆操作只在右键菜单里给，行内不放按钮，避免误点 -->
                   </div>
                 </section>
@@ -1428,7 +1439,7 @@ onBeforeUnmount(() => {
 
       <template v-if="canManageMember(menuMember)">
         <div class="tm-menu-sep" />
-        <template v-if="menuMember.orgNodeId && menuMember.role !== 'owner'">
+        <template v-if="menuMember.orgNodeId && menuMember.role && menuMember.role !== 'owner'">
           <button v-if="isSoloLead(menuMember)" type="button" class="is-muted" disabled>
             <Crown :size="14" :stroke-width="1.8" />
             <span>负责人（自动指定）</span>
@@ -2048,6 +2059,12 @@ onBeforeUnmount(() => {
   font-size: 11.5px;
   color: var(--gn-text-muted);
   white-space: nowrap;
+}
+/* 不在管辖范围内的成员：权限位留占位符，不显示对方的角色 */
+.tm-tag-masked {
+  color: var(--gn-text-soft);
+  opacity: 0.55;
+  cursor: default;
 }
 /* 负责人的角色位：不用下拉，直接标成完全控制 */
 .tm-tag-full {
