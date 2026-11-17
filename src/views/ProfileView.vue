@@ -4,6 +4,7 @@ import {
   Bell,
   Bot,
   Box,
+  Check,
   Download,
   Globe,
   Info,
@@ -19,6 +20,7 @@ import {
 import UserAvatar from '@/components/UserAvatar.vue'
 import GnSelect from '@/components/GnSelect.vue'
 import {
+  ACCENT_PRESETS,
   NOTE_FONT_SIZES,
   NOTE_FONT_STYLES,
   NOTE_LAYOUTS,
@@ -29,6 +31,7 @@ import {
   setNoteFontSize,
   setNoteFontStyle,
   setNoteLayout,
+  setAccent,
   setNoteWidthMode,
   setNoteWidthRatio,
   setTheme,
@@ -39,6 +42,7 @@ import {
   type NoteFontSize,
   type NoteFontStyle,
   type NoteLayout,
+  type AccentId,
   type NoteWidthRatio,
 } from '@/store'
 import { clearAssetCache } from '@/editor/assets'
@@ -248,6 +252,15 @@ const LAYOUT_LABEL: Record<NoteLayout, MessageKey> = {
   loose: 'settings.layoutLoose',
   default: 'settings.layoutDefault',
   compact: 'settings.layoutCompact',
+}
+
+const ACCENT_LABEL: Record<AccentId, MessageKey> = {
+  pine: 'settings.accentPine',
+  indigo: 'settings.accentIndigo',
+  violet: 'settings.accentViolet',
+  amber: 'settings.accentAmber',
+  rose: 'settings.accentRose',
+  teal: 'settings.accentTeal',
 }
 
 /* ---------------- 通用设置 ---------------- */
@@ -475,6 +488,28 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
 
           <div class="pf-row">
             <div class="pf-row-text">
+              <div class="pf-row-title">{{ t('settings.accent') }}</div>
+              <div class="pf-row-desc">{{ t('settings.accentDesc') }}</div>
+            </div>
+            <div class="pf-swatches">
+              <button
+                v-for="a in ACCENT_PRESETS"
+                :key="a.id"
+                type="button"
+                class="pf-swatch"
+                :class="{ on: store.accent === a.id }"
+                :style="{ '--sw': a.light }"
+                v-tooltip="t(ACCENT_LABEL[a.id])"
+                :aria-label="t(ACCENT_LABEL[a.id])"
+                @click="setAccent(a.id)"
+              >
+                <Check v-if="store.accent === a.id" :size="12" :stroke-width="2.6" />
+              </button>
+            </div>
+          </div>
+
+          <div class="pf-row">
+            <div class="pf-row-text">
               <div class="pf-row-title">{{ t('settings.width') }}</div>
               <div class="pf-row-desc">{{ t('settings.widthDesc') }}</div>
             </div>
@@ -616,7 +651,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
       <form class="pf-dialog gn-pop" @submit.prevent="submitPwd">
         <header>
           <span>{{ t('settings.changePassword') }}</span>
-          <button type="button" class="gn-icon-btn" @click="pwdOpen = false"><X :size="14" /></button>
+          <button type="button" class="gn-icon-btn danger" @click="pwdOpen = false"><X :size="14" /></button>
         </header>
         <label>
           {{ t('settings.pwdCurrent') }}
@@ -937,6 +972,33 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   background: var(--gn-bg);
   color: var(--gn-text);
   box-shadow: var(--gn-shadow-sm);
+}
+
+.pf-swatches {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.pf-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--gn-bg);
+  border-radius: 50%;
+  background: var(--sw);
+  color: #fff;
+  box-shadow: 0 0 0 1px var(--gn-border-strong);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+.pf-swatch:hover {
+  transform: scale(1.12);
+}
+.pf-swatch.on {
+  box-shadow: 0 0 0 2px var(--sw);
 }
 .pf-switch {
   position: relative;

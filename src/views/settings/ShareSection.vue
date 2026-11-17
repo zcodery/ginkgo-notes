@@ -77,7 +77,7 @@ onMounted(load)
       </div>
       <button type="button" class="gn-icon-btn" v-tooltip="'复制链接'" @click="copy(s)"><Copy :size="14" /></button>
       <a class="gn-icon-btn" :href="shareUrl(s.token)" target="_blank" rel="noopener" v-tooltip="'打开'"><ExternalLink :size="14" /></a>
-      <button type="button" class="gn-icon-btn" v-tooltip="'取消分享'" @click="revoke(s)"><Trash2 :size="14" /></button>
+      <button type="button" class="gn-icon-btn danger" v-tooltip="'取消分享'" @click="revoke(s)"><Trash2 :size="14" /></button>
     </div>
   </div>
 </template>

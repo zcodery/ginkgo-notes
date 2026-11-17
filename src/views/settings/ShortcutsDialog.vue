@@ -99,7 +99,7 @@ onBeforeUnmount(stop)
           </button>
           <button
             type="button"
-            class="gn-icon-btn"
+            class="gn-icon-btn danger"
             v-tooltip="'清除'"
             :disabled="!shortcuts[a]"
             @click="shortcuts[a] = ''"

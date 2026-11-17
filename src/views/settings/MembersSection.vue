@@ -137,7 +137,7 @@ onMounted(async () => {
             <div class="pf-row-desc">@{{ m.grantee.username }} · {{ formatDateTime(m.createdAt) }}</div>
           </div>
           <GnSelect :model-value="m.role" :options="roleOptions" :min-width="92" @update:model-value="setRole(m, $event)" />
-          <button type="button" class="gn-icon-btn" v-tooltip="'撤销'" :disabled="busy" @click="remove(m)"><X :size="14" /></button>
+          <button type="button" class="gn-icon-btn danger" v-tooltip="'撤销'" :disabled="busy" @click="remove(m)"><X :size="14" /></button>
         </div>
       </div>
     </div>

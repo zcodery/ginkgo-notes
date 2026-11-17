@@ -26,7 +26,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
       <div class="pf-dialog gn-pop" :style="{ width: `min(${props.width}px, calc(100vw - 32px))` }">
         <header>
           <span>{{ title }}</span>
-          <button type="button" class="gn-icon-btn" @click="emit('close')"><X :size="14" /></button>
+          <button type="button" class="gn-icon-btn danger" @click="emit('close')"><X :size="14" /></button>
         </header>
         <slot />
       </div>

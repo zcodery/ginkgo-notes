@@ -237,7 +237,7 @@ onMounted(async () => {
           {{ t.expiresAt ? ` · ${formatDateTime(t.expiresAt)} 过期` : '' }}
         </div>
       </div>
-      <button type="button" class="gn-icon-btn" v-tooltip="'吊销'" @click="removeToken(t)"><Trash2 :size="14" /></button>
+      <button type="button" class="gn-icon-btn danger" v-tooltip="'吊销'" @click="removeToken(t)"><Trash2 :size="14" /></button>
     </div>
   </div>
 
@@ -273,7 +273,7 @@ onMounted(async () => {
       <div class="ig-hook-actions">
         <button type="button" class="pf-switch" :class="{ on: h.enabled }" @click="patchHook(h, { enabled: !h.enabled })"><i></i></button>
         <button type="button" class="gn-icon-btn" v-tooltip="'发送测试事件'" @click="test(h)"><Send :size="14" /></button>
-        <button type="button" class="gn-icon-btn" v-tooltip="'删除'" @click="removeHook(h)"><Trash2 :size="14" /></button>
+        <button type="button" class="gn-icon-btn danger" v-tooltip="'删除'" @click="removeHook(h)"><Trash2 :size="14" /></button>
       </div>
     </div>
   </div>

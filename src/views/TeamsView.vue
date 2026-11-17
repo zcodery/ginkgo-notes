@@ -21,6 +21,7 @@ import GnConfirm from '@/components/GnConfirm.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
 import {
+  checkMemberPhones,
   createSpace,
   errorText,
   getSpaceOrg,
@@ -42,6 +43,12 @@ import {
   type SpaceMemberInfo,
 } from '@/api/features'
 import { goHome, reloadPages, reloadSpaces, store, switchSpace } from '@/store'
+import {
+  MEMBER_TEMPLATE_FORMATS,
+  makeMemberTemplate,
+  readMemberFile,
+  type MemberTemplateFormat,
+} from '@/utils/memberImport'
 
 const spaces = ref<SpaceInfo[]>([])
 const current = ref<SpaceInfo | null>(null)
@@ -59,7 +66,8 @@ const navCreateOpen = ref(false)
 const inviteDraft = ref({ usernames: [] as string[], role: 'viewer', orgNodeId: '' })
 /** 添加成员：邀请已有账号 / 代注册新账号 */
 const inviteMode = ref<'pick' | 'create'>('pick')
-const createDraft = ref({ phone: '', name: '', role: 'viewer', orgNodeId: '' })
+/** 添加成员：邀请已有账号 / 批量代注册新账号（`rows` 一行一个手机号） */
+const createDraft = ref({ rows: '', role: 'viewer', orgNodeId: '' })
 
 /** 一次性提示（移动成员、建号成功等），2.6s 自动消失 */
 const notice = ref('')
@@ -72,7 +80,7 @@ function flash(text: string) {
 
 const importOpen = ref(false)
 const importText = ref('')
-const importFormat = ref<'csv' | 'json'>('csv')
+const importFormat = ref<'csv' | 'xlsx' | 'docx' | 'json'>('csv')
 const importResult = ref<OrgImportResult | null>(null)
 
 const ROLE_RANK: Record<string, number> = { guest: 1, viewer: 2, editor: 3, admin: 4, owner: 5 }
@@ -104,6 +112,13 @@ function canManageMember(m: SpaceMemberInfo): boolean {
 /** 他是不是所在部门的负责人 */
 function isDeptLead(m: SpaceMemberInfo): boolean {
   return !!m.orgNodeId && nodeById.value.get(m.orgNodeId)?.leadUserId === m.id
+}
+/**
+ * 负责人永远排在最前，其余保持后端返回的入队顺序（`sort` 是稳定排序，
+ * 同权重不会被打乱）。组内成员很多时，负责人埋在中段很难找。
+ */
+function orderMembers(list: SpaceMemberInfo[]): SpaceMemberInfo[] {
+  return list.sort((a, b) => Number(isDeptLead(b)) - Number(isDeptLead(a)))
 }
 /** 每个部门直属的人数（不含下级） */
 const nodeMemberCount = computed(() => {
@@ -406,12 +421,200 @@ function assignMember(payload: { userId: string; nodeId: string }) {
   })
 }
 
-/* ---------------- 代注册成员 ---------------- */
+/* ---------------- 代注册成员（支持一次多条 / CSV 导入） ---------------- */
 
-const phoneValid = computed(() => /^1[3-9]\d{9}$/.test(createDraft.value.phone.trim()))
+interface MemberSeed {
+  phone: string
+  name: string
+}
+
+/**
+ * 一行一条：`手机号` 或 `手机号,姓名`。不靠固定分隔符切列——直接在行里找 11 位手机号，
+ * 剩下的文字就当姓名，所以「张三,13800000001」「13800000001 张三」「张三<TAB>13800000001」
+ * 三种写法都认；表头行（没有手机号）自然被丢掉。
+ */
+function parseSeedLine(line: string): MemberSeed | null {
+  const hit = line.match(/1[3-9]\d{9}/)
+  if (!hit) return null
+  const phone = hit[0]
+  const name = line
+    .replace(phone, ' ')
+    .replace(/[,，、;；\t|]+/g, ' ')
+    .replace(/^(手机号|手机|电话|姓名)\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 24)
+  return { phone, name }
+}
+
+/** 解析出来的待建号名单：顺手去重，同一手机号写两遍只算一条 */
+const createSeeds = computed<MemberSeed[]>(() => {
+  const out: MemberSeed[] = []
+  const seen = new Set<string>()
+  for (const line of createDraft.value.rows.split(/\r?\n/)) {
+    const seed = parseSeedLine(line.trim())
+    if (!seed || seen.has(seed.phone)) continue
+    seen.add(seed.phone)
+    out.push(seed)
+  }
+  return out
+})
+
+/** 批量建号时没成功的手机号，就地显示在邀请区下方（页面底部的 err 离这里太远） */
+const createErrors = ref<string[]>([])
+
+const memberFile = ref<HTMLInputElement | null>(null)
+const templateOpen = ref(false)
+const templateUp = ref(false)
+const templateRight = ref(false)
+
+/** 下载菜单位于卡片底部，靠边时改成向上 / 右对齐，别让它被视口裁掉 */
+function toggleTemplate(e: MouseEvent) {
+  if (templateOpen.value) {
+    templateOpen.value = false
+    return
+  }
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  templateUp.value = window.innerHeight - r.bottom < 120
+  templateRight.value = window.innerWidth - r.right < 190
+  templateOpen.value = true
+}
+
+/** 模板只放表头 + 两行示例；角色与部门统一用下面的下拉，文档里不重复写 */
+function downloadTemplate(format: MemberTemplateFormat) {
+  const { blob, filename } = makeMemberTemplate(format)
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+  templateOpen.value = false
+  flash(`已下载 ${filename}，照示例填好后导入即可`)
+}
+
+function pickMemberFile() {
+  templateOpen.value = false
+  memberFile.value?.click()
+}
+
+/* ---------------- 导入预览与手机号判重 ---------------- */
+
+type ImportStatus = 'ok' | 'inTeam' | 'owner' | 'duplicate' | 'invalid'
+interface ImportRow {
+  phone: string
+  name: string
+  status: ImportStatus
+  note: string
+}
+
+const importPreview = ref<{ fileName: string; rows: ImportRow[] } | null>(null)
+const importBusy = ref(false)
+const importOkCount = computed(() => importPreview.value?.rows.filter((r) => r.status === 'ok').length ?? 0)
+
+/** 先本地解析 + 文件内判重；表头行直接丢掉，没有手机号的内容行标为无效 */
+function buildImportRows(text: string): ImportRow[] {
+  const out: ImportRow[] = []
+  const seen = new Set<string>()
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const seed = parseSeedLine(line)
+    if (!seed) {
+      // 「手机号,姓名」这类表头没有号码，不算错误行
+      if (/手机号|手机|电话|姓名|phone|name/i.test(line)) continue
+      out.push({ phone: '', name: line, status: 'invalid', note: '未找到 11 位手机号' })
+      continue
+    }
+    if (seen.has(seed.phone)) {
+      out.push({ ...seed, status: 'duplicate', note: '文件内重复，只保留第一条' })
+      continue
+    }
+    seen.add(seed.phone)
+    out.push({ ...seed, status: 'ok', note: '可导入' })
+  }
+  return out
+}
+
+/**
+ * 导入文档后不直接写入输入框：先展示每一行的解析结果与判重结论，用户确认才载入。
+ * 手机号判重分三层：文件内（上面）、团队内（后端预检）、已有账号（后端预检，
+ * 已有账号不是错误——按约定会直接加入团队）。
+ */
+async function onMemberFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  input.value = ''
+  try {
+    const text = await readMemberFile(file)
+    const rows = buildImportRows(text)
+    if (!rows.length) {
+      flash('这个文件里没找到手机号，检查一下格式')
+      return
+    }
+    importPreview.value = { fileName: file.name, rows }
+    importBusy.value = true
+    try {
+      const phones = rows.filter((r) => r.status === 'ok').map((r) => r.phone)
+      if (current.value && phones.length) {
+        const res = await checkMemberPhones(current.value.id, phones)
+        const byPhone = new Map(res.results.map((x) => [x.phone, x]))
+        for (const row of rows) {
+          if (row.status !== 'ok') continue
+          const hit = byPhone.get(row.phone)
+          if (hit?.isOwner) {
+            row.status = 'owner'
+            row.note = '团队所有者，不能重复加入'
+          } else if (hit?.inTeam) {
+            row.status = 'inTeam'
+            row.note = '已是团队成员'
+          } else if (hit?.hasAccount) {
+            row.note = '账号已存在，将直接加入团队'
+          }
+        }
+      }
+    } catch {
+      // 预检失败也不能卡住导入：退化为用当前成员列表做一次本地判重
+      const inTeam = new Set(memberUsernames.value)
+      for (const row of rows) {
+        if (row.status === 'ok' && inTeam.has(row.phone)) {
+          row.status = 'inTeam'
+          row.note = '已是团队成员'
+        }
+      }
+    } finally {
+      importBusy.value = false
+    }
+  } catch (e) {
+    err.value = `导入失败：${errorText(e)}`
+  }
+}
+
+function closeImportPreview() {
+  importPreview.value = null
+}
+
+/** 只把可导入的行载入输入框，仍由用户点「建号并加入」完成真正的写入 */
+function confirmImport() {
+  const preview = importPreview.value
+  if (!preview) return
+  const rows = preview.rows.filter((r) => r.status === 'ok')
+  if (!rows.length) return
+  createDraft.value = {
+    rows: rows.map((r) => (r.name ? `${r.phone},${r.name}` : r.phone)).join('\n'),
+    role: createDraft.value.role,
+    orgNodeId: createDraft.value.orgNodeId,
+  }
+  createErrors.value = []
+  importPreview.value = null
+  const skipped = preview.rows.length - rows.length
+  flash(`已载入 ${rows.length} 人${skipped ? `，跳过 ${skipped} 条重复/无效` : ''}，确认后点「建号并加入」`)
+}
 
 function setInviteMode(mode: 'pick' | 'create') {
   inviteMode.value = mode
+  createErrors.value = []
   // 正在看某个部门时，默认把新成员建到那个部门下
   if (mode === 'create' && scopeId.value && !createDraft.value.orgNodeId) {
     createDraft.value.orgNodeId = scopeId.value
@@ -427,24 +630,42 @@ function setInviteMode(mode: 'pick' | 'create') {
   }
 }
 
-function createMember() {
-  if (!current.value || !phoneValid.value) return
+/**
+ * 批量建号：共用当前选的角色与部门，逐个串行调接口（并发写 SQLite 容易撞锁）。
+ * 单条失败不影响其他人，失败的手机号收集起来就地在邀请区下面提示。
+ */
+function createMembers() {
+  const seeds = createSeeds.value
+  if (!current.value || !seeds.length) return
   const draft = { ...createDraft.value }
-  const phone = draft.phone.trim()
   return run(async () => {
-    const res = await registerSpaceMember(current.value!.id, {
-      phone,
-      name: draft.name.trim() || undefined,
-      role: draft.role,
-      orgNodeId: draft.orgNodeId || undefined,
-    })
-    createDraft.value = { phone: '', name: '', role: draft.role, orgNodeId: draft.orgNodeId }
+    let created = 0
+    let joined = 0
+    const failed: string[] = []
+    const failedPhones: string[] = []
+    for (const seed of seeds) {
+      try {
+        const res = await registerSpaceMember(current.value!.id, {
+          phone: seed.phone,
+          name: seed.name || undefined,
+          role: draft.role,
+          orgNodeId: draft.orgNodeId || undefined,
+        })
+        if (res.created) created++
+        else joined++
+      } catch (e) {
+        failed.push(`${seed.phone}：${errorText(e)}`)
+        failedPhones.push(seed.name ? `${seed.phone},${seed.name}` : seed.phone)
+      }
+    }
+    // 失败的行留在输入框里，改一下就能重试，不用重新粘一遍
+    createDraft.value = { rows: failedPhones.join('\n'), role: draft.role, orgNodeId: draft.orgNodeId }
+    createErrors.value = failed
     await load(current.value!)
-    flash(
-      res.created
-        ? `已创建 ${phone}，初始密码为手机号`
-        : `${phone} 已有账号，已直接加入团队`,
-    )
+    const ok: string[] = []
+    if (created) ok.push(`新建 ${created} 个账号（初始密码为手机号）`)
+    if (joined) ok.push(`${joined} 个已有账号直接加入`)
+    if (ok.length) flash(ok.join('，'))
   })
 }
 
@@ -519,13 +740,17 @@ function removeFromMenu(member: SpaceMemberInfo) {
 }
 
 function onMenuDocDown(e: MouseEvent) {
+  const target = e.target as HTMLElement | null
+  if (templateOpen.value && !target?.closest('.tm-format')) templateOpen.value = false
   if (!menuMember.value) return
-  if ((e.target as HTMLElement | null)?.closest('.tm-menu')) return
+  if (target?.closest('.tm-menu')) return
   closeMemberMenu()
 }
 
 function onMenuKey(e: KeyboardEvent) {
-  if (e.key === 'Escape') closeMemberMenu()
+  if (e.key !== 'Escape') return
+  templateOpen.value = false
+  closeMemberMenu()
 }
 
 async function enterTeam() {
@@ -562,6 +787,8 @@ const orgCascade = computed<GnCascadeOption[]>(() => {
 })
 const formatOptions = [
   { value: 'csv', label: 'CSV' },
+  { value: 'xlsx', label: 'Excel (.xlsx)' },
+  { value: 'docx', label: 'Word (.docx)' },
   { value: 'json', label: 'JSON' },
 ]
 
@@ -620,13 +847,13 @@ const groups = computed<MemberGroup[]>(() => {
       {
         key: scope.id,
         segs: [],
-        members: members.value.filter((m) => memberNodeId(m.orgNodeId) === scope.id),
+        members: orderMembers(members.value.filter((m) => memberNodeId(m.orgNodeId) === scope.id)),
       },
     ]
   }
   const out: MemberGroup[] = []
   for (const id of subtreeOrder(scope.id)) {
-    const list = members.value.filter((m) => memberNodeId(m.orgNodeId) === id)
+    const list = orderMembers(members.value.filter((m) => memberNodeId(m.orgNodeId) === id))
     if (list.length) out.push({ key: id, segs: pathOf(id), members: list })
   }
   return out
@@ -664,23 +891,73 @@ async function reloadOrg() {
   if (current.value) await select(current.value)
 }
 
-function onImportFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
+/**
+ * 选文件后立刻解析成可编辑文本填进输入框（CSV/TXT/XLSX/DOCX 走统一的 readMemberFile，
+ * JSON 保留原文），用户在上方面板里改完、确认无误再点「开始导入」才真正写库。
+ */
+async function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
   if (!file) return
-  if (file.name.toLowerCase().endsWith('.json')) importFormat.value = 'json'
-  const reader = new FileReader()
-  reader.onload = () => {
-    importText.value = String(reader.result ?? '')
+  input.value = ''
+  try {
+    const name = file.name.toLowerCase()
+    if (name.endsWith('.json')) {
+      importFormat.value = 'json'
+      importText.value = (await file.text()).replace(/^\ufeff/, '')
+    } else {
+      // xlsx / docx / csv / txt 都解析成 CSV 行文本；后缀决定下拉显示的格式
+      importFormat.value = name.endsWith('.xlsx')
+        ? 'xlsx'
+        : name.endsWith('.docx')
+          ? 'docx'
+          : 'csv'
+      importText.value = await readMemberFile(file)
+    }
+    if (!importText.value.trim()) flash('文件里没有可识别的内容，检查一下格式')
+  } catch (ex) {
+    err.value = `文件解析失败：${errorText(ex)}`
   }
-  reader.readAsText(file)
 }
+
+/** 输入区内容变化就实时给出解析概览（纯前端估算，不落库、不调后端） */
+const importPreviewInfo = computed(() => {
+  const text = importText.value.trim()
+  if (!text) return null
+  if (importFormat.value === 'json') {
+    try {
+      const parsed = JSON.parse(text) as Record<string, unknown> | unknown[]
+      const nodes = Array.isArray(parsed) ? parsed : ((parsed as { nodes?: unknown[] }).nodes ?? [])
+      const members = Array.isArray(parsed) ? [] : ((parsed as { members?: unknown[] }).members ?? [])
+      return { labels: `${nodes.length} 个节点 · ${members.length} 位成员`, error: '' }
+    } catch {
+      return { labels: '', error: 'JSON 格式不正确，请检查括号与逗号' }
+    }
+  }
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  const paths = new Set<string>()
+  let members = 0
+  let first = true
+  for (const line of lines) {
+    const cols = line.split(',').map((c) => c.trim().replace(/^"|"$/g, ''))
+    if (first) {
+      first = false
+      if (/部门|路径|path|name|dept|姓名|手机号/i.test(cols.join(' '))) continue
+    }
+    if (!cols[0]) continue
+    paths.add(cols[0])
+    if (cols[1]) members++
+  }
+  return { labels: `${paths.size} 条部门路径 · ${members} 位成员`, error: '' }
+})
 
 function doImport() {
   if (!current.value || !importText.value.trim()) return
   return run(async () => {
     const text = importText.value.trim()
     let payload: Record<string, unknown>
-    if (importFormat.value === 'csv') {
+    // xlsx / docx 已在选文件时解析成 CSV 行，提交时和 csv 走同一条后端路径
+    if (importFormat.value !== 'json') {
       payload = { format: 'csv', text }
     } else {
       const parsed = JSON.parse(text) as unknown
@@ -808,12 +1085,18 @@ onBeforeUnmount(() => {
                   <textarea
                     v-model="importText"
                     rows="6"
-                    placeholder="CSV：节点路径,用户名,角色&#10;研发部/前端组,zhangsan,editor&#10;研发部/后端组,lisi,viewer&#10;&#10;也支持粘贴 JSON：{ &quot;nodes&quot;: [...], &quot;members&quot;: [...] }"
+                    placeholder="CSV：节点路径,用户名,角色&#10;研发部/前端组,zhangsan,editor&#10;研发部/后端组,lisi,viewer&#10;&#10;也支持 Excel / Word / JSON：选择文件后会自动解析到这里，可先修改再导入"
                   ></textarea>
+                  <p v-if="importPreviewInfo" class="tm-import-live" :class="{ bad: importPreviewInfo.error }">
+                    <template v-if="importPreviewInfo.error">{{ importPreviewInfo.error }}</template>
+                    <template v-else>
+                      <Check :size="12" /> 已解析：{{ importPreviewInfo.labels }} —— 可在上方调整，确认后点「开始导入」
+                    </template>
+                  </p>
                   <div class="tm-inline tm-wrap">
                     <label class="tm-btn tm-file">
                       选择文件
-                      <input type="file" accept=".csv,.txt,.json" @change="onImportFile" />
+                      <input type="file" accept=".csv,.txt,.json,.xlsx,.docx" @change="onImportFile" />
                     </label>
                     <GnSelect v-model="importFormat" :options="formatOptions" :min-width="78" />
                     <button type="button" class="tm-btn primary" :disabled="busy || !importText.trim()" @click="doImport">
@@ -1014,29 +1297,54 @@ onBeforeUnmount(() => {
                 </template>
 
                 <template v-else>
-                  <div class="tm-inline">
-                    <input
-                      v-model="createDraft.phone"
-                      class="tm-input"
-                      inputmode="numeric"
-                      maxlength="11"
-                      placeholder="手机号"
-                      @keydown.enter.prevent="createMember"
+                  <div class="tm-batch">
+                    <textarea
+                      v-model="createDraft.rows"
+                      class="tm-input tm-batch-input"
+                      rows="3"
+                      spellcheck="false"
+                      placeholder="一行一个：手机号 或 手机号,姓名"
+                      @input="createErrors = []"
                     />
-                    <input
-                      v-model="createDraft.name"
-                      class="tm-input"
-                      maxlength="24"
-                      placeholder="姓名（可选）"
-                      @keydown.enter.prevent="createMember"
-                    />
+                    <div class="tm-batch-bar">
+                      <span class="tm-batch-count" :class="{ empty: !createSeeds.length }">
+                        {{ createSeeds.length ? `已识别 ${createSeeds.length} 人` : '一行一个手机号' }}
+                      </span>
+                      <div class="tm-format">
+                        <button type="button" class="tm-link" @click="toggleTemplate">
+                          下载模板 <span class="tm-caret">▾</span>
+                        </button>
+                        <div
+                          v-if="templateOpen"
+                          class="tm-format-menu"
+                          :class="{ up: templateUp, right: templateRight }"
+                        >
+                          <button
+                            v-for="f in MEMBER_TEMPLATE_FORMATS"
+                            :key="f.id"
+                            type="button"
+                            @click="downloadTemplate(f.id)"
+                          >
+                            {{ f.label }}
+                          </button>
+                        </div>
+                      </div>
+                      <button type="button" class="tm-link" @click="pickMemberFile">导入文档</button>
+                      <input
+                        ref="memberFile"
+                        type="file"
+                        accept=".csv,.txt,.xlsx,.docx"
+                        class="tm-file"
+                        @change="onMemberFile"
+                      />
+                    </div>
                   </div>
                   <div class="tm-inline tm-wrap">
                     <GnSelect
                       v-model="createDraft.role"
                       :options="assignableRoles"
                       :min-width="78"
-                      v-tooltip="'新成员的角色'"
+                      v-tooltip="'这批新成员的角色'"
                     />
                     <GnCascader
                       v-model="createDraft.orgNodeId"
@@ -1047,12 +1355,17 @@ onBeforeUnmount(() => {
                     <button
                       type="button"
                       class="tm-btn primary"
-                      :disabled="busy || !phoneValid"
-                      @click="createMember"
+                      :disabled="busy || !createSeeds.length"
+                      @click="createMembers"
                     >
-                      <UserPlus :size="13" />建号并加入
+                      <UserPlus :size="13" />建号并加入{{
+                        createSeeds.length > 1 ? `（${createSeeds.length}）` : ''
+                      }}
                     </button>
                   </div>
+                  <p v-if="createErrors.length" class="tm-create-err">
+                    {{ createErrors.slice(0, 3).join('；') }}{{ createErrors.length > 3 ? ` 等 ${createErrors.length} 条` : '' }}
+                  </p>
                 </template>
               </div>
             </section>
@@ -1142,6 +1455,42 @@ onBeforeUnmount(() => {
       @cancel="closeConfirmAsk"
       @confirm="submitConfirm"
     />
+
+    <!-- 文档导入预览：先把解析与判重结果摆出来，确认后才写进输入框 -->
+    <GnConfirm
+      :open="!!importPreview"
+      title="确认导入名单"
+      :message="`已从「${importPreview?.fileName ?? ''}」识别 ${importPreview?.rows.length ?? 0} 行`"
+      :detail="'只载入标记「可导入」的行；已有账号会直接加入团队，已有的团队成员会被跳过。'"
+      confirm-text="确认载入"
+      cancel-text="取消"
+      wide
+      :confirm-disabled="!importOkCount"
+      @cancel="closeImportPreview"
+      @confirm="confirmImport"
+    >
+      <template v-if="importBusy" #body>
+        <p class="tm-import-check">正在检查手机号是否已存在…</p>
+      </template>
+      <template v-else-if="importPreview" #body>
+        <div class="tm-import-table">
+          <div class="tm-import-head">
+            <span>手机号</span><span>姓名</span><span>结果</span>
+          </div>
+          <div v-for="(row, i) in importPreview.rows" :key="`${row.phone}-${i}`" class="tm-import-row" :class="row.status">
+            <span>{{ row.phone || '—' }}</span>
+            <span>{{ row.name || '—' }}</span>
+            <span :title="row.note">
+              {{ row.status === 'ok' ? (row.note === '可导入' ? '可导入' : row.note) : row.note }}
+            </span>
+          </div>
+        </div>
+        <p class="tm-import-sum">
+          可导入 {{ importOkCount }} 人<template v-if="importPreview.rows.length > importOkCount">
+            。其余 {{ importPreview.rows.length - importOkCount }} 条已跳过</template>
+        </p>
+      </template>
+    </GnConfirm>
   </section>
 </template>
 
@@ -1805,6 +2154,158 @@ onBeforeUnmount(() => {
 .tm-input::placeholder {
   color: var(--gn-text-muted);
 }
+/* 批量建号：多行输入 + 模板下载 / CSV 导入 */
+.tm-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tm-batch-input {
+  flex: none;
+  height: auto;
+  min-height: 62px;
+  max-height: 128px;
+  padding: 7px 9px;
+  line-height: 1.55;
+  font-size: 12px;
+  resize: vertical;
+}
+.tm-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.tm-batch-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--gn-accent);
+}
+.tm-batch-count.empty {
+  color: var(--gn-text-muted);
+}
+.tm-batch-bar .tm-link {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--gn-text-soft);
+}
+/* 窄卡（成员卡只有 330px）里「可查看 + 部门 + 按钮」一行放不下：
+   按钮给个下限宽度，剩余空间不够就整行换到下一行，不会把文字挤掉 */
+.tm-invite .tm-btn {
+  flex: 1 1 132px;
+  white-space: nowrap;
+}
+.tm-batch-bar .tm-link:hover {
+  color: var(--gn-accent);
+}
+.tm-caret {
+  font-size: 9px;
+}
+/* 包装 div 必须自己也是 flex，否则会比旁边的 .tm-link 多出一行盒模型的基线偏移 */
+.tm-format {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+.tm-format-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: -6px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  min-width: 184px;
+  padding: 4px;
+  border: 1px solid var(--gn-border);
+  border-radius: 8px;
+  background: var(--gn-bg);
+  box-shadow: var(--gn-shadow-md);
+}
+.tm-format-menu.up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.tm-format-menu.right {
+  left: auto;
+  right: 0;
+}
+.tm-format-menu button {
+  height: 28px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text);
+  font-size: 11.5px;
+  font-family: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tm-format-menu button:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-accent);
+}
+.tm-import-table {
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--gn-border);
+  border-radius: 8px;
+}
+.tm-import-head,
+.tm-import-row {
+  display: grid;
+  grid-template-columns: 116px 1fr 1fr;
+  gap: 6px;
+  padding: 6px 9px;
+  font-size: 11.5px;
+}
+.tm-import-head {
+  position: sticky;
+  top: 0;
+  background: var(--gn-bg-soft);
+  color: var(--gn-text-muted);
+}
+.tm-import-row {
+  border-top: 1px solid var(--gn-border);
+  color: var(--gn-text);
+}
+.tm-import-row span:last-child {
+  color: var(--gn-text-soft);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tm-import-row.ok span:last-child {
+  color: var(--gn-accent);
+}
+.tm-import-row.inTeam span:last-child,
+.tm-import-row.owner span:last-child,
+.tm-import-row.duplicate span:last-child,
+.tm-import-row.invalid span:last-child {
+  color: var(--gn-danger);
+}
+.tm-import-sum,
+.tm-import-check {
+  margin: 9px 0 0;
+  font-size: 11.5px;
+  color: var(--gn-text-muted);
+}
+.tm-file {
+  display: none;
+}
+.tm-create-err {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--gn-danger);
+}
 /* 一次性提示：底部居中的小胶囊 */
 .tm-notice {
   position: fixed;
@@ -2000,6 +2501,22 @@ onBeforeUnmount(() => {
 }
 .tm-import-panel textarea:focus {
   border-color: var(--gn-accent);
+}
+.tm-import-live {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--gn-text-soft);
+}
+.tm-import-live :deep(svg) {
+  color: var(--gn-accent);
+  flex: 0 0 auto;
+}
+.tm-import-live.bad {
+  color: var(--gn-danger);
 }
 .tm-file {
   position: relative;
