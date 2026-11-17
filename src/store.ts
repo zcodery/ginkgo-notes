@@ -34,6 +34,13 @@ export type ViewKind =
   | 'admin'
 /** 笔记正文宽度：auto 铺满可用区域；fixed 按比例限制 max-width */
 /** 主题主色（与浅色 / 深色无关，只换强调色） */
+/**
+ * 暗色主题下主色底上的文字色。
+ * 6 套主色的暗色版本都是浅色调（#6cb894 / #8aa9f0 / #b493e8 / #e3a866 / #e792a5 / #6fc3d0），
+ * 白字压上去对比度只有 2.0~2.5:1，远低于 WCAG AA 的 4.5:1；换成深墨后升到 6.8~9.0:1。
+ */
+const DARK_ACCENT_INK = '#12161f'
+
 export type AccentId = 'pine' | 'indigo' | 'violet' | 'amber' | 'rose' | 'teal'
 export interface AccentPreset {
   id: AccentId
@@ -49,7 +56,8 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   { id: 'pine', label: '松绿', light: '#2f6b4f', lightSoft: '#eaf3ed', dark: '#6cb894', darkSoft: '#22362c' },
   { id: 'indigo', label: '靛蓝', light: '#3b5fbf', lightSoft: '#e9eefb', dark: '#8aa9f0', darkSoft: '#202b42' },
   { id: 'violet', label: '紫罗兰', light: '#7550b5', lightSoft: '#f0eafb', dark: '#b493e8', darkSoft: '#2b233c' },
-  { id: 'amber', label: '暖橙', light: '#b56a25', lightSoft: '#fbf0e3', dark: '#e3a866', darkSoft: '#39291c' },
+  // 暖橙原为 #b56a25，白字压上去只有 4.16:1（AA 要 4.5:1），调深到 #a8621f 后为 4.74:1
+  { id: 'amber', label: '暖橙', light: '#a8621f', lightSoft: '#fbf0e3', dark: '#e3a866', darkSoft: '#39291c' },
   { id: 'rose', label: '玫瑰', light: '#b8465f', lightSoft: '#fbeaee', dark: '#e792a5', darkSoft: '#3b242b' },
   { id: 'teal', label: '青蓝', light: '#237f8c', lightSoft: '#e3f4f6', dark: '#6fc3d0', darkSoft: '#1d3338' },
 ]
@@ -394,6 +402,10 @@ function applyAccent() {
   const root = document.documentElement.style
   root.setProperty('--gn-accent', dark ? preset.dark : preset.light)
   root.setProperty('--gn-accent-soft', dark ? preset.darkSoft : preset.lightSoft)
+  // 主色底上的文字色：浅色主题主色够深 → 白字；暗色主题主色被调亮 → 必须换深墨，
+  // 否则白字压浅底对比度只有 2.0~2.5:1（WCAG AA 要求 4.5:1），按钮糊成一片。
+  root.setProperty('--gn-accent-ink', dark ? DARK_ACCENT_INK : '#ffffff')
+  root.setProperty('--gn-danger-ink', dark ? DARK_ACCENT_INK : '#ffffff')
 }
 
 export function setAccent(id: AccentId) {

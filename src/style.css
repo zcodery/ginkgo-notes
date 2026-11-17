@@ -40,7 +40,11 @@
   --gn-border-strong: #dededa;
   --gn-accent: #2f6b4f;
   --gn-accent-soft: #eaf3ed;
+  /* 主色底上的文字色：浅色主题的主色够深，用白字；暗色主题主色会被调亮（见 html.dark），
+     白字压浅底对比度只有 2.0~2.5:1，糊成一片，所以暗色改用深墨。运行时由 store.applyAccent() 覆写。 */
+  --gn-accent-ink: #ffffff;
   --gn-danger: #d64545;
+  --gn-danger-ink: #ffffff;
   --gn-shadow-sm: 0 1px 2px rgba(15, 15, 15, 0.06), 0 2px 6px rgba(15, 15, 15, 0.04);
   --gn-shadow-md: 0 4px 14px rgba(15, 15, 15, 0.08), 0 2px 4px rgba(15, 15, 15, 0.04);
   --gn-shadow-lg: 0 12px 40px rgba(15, 15, 15, 0.14), 0 4px 10px rgba(15, 15, 15, 0.06);
@@ -92,7 +96,10 @@ html.dark {
   --gn-border-strong: #3a3a37;
   --gn-accent: #6cb894;
   --gn-accent-soft: #22362c;
+  /* 暗色下主色是浅色调，文字必须反过来用深墨才看得清 */
+  --gn-accent-ink: #12161f;
   --gn-danger: #e46a6a;
+  --gn-danger-ink: #12161f;
   --gn-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --gn-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.5);
   --gn-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
