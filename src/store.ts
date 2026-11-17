@@ -68,6 +68,11 @@ export type NoteFontStyle =
   | 'rounded'
   | 'mono'
 
+/** 侧边栏宽度：默认值 / 拖拽范围（本机偏好，跨账号保留） */
+export const SIDEBAR_DEFAULT_WIDTH = 248
+export const SIDEBAR_MIN_WIDTH = 200
+export const SIDEBAR_MAX_WIDTH = 460
+
 export const NOTE_WIDTH_RATIOS: NoteWidthRatio[] = [50, 60, 70, 80, 90]
 export const NOTE_FONT_SIZES: NoteFontSize[] = [14, 15, 16, 17, 18, 20]
 export const NOTE_FONT_STYLES: {
@@ -132,6 +137,8 @@ interface State {
   /** 主题主色，独立于明暗主题 */
   accent: AccentId
   sidebarOpen: boolean
+  /** 侧边栏宽度（px），可拖拽调整，按设备持久化 */
+  sidebarWidth: number
   searchOpen: boolean
   /** 设置弹窗是否打开 */
   settingsOpen: boolean
@@ -171,6 +178,7 @@ export const store = reactive<State>({
   theme: 'light',
   accent: 'pine',
   sidebarOpen: true,
+  sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
   searchOpen: false,
   settingsOpen: false,
   settingsSection: null,
@@ -633,6 +641,48 @@ export function setGutterTuning(on: boolean) {
   }
   store.gutterTuning = on
   void setMeta('gutterTuning', on)
+}
+
+/* ---------------- 侧边栏宽度（可拖拽调整，按设备保存） ---------------- */
+
+/** 把宽度夹到合法区间，避免拖出视口或窄到不可用 */
+function clampSidebarWidth(w: number): number {
+  if (!Number.isFinite(w)) return SIDEBAR_DEFAULT_WIDTH
+  return Math.round(Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, w)))
+}
+
+/** 启动时读取本机保存的侧边栏宽度 */
+export async function reloadSidebarWidthPref() {
+  try {
+    const w = await getMeta<number>('sidebarWidth', SIDEBAR_DEFAULT_WIDTH)
+    store.sidebarWidth = clampSidebarWidth(w)
+  } catch {
+    store.sidebarWidth = SIDEBAR_DEFAULT_WIDTH
+  }
+  applySidebarWidth()
+}
+
+/** 把当前宽度写到 CSS 变量，侧栏样式统一读这个变量 */
+export function applySidebarWidth() {
+  document.documentElement.style.setProperty('--gn-sidebar-w', `${store.sidebarWidth}px`)
+}
+
+/** 拖拽过程中实时更新（不落盘，松手时再持久化） */
+export function setSidebarWidth(w: number) {
+  store.sidebarWidth = clampSidebarWidth(w)
+  applySidebarWidth()
+}
+
+/** 松手后持久化到本机偏好 */
+export function saveSidebarWidth() {
+  void setMeta('sidebarWidth', store.sidebarWidth)
+}
+
+/** 恢复默认宽度 */
+export function resetSidebarWidth() {
+  store.sidebarWidth = SIDEBAR_DEFAULT_WIDTH
+  applySidebarWidth()
+  void setMeta('sidebarWidth', SIDEBAR_DEFAULT_WIDTH)
 }
 
 /* ---------------- History 路由（/、/trash、/:pageId） ---------------- */
