@@ -740,14 +740,14 @@ onMounted(async () => {
 .ad-btn.primary {
   border-color: transparent;
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
 }
 /* 注意：.ad-btn:hover:not(:disabled) 的特异性高于 .ad-btn.primary，
-   hover 时会把主色按钮的底色换成 --gn-bg-hover 而文字仍是白色（白字白底看不见），
+   hover 时会把主色按钮的底色换成 --gn-bg-hover 而文字仍是主色 ink（可能撞底看不见），
    所以这里必须显式重设 background。 */
 .ad-btn.primary:hover:not(:disabled) {
   background: var(--gn-accent);
-  color: #fff;
+  color: var(--gn-accent-ink);
   filter: brightness(1.06);
 }
 .ad-spin {
