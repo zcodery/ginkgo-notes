@@ -891,6 +891,36 @@ spacesRouter.post('/spaces/:id/members', (req, res) => {
 })
 
 /**
+ * 批量导入前的手机号预检：告诉前端哪些号已经是账号 / 已在团队 / 是团队所有者。
+ * 只读接口，凡是能进这个空间的人都能查；真正的建号仍走 register 的权限校验。
+ */
+spacesRouter.post('/spaces/:id/members/phone-check', (req, res) => {
+  const { user } = authOf(res)
+  const space = requireSpace(param(req, 'id'))
+  if (!effectiveSpaceRole(user.id, space.id)) throw new HttpError(404, '空间不存在或无权访问')
+  const phones = Array.isArray(req.body?.phones)
+    ? (req.body.phones as unknown[])
+        .slice(0, 500)
+        .map((p) => str(p, '手机号', 20).replace(/[\s-]/g, ''))
+    : []
+  const results = phones.map((phone) => {
+    const target = findUserByName(phone)
+    const member = target
+      ? (db
+          .prepare("SELECT 1 FROM space_members WHERE space_id = ? AND user_id = ? AND status = 'active'")
+          .get(space.id, target.id) as { 1: number } | undefined)
+      : undefined
+    return {
+      phone,
+      hasAccount: !!target,
+      inTeam: !!member,
+      isOwner: target?.id === space.owner_user_id,
+    }
+  })
+  res.json({ results })
+})
+
+/**
  * 代注册成员：人事或部门负责人直接建号并挂到组织节点。
  *
  * 约定账号 = 手机号、初始密码 = 手机号；手机号已存在时不重复建号，
