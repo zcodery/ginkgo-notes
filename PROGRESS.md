@@ -109,7 +109,7 @@ ginkgoNotes/
 │   │   ├── PageLinkBlock.vue    # 子页面卡片
 │   │   └── ColumnsView.vue      # 多栏分栏 NodeView（栏数 stepper + 宽度比例预设 + 增删栏）
 │   ├── components/      # 编辑器外部通用 UI
-│   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间/好友/团队入口）
+│   │   ├── Sidebar.vue         # 侧栏（搜索、新建、收藏、回收站、主题、空间/好友/团队入口、右缘拖拽调宽）
 │   │   ├── PageTree.vue / Item.vue # 页面树（拖拽、重命名、右键菜单）
 │   │   ├── SearchModal.vue     # 全局搜索（打分排序、关键词高亮）
 │   │   ├── PageToc.vue         # 右侧目录（IntersectionObserver 跟踪）
@@ -287,6 +287,10 @@ ginkgoNotes/
 | 114 | 「下载模板 / 导入文档」按钮垂直居中 | ✅ | `.tm-format` 原来是块级 div 包裹，自身带一条匿名行盒，把里面的按钮整体往下顶，与右侧兄弟按钮错位；改成 `display:inline-flex; align-items:center` 去掉多余行盒（陷阱 80） |
 | 115 | 管理员后台：人员信息统计 | ✅ | 新增 `/admin` 管理后台页面 + `server/admin.ts`。概览区 6 张指标卡（总人数 / 近 7 天活跃 / 笔记总量 / 正文字数 / 协作规模 / 附件占用）+ 近 30 天注册与活跃双折线趋势图；人员明细表支持搜索（账号 / 昵称 / 手机号 / 邮箱，250ms 防抖）、角色筛选、7 个维度排序、分页，点行弹出详情抽屉（13 项字段 + 所在团队 / 好友名册 / 登录设备）。统计口径见陷阱 82–85 |
 | 116 | 管理员统计表导出 | ✅ | 抽出通用 `src/utils/xlsx.ts`（`buildXlsx` / `buildCsv` / `downloadBlob`），管理员页可把当前页人员数据导成 22 列的 `.xlsx` 或带 BOM 的 `.csv`，真实 Excel 打开验证通过 |
+| 117 | 管理员人员明细表左侧列排版修复 | ✅ | 根因是 `<td>` 上直接写 `display:flex` 导致单元格脱离表格布局、`padding` 失效（头像贴死边缘）且列宽失真（人员列撑到 607px 挤走后 9 列）；改为 `<td>` 保持 `table-cell`、内层容器承担 flex，并放宽行距与头像尺寸（陷阱 86） |
+| 118 | 主色按钮 hover 变白字白底修复 | ✅ | `.ad-btn:hover:not(:disabled)` 特异性 (0,3,0) 压过 `.ad-btn.primary` (0,2,0)，hover 时底色变浅灰而文字仍是白色 → 文字彻底消失；主色 hover 规则显式重设 `background`（陷阱 87） |
+| 119 | 人员明细表展示真实上传头像 | ✅ | 后端 `avatar` 字段本就返回 base64 data URL，前端改为 `<img v-if>` + 无头像回退首字色块；列表、详情抽屉、好友名册三处统一，头像容器补 `overflow:hidden` + `object-fit:cover` |
+| 120 | 侧边栏宽度可拖拽自定义 | ✅ | 侧栏右边缘加拖拽条，左右拖动实时改宽度（CSS 变量 `--gn-sidebar-w` 驱动），双击恢复默认 248px；范围钳制 200–460px，按设备持久化到 `ginkgo-meta:sidebarWidth`；窄屏浮层模式下不显示拖拽条 |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -541,11 +545,14 @@ ginkgoNotes/
 | 96 | `be9e3d2` | feat(ui) | 侧栏管理员菜单接入管理后台入口 |
 | 97 | `ca88d76` | fix(ui) | 管理员后台人员明细表左侧列排版：td 恢复表格语义 + 内层容器承载 flex，昵称/联系方式行距与头像尺寸放宽 |
 | 98 | `c70c231` | fix(ui) | 主色按钮 hover 变白字白底修复（`:not(:disabled)` 提升特异性）+ 人员明细表展示真实上传头像 |
+| 99 | `77d227c` | feat(core) | 侧边栏宽度状态与本机偏好读写（CSS 变量 `--gn-sidebar-w` 驱动，200–460px 钳制） |
+| 100 | `350dad6` | feat(i18n) | 侧边栏拖拽条文案三语词条 |
+| 101 | `080a32b` | feat(ui) | 侧边栏支持左右拖动自定义宽度，双击复位，指示线跟随鼠标 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `c70c231` — fix(ui): 修复主色按钮 hover 变白字白底、人员头像不显示
-> 最新**功能**提交：`c70c231` — fix(ui): 修复主色按钮 hover 变白字白底、人员头像不显示（本地已提交，待推送）
+**HEAD**: `080a32b` — feat(ui): 侧边栏支持左右拖动自定义宽度
+> 最新**功能**提交：`080a32b` — feat(ui): 侧边栏支持左右拖动自定义宽度（本地已提交，待推送）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -768,6 +775,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 85. **E2E 里多个身份要各开独立 context**：同一个 `browser.newContext()` 里换 `localStorage` 里的 token 会串味——后开的页面覆盖了前一个页面的登录态，测「普通用户被拦」时测到的其实是管理员。正确做法是每个身份 `newContext()` 单独开页，测完 `close()`。另外给带入场动画的元素截图前要先 `waitForTimeout`，否则拍到半透明的中间帧（详情抽屉 0.2s 的 `ad-slide-in`），会误判成「背景透出」。
 86. **`<td>` 上写 `display:flex` 会让单元格脱离表格布局**：`display` 改成 `flex` 后 `<td>` 不再是 `table-cell`，表格布局算法对它的处理方式全变了——最直接的后果是同一类里的 `padding` 失效、内容贴死单元格边缘，而且列宽分配会失真（实测人员列被撑到 607px，把后面所有列都挤走）。正确做法是**`<td>` 保持 `table-cell`，把 flex 放进内层容器**：`<td class="ad-td"><div class="xx-cell">…</div></td>`。同理不要在 `<td>`/`<th>` 上写 `width: 100%`，那会让该列吞掉表格剩余全部宽度。排查这类「看起来拥挤」的问题不要只调 `padding`/`gap`，先用 `getBoundingClientRect()` 量一下内层元素与单元格左边缘的实际距离——零距离就说明 `padding` 被 `display` 顶掉了。
 87. **`:not(:disabled)` 会偷偷提升选择器特异性，把主色按钮的 hover 变成白字白底**：`.ad-btn:hover:not(:disabled)` 的特异性是 (0,3,0)，比 `.ad-btn.primary` 的 (0,2,0) **更高**，所以主色按钮一 hover，底色就被换成 `--gn-bg-hover`（浅灰），而 `.ad-btn.primary:hover:not(:disabled)` 里只改了 `color: #fff` 没改背景 → **白字白底，按钮上的字彻底消失**。修法是在主色的 hover 规则里**显式重设 `background`**（`filter: brightness()` 只能改亮度不能补回被覆盖的背景）。注意这不一定每个页面都有：本项目里 `ProfileView` 的 `.pf-btn.primary:hover:not(:disabled)` 因为显式写了 `background` 所以没事，`TeamsView`/`FriendsView` 的 `.tm-btn:hover`（无 `:not()`，特异性仅 0,2,0）也没事——只有同时满足「基础 hover 带 `:not(:disabled)`」+「主色 hover 没重设 background」这两个条件才会踩坑。遇到「按钮 hover 后文字消失」先量 `getComputedStyle` 的 `backgroundColor` 与 `color`，两者相同就是这个问题。
+88. **拖拽调宽的三件事：mousedown 后监听要挂到 document、宽度要钳制、要区分「拖拽中」和「已松手」**：① `mousedown` 只在把手元素上触发，后续 `mousemove` / `mouseup` 必须 `document.addEventListener`，挂在把手上会在鼠标移出把手时丢失；② 宽度必须 clamp（侧栏 200–460px），否则能拖出视口或窄到内容全挤爆；③ 拖拽过程中要给 `body` 加一个类（如 `sb-resizing`）统一控制 `cursor: col-resize` 与 `user-select: none`，否则拖过文字会误选中一片，且光标会变回箭头。宽度持久化用项目现成的本机偏好通道 `getMeta` / `setMeta`（`ginkgo-meta:` 前缀，**按设备保存、跨账号保留**，适合宽度/主题这类设备相关偏好，而不是放服务端 profile meta）。另外父容器 `position: relative` 是绝对定位把手的前提；指示线要跟随鼠标高度就用 CSS 变量传 Y 坐标，别写死 `top: 50%`（写死会固定在垂直中央，与鼠标脱节）。
 
 
 ---
