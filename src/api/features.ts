@@ -424,7 +424,11 @@ export interface SpaceMemberInfo {
   username: string
   name: string
   avatar: string | null
-  role: string
+  /**
+   * 权限角色；不在你的管辖范围内时为 null。
+   * 后端按管辖范围裁剪，范围外的成员拿不到「可编辑 / 可查看」这类信息。
+   */
+  role: string | null
   orgNodeId: string
   status: string
   joinedAt: number
