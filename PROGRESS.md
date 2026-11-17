@@ -5,7 +5,7 @@
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 >
 > **当前状态**：核心功能已闭环，好友分组、成员批量导入、组织架构导入三块主要逻辑开发完毕并通过端到端验证。
-> 第五节末尾记录了**尚未提交的工作区改动清单**，接手后请先审阅。
+> 这批改动已于 2026-11-17 按模块分层提交并推送到 `origin/main`（10 个提交，第五节有构成表），第五节记录了**提交顺序的依赖约束**。
 
 ---
 
@@ -512,24 +512,41 @@ ginkgoNotes/
 | 79 | `fa856f2` | feat(ui) | 未选部门收起成员卡（列宽过渡）、组织树人数对齐、人员选择器改组织层级联 |
 | 80 | `4b222c2` | feat(ui) | 组织树操作按钮前置、再点取消选中、好友申请空态隐藏、成员右键菜单（添加好友） |
 | 81 | `22a8bc0` | feat(ui) | 好友页右侧栏按需占位、任命/移出收敛到右键+弹窗确认、换负责人通知部门成员 |
+| 82 | `3518d04` | feat(server) | SQLite 迁移：`friend_groups.is_default`、`friendships.requester_group_id` |
+| 83 | `d07e22f` | feat(server) | 好友分组全流程（CRUD / 非空禁删 / 一键迁移含迁回未分组 / 默认组可取消 / 申请与同意时选组落组）+ 成员手机号批量预检 + 换负责人通知子树 |
+| 84 | `979a4cb` | feat(utils) | `memberImport.ts`：CSV/XLSX/DOCX 模板生成与解析（zip + XML，复用 fflate） |
+| 85 | `1c72a77` | feat(data) | 前端 API 层：好友分组接口、成员手机号预检、批量建号、发申请带分组 |
+| 86 | `b5073c2` | feat(i18n) | 主题主色相关词条（6 组预设 + 说明） |
+| 87 | `b80b589` | feat(core) | 主题主色：`ACCENT_PRESETS` / `applyAccent()` 明暗双套变量与持久化；danger hover 与细滚动条样式 |
+| 88 | `0fa501e` | feat(ui) | 通用组件：`GnSelect.zIndex`、`GnConfirm` wide/confirmDisabled/body 插槽、组织树新增行失焦取消、`PeoplePicker` 面板排除外部点击 |
+| 89 | `9d7b072` | feat(ui) | 路由页面：好友分组（增删改迁/默认星标/未分组按需显隐/本地搜索过滤）、团队批量建号与导入预览确认、负责人置顶排序、组织导入 Excel/Word |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `d995460` — docs: 更新版本日期并完善组织树和成员管理功能描述（PROGRESS 第 74-79 项）
-> 最新**功能**提交：`22a8bc0` — feat(ui): 好友页按需让位、任命/移出收敛到右键+弹窗确认，换负责人通知部门成员（`origin/main` 已同步）
+**HEAD**: `605cfdd` — docs: 更新版本日期并完善组织树和成员管理功能描述（PROGRESS 第 74-79 项）
+> 最新**功能**提交：`9d7b072` — feat(ui): 路由页面（好友分组全流程 + 批量建号导入 + 组织导入 Excel/Word）（`origin/main` 已同步）
 
-### ⚠️ 未提交的工作区改动（截至 2026-11-17）
+### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
-以下改动已在本地完成并通过端到端验证，**尚未 commit / push**。接手者请先审阅再决定提交粒度：
+本轮把好友分组、成员批量导入、组织架构导入、主题主色、账号导出脚本一次性提交并推送，按项目「每个提交自身可编译」规范分层落地：
 
-| 模块 | 涉及文件 | 内容 | PROGRESS 对应 |
+| # | Hash | 类型 | 内容 |
 |---|---|---|---|
-| 好友分组 | `server/friends.ts`、`server/db.ts`、`src/api/features.ts`、`src/views/FriendsView.vue`、`src/components/PeoplePicker.vue` | 分组 CRUD、非空禁删、一键迁移（含迁回未分组）、默认组可取消、申请/同意时选组落组、未分组按需显隐 | 第 99–112 项 |
-| 成员批量导入 | `src/utils/memberImport.ts`（新增）、`src/views/TeamsView.vue` | CSV/XLSX/DOCX 模板生成与解析、手机号判重、导入预览确认、批量建号、负责人置顶排序 | 第 96–100 项 |
-| 组织架构导入 | `src/views/TeamsView.vue` | Excel/Word 解析回填 + 实时概览，格式下拉补齐 | 第 109 / 113 项 |
-| 共用组件 | `src/components/GnSelect.vue`、`src/components/GnConfirm.vue`、`src/components/OrgTree.vue`、`src/style.css` | `zIndex` / `wide` / `confirmDisabled` 扩展、danger hover、细滚动条、新增行失焦取消 | 第 91–105 项 |
-| 主题主色 | `src/store.ts`、`src/views/ProfileView.vue`、`src/i18n/locales/*` | 6 组主色预设 + 明暗双套变量 + 持久化 | 第 94 项 |
-| 维护脚本 | `scripts/export-accounts.mjs`（新增）、`scripts/probe-passwords.mjs`（新增） | 账号导出 Excel（含明文密码）、密码候选探测 | 陷阱 81 |
+| 1 | `1555731` | chore(tools) | 维护与测试脚本（账号导出 / 密码探测）+ 分组规则修正 |
+| 2 | `3518d04` | feat(server) | SQLite 迁移：`friend_groups.is_default`、`friendships.requester_group_id` |
+| 3 | `d07e22f` | feat(server) | 好友分组后端全流程 + 成员手机号预检 + 换负责人通知子树 |
+| 4 | `979a4cb` | feat(utils) | `memberImport.ts`：CSV/XLSX/DOCX 模板生成与解析 |
+| 5 | `1c72a77` | feat(data) | 前端 API 层：分组接口、手机号预检、批量建号、发申请带分组 |
+| 6 | `b5073c2` | feat(i18n) | 主题主色词条（6 组预设） |
+| 7 | `b80b589` | feat(core) | 主题主色实现 + danger hover + 细滚动条 |
+| 8 | `0fa501e` | feat(ui) | 通用组件：`GnSelect.zIndex`、`GnConfirm` 扩展、组织树、`PeoplePicker` |
+| 9 | `9d7b072` | feat(ui) | 路由页面：好友分组 UI、批量建号与导入预览、组织导入多格式 |
+| 10 | `605cfdd` | docs | PROGRESS.md 完善（功能 110–114、陷阱 77–81、未提交清单） |
+
+**提交顺序的关键约束**：`utils` / `api-db` / `i18n` / `app-shell` 必须排在 `components` 与 `views` 之前——它们各自导出被下游 `import` 的符号（`memberImport` 的解析函数、`features.ts` 的分组接口、`MessageKey` 联合类型、`ACCENT_PRESETS`），顺序反了中间提交就编不过。`scripts/commit-all.cjs` 的 `MODULES` 表已按此重排。
+
+> 验证方式：`git worktree` 逐个检出每个提交跑 `vue-tsc --noEmit` + `tsc -p server --noEmit`，**10/10 全部可独立编译**。
+> 注：worktree 里的 `node_modules` 是 junction 软链，Node 会把相对路径解析成主仓库的真实路径，验证脚本必须用**绝对路径**调用编译器二进制；且 `git worktree remove` 只删注册信息不删物理目录，清理时必须额外 `rm -rf`。
 
 ---
 
