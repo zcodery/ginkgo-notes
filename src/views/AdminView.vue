@@ -465,7 +465,10 @@ onMounted(async () => {
                 <tr v-for="p in people" :key="p.id" class="ad-row" @click="openDetail(p.id)">
                   <td class="ad-td ad-td-user">
                     <div class="ad-user-cell">
-                      <span class="ad-avatar">{{ avatarText(displayName(p)) }}</span>
+                      <span class="ad-avatar">
+                        <img v-if="p.avatar" :src="p.avatar" alt="" />
+                        <template v-else>{{ avatarText(displayName(p)) }}</template>
+                      </span>
                       <span class="ad-user-text">
                         <span class="ad-user-name">
                           {{ displayName(p) }}
@@ -545,7 +548,10 @@ onMounted(async () => {
           <div v-if="detailLoading" class="ad-empty">加载中…</div>
           <template v-else-if="detail">
             <div class="ad-dp-head">
-              <span class="ad-avatar big">{{ avatarText(detail.person.nickname || detail.person.username) }}</span>
+              <span class="ad-avatar big">
+                <img v-if="detail.person.avatar" :src="detail.person.avatar" alt="" />
+                <template v-else>{{ avatarText(detail.person.nickname || detail.person.username) }}</template>
+              </span>
               <div class="ad-dp-id">
                 <div class="ad-dp-name">
                   {{ displayName(detail.person) }}
@@ -593,7 +599,10 @@ onMounted(async () => {
               <div class="ad-dp-sec-title">好友（{{ detail.friends.length }}）</div>
               <div v-if="!detail.friends.length" class="ad-dp-empty">暂无好友</div>
               <div v-for="f in detail.friends" :key="f.id" class="ad-dp-item">
-                <span class="ad-avatar sm">{{ avatarText(f.name) }}</span>
+                <span class="ad-avatar sm">
+                  <img v-if="f.avatar" :src="f.avatar" alt="" />
+                  <template v-else>{{ avatarText(f.name) }}</template>
+                </span>
                 <span class="ad-dp-item-name">{{ f.name }}</span>
                 <span class="ad-dp-item-meta">@{{ f.username }}</span>
               </div>
@@ -733,9 +742,13 @@ onMounted(async () => {
   background: var(--gn-accent);
   color: #fff;
 }
+/* 注意：.ad-btn:hover:not(:disabled) 的特异性高于 .ad-btn.primary，
+   hover 时会把主色按钮的底色换成 --gn-bg-hover 而文字仍是白色（白字白底看不见），
+   所以这里必须显式重设 background。 */
 .ad-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.06);
+  background: var(--gn-accent);
   color: #fff;
+  filter: brightness(1.06);
 }
 .ad-spin {
   animation: ad-spin 0.9s linear infinite;
@@ -1031,21 +1044,28 @@ onMounted(async () => {
   width: 30px;
   height: 30px;
   border-radius: 9px;
+  overflow: hidden;
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
   font-size: 13px;
   font-weight: 620;
 }
+.ad-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
 .ad-avatar.big {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 17px;
 }
 .ad-avatar.sm {
   width: 20px;
   height: 20px;
-  border-radius: 5px;
+  border-radius: 6px;
   font-size: 10px;
 }
 .ad-user-text {
