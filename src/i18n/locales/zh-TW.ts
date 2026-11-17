@@ -68,6 +68,8 @@ const zhTW: Messages = {
     importLegacy: '匯入本機舊筆記（{n}）',
     importing: '匯入中…',
     adminConsole: '管理後臺',
+    resize: '調整側邊欄寬度',
+    resizeTip: '拖動調整寬度，雙擊恢復預設',
   },
   home: {
     title: '銀杏筆記',

@@ -66,6 +66,8 @@ export default {
     importLegacy: '导入本机旧笔记（{n}）',
     importing: '导入中…',
     adminConsole: '管理后台',
+    resize: '调整侧边栏宽度',
+    resizeTip: '拖动调整宽度，双击恢复默认',
   },
   home: {
     title: '银杏笔记',

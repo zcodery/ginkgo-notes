@@ -69,6 +69,8 @@ const en: Messages = {
     importLegacy: 'Import local notes ({n})',
     importing: 'Importing…',
     adminConsole: 'Admin console',
+    resize: 'Resize sidebar',
+    resizeTip: 'Drag to resize, double-click to reset',
   },
   home: {
     title: 'Ginkgo Notes',
