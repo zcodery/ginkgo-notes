@@ -607,3 +607,112 @@ export function subscribePresence(
 
   return () => controller.abort()
 }
+
+/* ---------------- 管理员后台：人员统计 ---------------- */
+
+export interface PersonStat {
+  id: string
+  username: string
+  nickname: string | null
+  avatar: string | null
+  email: string | null
+  phone: string | null
+  role: string
+  createdAt: number
+  /** 最后活跃时间（最近一次未撤销会话） */
+  lastActiveAt: number | null
+  /** 当前有效的登录设备数 */
+  sessionCount: number
+  /** 我的笔记（不含回收站） */
+  pageCount: number
+  trashedPageCount: number
+  charCount: number
+  databaseCount: number
+  databaseRowCount: number
+  assetCount: number
+  assetBytes: number
+  friendCount: number
+  friendGroupCount: number
+  teamSpaceCount: number
+  leadNodeCount: number
+  tokenCount: number
+  twoFactor: boolean
+  hasPin: boolean
+  github: string | null
+}
+
+export interface AdminOverview {
+  users: {
+    total: number
+    admin: number
+    newToday: number
+    newWeek: number
+    activeWeek: number
+    activeMonth: number
+    neverActive: number
+  }
+  content: {
+    pages: number
+    trashedPages: number
+    chars: number
+    databases: number
+    databaseRows: number
+    assets: number
+    assetBytes: number
+    publicPages: number
+    teamPages: number
+  }
+  collab: {
+    spaces: number
+    teamSpaces: number
+    orgNodes: number
+    members: number
+    friendships: number
+    shares: number
+    tokens: number
+  }
+  signup: { date: string; count: number }[]
+  active: { date: string; count: number }[]
+}
+
+export interface PersonDetail {
+  person: PersonStat
+  teams: { id: string; name: string; role: string; status: string; joinedAt: number }[]
+  friends: { id: string; username: string; name: string; avatar: string | null }[]
+  sessions: { id: string; ip: string | null; ua: string | null; createdAt: number; lastSeen: number }[]
+}
+
+export type AdminUserSort =
+  | 'createdAt'
+  | 'lastActiveAt'
+  | 'pageCount'
+  | 'charCount'
+  | 'friendCount'
+  | 'assetBytes'
+  | 'username'
+
+export const listAdminOverview = () => api<AdminOverview>('GET', '/admin/overview')
+
+export const listAdminUsers = (params: {
+  q?: string
+  role?: string
+  sort?: AdminUserSort
+  order?: 'asc' | 'desc'
+  page?: number
+  pageSize?: number
+}) => {
+  const qp = new URLSearchParams()
+  if (params.q) qp.set('q', params.q)
+  if (params.role) qp.set('role', params.role)
+  if (params.sort) qp.set('sort', params.sort)
+  if (params.order) qp.set('order', params.order)
+  if (params.page) qp.set('page', String(params.page))
+  if (params.pageSize) qp.set('pageSize', String(params.pageSize))
+  const suffix = qp.toString() ? `?${qp.toString()}` : ''
+  return api<{ total: number; page: number; pageSize: number; totalPages: number; items: PersonStat[] }>(
+    'GET',
+    `/admin/users${suffix}`,
+  )
+}
+
+export const getAdminUser = (id: string) => api<PersonDetail>('GET', `/admin/users/${id}`)
