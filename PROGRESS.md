@@ -3,6 +3,9 @@
 > 版本 0.3.0 | 更新于 2026-11-17
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
+>
+> **当前状态**：核心功能已闭环，好友分组、成员批量导入、组织架构导入三块主要逻辑开发完毕并通过端到端验证。
+> 第五节末尾记录了**尚未提交的工作区改动清单**，接手后请先审阅。
 
 ---
 
@@ -27,6 +30,7 @@
 4. **只读内容走 HTML 渲染**：公开分享页用 `src/utils/renderMarkdown.ts` 白名单清洗后输出 HTML，不加载 TipTap，也不暴露任何编辑路径。
 5. **编辑器状态随 Markdown 持久化**：折叠状态写成 `<!-- gn-li collapsed -->` / `<details open>`，解析时经 token 预处理还原；只读页按白名单回填，保证编辑态与分享态一致。
 6. **空间即数据边界**：`owner` 字段收敛为空间 id（个人空间 id 复用用户 id，团队空间 `sp_*`），所有业务表按 `owner` 物理隔离；资源访问再经统一 ACL（deny 优先 → 资源显式 → 组织节点继承 → 空间基线）。
+7. **好友分组是「单边视图」**：`friend_groups` / `friend_group_members` 以「我」为 owner，与 `friendships` 的 userLow/userHigh 无关。同一个好友关系在两边看到的分组可以不同——这是刻意设计，不是数据不一致。因此「未分组」不是一个真实分组，而是「没有分组记录」的显示态，用哨兵 `__none__` 表达，**绝不写进下拉框的初始值**。
 
 ---
 
@@ -136,6 +140,7 @@ ginkgoNotes/
 │   │   ├── clipboard.ts        # 统一复制入口（安全上下文 + execCommand 降级）
 │   │   ├── importExport.ts     # Markdown/Notion/Zip/JSON 全链路迁移
 │   │   ├── exportPage.ts       # html2canvas → 图片 / jsPDF → PDF
+│   │   ├── memberImport.ts     # 成员批量导入：CSV/XLSX/DOCX 模板生成与解析（zip + XML）
 │   │   └── renderMarkdown.ts   # 只读 Markdown→HTML（白名单清洗 + 结构化代码块）
 │   ├── i18n/            # 简 / 繁 / 英三套界面语言
 │   ├── shortcuts.ts     # 快捷键定义
@@ -144,7 +149,9 @@ ginkgoNotes/
 ├── scripts/            # 维护脚本（node 直接跑）
 │   ├── commit-all.cjs      # 按模块分层批量提交 + 生成语义化 commit body
 │   ├── reset-to-base.cjs   # 撤回 origin/main 之后的全部 commit，保留工作区改动
-│   └── seed-demo-friends.mjs # 幂等演示数据：管理员 + 5 个好友 + 加入首个团队
+│   ├── seed-demo-friends.mjs # 幂等演示数据：管理员 + 5 个好友 + 加入首个团队
+│   ├── export-accounts.mjs # 把所有账号导成 Excel（含明文密码，候选口令校验还原）
+│   └── probe-passwords.mjs # 只读探测：报告每个账号的真实密码能否被还原
 ├── package.json
 ├── vite.config.ts       # @tailwindcss/vite + vue-tsc
 └── run.bat              # Windows 一键启动脚本
@@ -250,18 +257,41 @@ ginkgoNotes/
 | 87 | 再点一次选中的节点 = 取消选择 | ✅ | `onRowClick` 改成 `emit('select', props.selectedId === node.id ? '' : node.id)`，团队页 `scopeId = ''` 后回到「未选节点」态：成员卡整块收起（第 83 项的过渡）、标题回到团队总人数。原先只有范围 chip 上的 × 能清除，用户习惯「点一下选中、再点一下取消」 |
 | 88 | 好友页无待处理申请时不显示申请卡 | ✅ | 右侧「好友申请」原来常驻，没有申请时只剩一张写着「暂无待处理申请。」的空卡占着 330px。「已发出的申请」早就是 `v-if` 判断长度的，这里补齐：`v-if="incomingCount"`，连标题和徽标一起收掉；有申请时行为不变 |
 | 89 | 成员行右键菜单（含「添加好友」并判断好友状态） | ✅ | 成员行挂 `@contextmenu.prevent` 弹 `position: fixed` 的 `.tm-menu`（复用 `.gn-pop` 淡入 + `--gn-shadow-lg`），菜单头显示姓名 + `@用户名`。条目：①**添加好友** —— 依据 `listFriends()` / `listFriendsRequests(sent)` 的集合判定四种状态：`none` 可点、`friend` 显示「已是好友」（Check 图标、灰色不可点）、`pending` 显示「已发送好友申请」（Clock）、自己显示「这是你自己」；发送成功后本地同时更新集合并 flash 提示，再右键就是「已发送」。②**设为 / 取消部门负责人**（`canManageMember` 且非 owner 且挂了节点）。③**移出团队**（红色）—— 不直接执行，而是展开行内二次确认，避免右键一滑就把人踢了。菜单位置按 186×210 估算夹进视口，`mousedown`（`.tm-menu` 外）/ `scroll` / `resize` / `Esc` 均关闭 |
-| 90 | 好友页右侧栏按需占位，好友卡铺满整行 | ✅ | 右侧「好友申请 / 已发出的申请」两卡都是空的时候，`aside` 仍旧占着 330px，好友卡被压到 670px、右侧一片空白。改成 `hasSide = incoming.length || outgoing.length`：`<aside v-if="hasSide">` 直接不渲染，`.fr-cols` 第二列在「330px ↔ 0px」之间过渡、`gap` 同步从 16px 归零，好友卡随之长到 1016px（实测采样 670/330 → 763/240 → 938/74 → 1015/0.8 → 1016/0，是真在插值）。窄屏（<900px）本来就是上下堆叠，`aside` 直接排到下面 |
+| 90 | 好友页右侧栏按需占位，好友卡铺满整行 | ✅ | 右侧「好友申请 / 已发出的申请」两卡都是空的时候，`aside` 仍旧占着 330px，好友卡被压到 670px、右侧一片空白。改成 `hasSide = incoming.length \|\| outgoing.length`：`<aside v-if="hasSide">` 直接不渲染，`.fr-cols` 第二列在「330px ↔ 0px」之间过渡、`gap` 同步从 16px 归零，好友卡随之长到 1016px（实测采样 670/330 → 763/240 → 938/74 → 1015/0.8 → 1016/0，是真在插值）。窄屏（<900px）本来就是上下堆叠，`aside` 直接排到下面 |
 | 91 | 任命 / 移出只保留右键入口 | ✅ | 成员行右侧原来并排着「皇冠（任命负责人）」和「×（移出）」两个图标，鼠标扫过很容易误点，而且这两个操作都不可逆。现在行内一个按钮都不留（只保留角色下拉 / 完全控制徽标 / 负责人徽标），两个动作全部收进右键菜单。为了让入口能被发现，成员卡表头右侧加了一枚 `右键成员可管理` 的小胶囊提示（窄列时自动省略号让位给人数）。单人民部门的负责人项在菜单里是灰的「负责人（自动指定）」，不给点 |
 | 92 | 二次确认改为统一弹窗 `GnConfirm` | ✅ | 原先移出走行内「确认移出？/ 确认 / 取消」，右键一滑、列表一滚就把二次确认带跑了，而且确认按钮离鼠标落点太近。新增系统公用组件 `src/components/GnConfirm.vue`：`{ open, title, message, detail, confirmText, cancelText, tone, icon }`，Teleport 到 body 的居中弹窗 + 遮罩，`Esc` / 点遮罩即取消，`tone=danger` 时**默认聚焦「取消」**（误按回车不会执行）。三种文案：①普通任命（primary）；②负责人已存在（danger，标题直接写「XX 已经有负责人了」，说明会顶掉谁）；③移出团队 / 撤销负责人（danger，列出会失去什么）。移出时若本人是负责人，还会补一句「该部门负责人会按规则重新指定」 |
 | 93 | 换负责人后把消息推给部门成员 | ✅ | 原来只 `notify` 新负责人一条。部门成员真正需要知道的是「以后这个部门找谁」，所以 `notifyLeadChanged()` 按 `path` 前缀取出该节点**整棵子树**的在职成员（含下级部门、不含上级），逐个推「X 成为「部门」负责人」，被替换的人另收一条「你不再是「部门」负责人」。撤销任命（`userId: null`）也会通知原负责人。实测：前端组、市场部在同一棵树下，只通知子树内的人 |
+| 94 | 新建下级的空行失焦自动收起 | ✅ | 点「+」弹出的新建行原来只能靠 Esc / 取消关掉：输入框空着点别处，那一行会一直挂在树里，看着像多出来一个没名字的部门。补 `@blur` 处理——名字 trim 后为空就 `resetInline()` 收掉整行；**填了内容则保留**（用户可能只是去核对一下另一个节点，回来接着填）。同时给「确定 / 取消」两个按钮补了 `@mousedown.prevent`，否则点「确定」时输入框先失焦把状态清空，`saveAdd` 读到 `addingParentId === undefined` 直接 return，表现成「点确定没反应」（陷阱 62）。根级新增（`addingParentId === null`）走同一套逻辑 |
+| 95 | 批量代注册成员（多行 / CSV 导入 / 模板下载） | ✅ | 「新建成员」从单条手机号输入改成多行 textarea：一行一个 `手机号` 或 `手机号,姓名`，角色与部门用下方两个下拉统一作用于整批。解析不按分隔符切列，而是**在整行里正则找 `1[3-9]\d{9}`**，剩下的文字当姓名——所以 `张三,13800000001`、`13800000001 张三`、`张三<TAB>138…` 三种写法都认，Excel 表头行因为找不到手机号被自然丢弃，重复手机号在 `createSeeds` 里去重（陷阱 63）。界面实时显示「已识别 N 人」、按钮上带待建数量；提交时逐个串行调 `POST /spaces/:id/members/register`（并发写 SQLite 容易撞锁），单条失败不打断其余，成功的汇总成「新建 3 个账号（初始密码为手机号），2 个已有账号直接加入」，失败的手机号**留在输入框里**并在下方红字提示原因，改一下就能重试。配套「下载模板」（`手机号,姓名` 表头 + 两行示例，带 BOM 防 Excel 乱码）与「导入 CSV」（`readAsArrayBuffer` → UTF-8 解码，出现替换字符再退回 `TextDecoder('gbk')`，解决 Excel 在国内默认另存为 GBK 导致的乱码，陷阱 64），导入后内容回填到输入框，用户还能手改 |
+| 96 | 成员列表负责人置顶 | ✅ | 部门里的负责人原来跟着 `joined_at` 排，人一多就埋在中段，完全控制徽标形同虚设。`orderMembers()` 按 `isDeptLead` 一次性排序：负责人永远在组内第一行，其余人保持后端 `ORDER BY joined_at` 的顺序——`Array.prototype.sort` 是稳定排序，同权重不会被打乱，所以只需要一次比较、不需要拿加入时间做二级 key（陷阱 65）。分组视图（含下级）下每个子部门各自置顶自己的负责人，与组头路径保持一致 |
+| 97 | 好友分组（UI 接通 + 拖拽 + 选择器展示） | ✅ | 数据模型和接口昨天就建好了（`friend_groups` / `friend_group_members` + 5 条路由），这次才把 UI 接上：好友页头部加「新建分组」（空名失焦自动收起，和导航树新建行同一套约定），好友按分组渲染（分组头 = 组名 + 人数 + 展开箭头，hover 才露出重命名 / 删除图标，删除走 `GnConfirm` 且明确写「好友不会删除，会回到未分组」），最后是永远在末尾的「未分组」。列表扁平化成 `section / friend / hint` 三种行只写一份好友模板，好友行带上所属分组，所以拖到分组头、组内成员、空组的「把好友拖到这里」提示三个位置都能落（私有 MIME `application/x-ginkgo-friend`），落完重拉 `refresh()`（分组人数也要跟着变）。**所有好友人员选择处**（`PeoplePicker` 好友 tab）同步按分组显示、组头可折叠，搜索态也复用同一套分组渲染；没建过分组时 `name` 为空、不渲染组头，保持原来的扁平列表 |
+| 98 | 行内危险操作按需出现 + 统一 danger | ✅ | 好友行的「解除 / 拉黑」原来一直挂在行尾（两列布局下行尾一大片空白，扫列表时很容易误点），改为 `opacity: 0` + `.fr-row:hover / focus-within` 才出现；**确认态单独加 `.is-confirm` 强制显示**，否则点「解除」后按钮所在的整块消失，用户找不到「取消」（陷阱 66）。所有「移入才出现」的操作统一 danger：好友行的两个动作 hover 变红，分组的删除图标 hover 变红，全局给 `.gn-icon-btn` 加 `danger` 变体并应用到关闭弹窗 / 移除成员 / 撤销 / 吊销 / 清空通知 / 取消分享 / 清除快捷键这些会删东西的图标按钮上——普通图标（复制、打开、展开）保持原样 |
+| 99 | 选择器面板收窄滚动条 + 修面板被裁 | ✅ | `.pp-list` 补上 `gn-scroll`（全局 6px、hover 才显色的细滚动条），不再用浏览器默认的粗滚动条。顺手修掉一个一直存在但没被发现的问题：面板原本 `position:absolute; z-index:60` 留在卡片内部，DOM 矩形在视口里、内容却因为祖先滚动容器 / 层叠上下文整块看不见（元素截图全白）。改成和 `GnSelect` / `GnCascader` 一样的 **Teleport 到 body + fixed 坐标**，按触发器位置算出 `left/top/bottom` 并 clamp 在视口内，靠右的控件不再把面板甩出屏幕；内部列表最大高度也按上下可用空间动态给（陷阱 67） |
+| 100 | 导入模板支持 CSV / Excel / Word 三种格式 | ✅ | 「下载模板」从直接下载 CSV 改为带下拉菜单，可选 `成员导入模板.csv` / `.xlsx` / `.docx`。新增 `src/utils/memberImport.ts`：xlsx 与 docx 都是 zip + XML，复用项目已有的 `fflate` 生成最小合法工作簿 / Word 文档（inlineStr 单元格、document.xml 段落），不引入新依赖；CSV 仍带 BOM。导入侧统一 `readMemberFile()`：CSV/TXT 沿用 UTF-8 → GBK 回退解码，xlsx 读 sharedStrings + 各 sheet 的单元格坐标拼成文本行，docx 读段落 + 表格行列，三种格式都归到同一套「一行一个手机号」解析。模板下载菜单按按钮位置自动改成向上 / 右对齐，避免窄屏被视口裁掉（陷阱 68） |
+| 101 | 文档导入预览 + 手机号判重 | ✅ | 选完文件不再直接灌进输入框：先弹 `GnConfirm` 宽版预览，逐行展示手机号 / 姓名 / 结果，用户点「确认载入」才写入 textarea，之后仍需手点「建号并加入」（导入 ≠ 建号）。判重分三层：文件内重复（第二次出现的手机号标红跳过）、团队内已有（后端 `POST /spaces/:id/members/phone-check` 批量预检，标红跳过）、已有平台账号（提示「将直接加入团队」，不算错误）；接口失败时用当前成员列表的 username 做本地兜底。表头行、无手机号的内容行分别按「丢弃 / 标无效」处理，`GnConfirm` 为此加了 `wide` / `confirmDisabled` / `body` 插槽（陷阱 69） |
+| 102 | 主题主色（独立于明暗主题） | ✅ | 设置 → 通用 → 外观在「浅色 / 深色」下面新增「主题主色」：松绿（默认）、靛蓝、紫罗兰、暖橙、玫瑰、青蓝六个色块，中英文/繁体三套文案。`store.ts` 新增 `AccentId` / `ACCENT_PRESETS`，每个主色给明暗两套 `--gn-accent` / `--gn-accent-soft`；`applyAccent()` 以根节点内联变量覆盖 CSS 默认值，切换明暗时重新取对应色值（不会暗色下还用亮色调），选择存 profile meta 并在 `initTheme()` 里先行恢复。这只换强调色，黑白主题切换保持原样（陷阱 70） |
+| 103 | 好友默认分组可修改 | ✅ | `friend_groups.is_default` 每 owner 最多一个（第一个组自动成为默认）；组头「默认」标记 + 未默认组的「设为默认」星标，`PATCH /friends/groups/:id { isDefault: true }` 切换；删/迁走默认组时自动把默认推给剩下的第一个组 |
+| 104 | 加好友时选分组 | ✅ | 搜索结果卡头、`PeoplePicker` 之外的每条待处理申请行都带分组下拉（`GnSelect`），选项 = 未分组 + 我的所有组；发申请和同意申请都带 `groupId`，两边各自落组（互不继承），申请时选的组存 `friendships.requester_group_id`，同意后另一方按自己的默认组落组；`__none__` 表示显式选「未分组」 |
+| 105 | 非空分组禁删 + 一键移入 | ✅ | 有人的组删除图标置灰禁用并 tooltip 说明，后端 `DELETE` 直接 409 拒绝；组头新增迁移图标 → `GnConfirm` 弹窗里选目标组（排除自己和未分组），`POST /friends/groups/:id/merge` 整组搬完再删源组，源组是默认组则目标组接任默认 |
+| 106 | 「未分组」按需显示 + 选择器切 tab 修复 | ✅ | 未分组没人就整组消失；没建过分组时全员显示在其下，此时点重命名 = 转成正式组并把人一起带入（建组接口收 `friendIds`）；选择器同步隐藏空未分组，但所有选组下拉始终保留该选项；`PeoplePicker` 面板 Teleport 后点面板内 tab 被 `onDocDown` 当成点外部，导致切 tab 时整个面板关闭——把 `panelRef` 加进排除判断（陷阱 71-73） |
+| 107 | 迁移弹窗不再漏出 `__none__` 内部标识 | ✅ | `askMergeGroup()` 原来用 `defaultGroupValue`（没有默认组时回落到 `UNGROUPED = '__none__'`）初始化目标组，而下拉选项又过滤掉了未分组，导致 `GnSelect` 找不到匹配标签就把原始值 `__none__` 直接显示出来。改为只从真实分组里挑：有默认组且不是源组就优先，否则取第一个别的组（陷阱 74） |
+| 108 | 好友搜索实时化 + 防抖 | ✅ | 搜索框从「敲回车 / 点按钮才搜」改为输入即搜：300ms 防抖，停止输入才发请求；加请求序号 `searchSeq`，旧请求后返回也不会覆盖新结果；清空/组件卸载时清掉定时器与在途结果。按钮保留作手动触发（陷阱 75） |
+| 109 | 组织架构导入支持 Excel / Word + 实时解析预览 | ✅ | 导入面板的文件选择从只收 `.csv/.txt/.json` 扩到 `.xlsx/.docx`，复用 `readMemberFile()` 把 Excel / Word 解析成 CSV 文本直接填进上方的 textarea（JSON 仍读原文）；textarea 旁新增实时解析概览（部门路径数 / 成员数，JSON 格式错误即时提示），用户可先在框里改，确认后点「开始导入」才真正写库——选文件这一步不触发任何写操作（陷阱 76） |
+| 110 | 分组可取消默认 + 新好友未选择归未分组 | ✅ | 组头的星标改为实心/空心两态，点击即切换「设为默认 / 取消默认」；后端 `PATCH /friends/groups/:id` 的 `isDefault:false` 不再自动补一个默认组，`firstGroupId()` 只在「删除分组 / 迁移分组」时用来指定继任者；新建好友时没选组就落「未分组」而不是默认组（陷阱 77） |
+| 111 | 好友搜索改为本地过滤 | ✅ | 顶部搜索框不再打后端全平台搜索接口，改为实时过滤【我的好友】列表（按昵称 / 用户名），结果直接在下方列表里收敛；「加好友」独立成一个按钮，展开的面板里才走平台搜索并可指定加入分组（陷阱 78） |
+| 112 | 分组迁移目标支持「未分组」 | ✅ | 迁移弹窗的目标组下拉补上「未分组」选项；后端 `POST /friends/groups/:id/merge` 收到 `__none__` 时删掉成员分组记录（等同移回未分组）而不是校验分组存在，随后删源组，源组是默认组时由剩下第一个组接任（陷阱 79） |
+| 113 | 组织导入格式下拉补齐 Excel / Word | ✅ | 组织架构导入面板的格式下拉从「CSV / JSON」扩到「CSV / Excel (.xlsx) / Word (.docx) / JSON」，选文件按扩展名自动识别并把格式切到对应项，xlsx 解析后回填 textarea 并显示实时概览 |
+| 114 | 「下载模板 / 导入文档」按钮垂直居中 | ✅ | `.tm-format` 原来是块级 div 包裹，自身带一条匿名行盒，把里面的按钮整体往下顶，与右侧兄弟按钮错位；改成 `display:inline-flex; align-items:center` 去掉多余行盒（陷阱 80） |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
 |---|---|---|---|
-| 1 | 好友页 / 团队页视觉 | ⚠️ | 布局骨架（第 68 项）、右侧栏按需让位（第 83 / 90 项）、行内操作入口收敛到右键 + 弹窗（第 91 / 92 项）均已落地，待用户最终确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
+| 1 | 好友页 / 团队页视觉 | ⚠️ | 布局骨架（第 68 项）、右侧栏按需让位（第 83 / 90 项）、行内操作入口收敛到右键 + 弹窗（第 91 / 92 项）、好友分组全流程（第 99–114 项）均已落地，待用户最终确认；若仍有问题按「UI 一致性」约定继续调结构，不要只调 padding |
 | 2 | 新页面 i18n | ⚠️ | `FriendsView` / `TeamsView` / `OrgTree` / `PeoplePicker` / `PresenceAvatars` 文案仍是中文硬编码，未接三语 |
 | 3 | 好友共享页在线状态 | ⚠️ | presence 按当前空间隔离，`/shared` 个人笔记共享页暂不显示在线头像 |
 | 4 | 大团队成员传输 | ⚠️ | `GET /spaces/:id` 仍一次性返回全部成员，第 81 项只省掉渲染成本；真要减首屏传输量需要给成员接口加节点维度分页 |
+| 5 | 好友分组的服务端约束 | ⚠️ | 「非空组禁删」已在 `DELETE` 拦截，「迁移到未分组」已支持；但**没有组级人数上限、组名唯一性只在 owner 内去重**，多端并发改名/删组靠单进程串行，尚无乐观锁 |
+| 6 | 批量导入的规模 | ⚠️ | 成员导入目前是「前端解析 → 串行注册 → 失败行回显」，几百条尚可，上千条会明显慢；真要做大批量需要后端批量端点 + 事务分片 |
 
 ### P2 — 尚未开始
 
@@ -336,12 +366,17 @@ ginkgoNotes/
 ### 好友 (`server/friends.ts`)
 | 方法 | 路径 | 说明 | 认证 |
 |---|---|---|---|
-| GET | `/friends` | 已接受的好友列表 | 会话/令牌 |
+| GET | `/friends` | 已接受的好友列表（每项带 `groupId`，即我这边给他归的组） | 会话/令牌 |
+| GET / POST | `/friends/groups` | 我的分组列表（带每组人数、`isDefault`） / 新建分组（`{ name, friendIds? }`，同名 409；第一个组自动默认，`friendIds` 可把未分组好友一并带入） | 会话/令牌 |
+| PATCH | `/friends/groups/:id` | 重命名（`{ name }`）/ 设为默认（`{ isDefault: true }`）/ **取消默认**（`{ isDefault: false }`，取消后不再自动补默认组，此时新好友未选组就落未分组） | 会话/令牌 |
+| POST | `/friends/groups/:id/merge` | 把整组好友一键移入 `{ targetGroupId }`，随后删除源组；`targetGroupId` 可传 `__none__` 表示移回未分组；源组为默认组则由剩下第一个组接任 | 会话/令牌 |
+| DELETE | `/friends/groups/:id` | 删除分组；**组里有人直接 409**，必须先迁走，不会让好友悄悄回落未分组 | 会话/令牌 |
+| PUT | `/friends/:id/group` | 把好友移入分组（`{ groupId }`，`null` / `__none__` 表示移回未分组） | 会话/令牌 |
 | GET | `/friends/search?q=` | 搜索用户（附带关系状态） | 会话/令牌 |
 | GET | `/friends/requests` | 收到的待处理申请 | 会话/令牌 |
 | GET | `/friends/requests/sent` | 已发出的申请 | 会话/令牌 |
-| POST | `/friends/requests` | 发起申请（互相申请自动成为好友） | 会话/令牌 |
-| POST | `/friends/requests/:id/accept` / `decline` | 处理申请 | 会话/令牌 |
+| POST | `/friends/requests` | 发起申请（`{ username, message?, groupId? }`，记下我这边希望对方进的组；互相申请自动成为好友并两边落组） | 会话/令牌 |
+| POST | `/friends/requests/:id/accept` / `decline` | 处理申请；同意时可带 `{ groupId }` 决定对方进我哪个组，不传则进我的默认组，申请人那边按申请时选的组落 | 会话/令牌 |
 | DELETE | `/friends/:id` | 解除好友 | 会话/令牌 |
 | POST | `/friends/:id/block` | 拉黑 | 会话/令牌 |
 
@@ -356,9 +391,10 @@ ginkgoNotes/
 | PATCH | `/spaces/:id/org/nodes/:nodeId` | 改名 / 换上级（`{ name?, parentId? }`；不能挂到自身或自身子树） | 空间 admin 或该节点负责人 |
 | POST | `/spaces/:id/org/nodes/:nodeId/move` | 拖拽移动：`{ parentId, beforeId? }`，`beforeId` 决定同级插入位（空 = 末尾），事务内重排兄弟 `sort` 并只在父级真变时重写子树 `path/depth` | 空间 admin 或该节点负责人 |
 | DELETE | `/spaces/:id/org/nodes/:nodeId` | 删除（成员与授权迁回上级） | 空间 admin 或该节点负责人 |
-| POST | `/spaces/:id/org/import` | 组织架构导入（CSV / JSON） | 空间 admin |
+| POST | `/spaces/:id/org/import` | 组织架构导入（`format: 'csv' \| 'json'`；CSV 载荷同时兼容 Excel / Word 解析出的文本） | 空间 admin |
 | GET / POST | `/spaces/:id/members` | 成员列表 / 直接添加 | 成员 / admin 或目标节点负责人 |
 | POST | `/spaces/:id/members/register` | 代注册并加入（`{ phone, name?, role, orgNodeId? }`，账号与初始密码都是手机号；已有账号则直接入组） | 空间 admin 或目标节点负责人 |
+| POST | `/spaces/:id/members/phone-check` | 导入预览用：批量查手机号（`{ phones: string[] }`，返回 `hasAccount / inTeam / isOwner`；只读，不建号） | 空间成员 |
 | PUT | `/spaces/:id/org/nodes/:nodeId/lead` | 任命 / 撤销部门负责人（`{ userId }`，`null` 撤销）；部门只剩 1 人时由服务端自动任命；变更后把通知推给该节点整棵子树的成员，被替换者另收一条 | 空间 admin 或该节点负责人 |
 | PATCH / DELETE | `/spaces/:id/members/:userId` | 改角色或部门 / 移出（负责人只能在本子树内调动、角色封顶 `editor`） | 空间 admin 或该节点负责人 |
 | GET | `/spaces/:id/invites` | 邀请列表（负责人只看自己负责范围内的待处理邀请） | 空间成员 |
@@ -479,8 +515,21 @@ ginkgoNotes/
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `6a154f5` — docs: 记录好友页按需让位/右键确认弹窗/负责人通知（PROGRESS 第 90-93 项 + 陷阱 59-61）
+**HEAD**: `d995460` — docs: 更新版本日期并完善组织树和成员管理功能描述（PROGRESS 第 74-79 项）
 > 最新**功能**提交：`22a8bc0` — feat(ui): 好友页按需让位、任命/移出收敛到右键+弹窗确认，换负责人通知部门成员（`origin/main` 已同步）
+
+### ⚠️ 未提交的工作区改动（截至 2026-11-17）
+
+以下改动已在本地完成并通过端到端验证，**尚未 commit / push**。接手者请先审阅再决定提交粒度：
+
+| 模块 | 涉及文件 | 内容 | PROGRESS 对应 |
+|---|---|---|---|
+| 好友分组 | `server/friends.ts`、`server/db.ts`、`src/api/features.ts`、`src/views/FriendsView.vue`、`src/components/PeoplePicker.vue` | 分组 CRUD、非空禁删、一键迁移（含迁回未分组）、默认组可取消、申请/同意时选组落组、未分组按需显隐 | 第 99–112 项 |
+| 成员批量导入 | `src/utils/memberImport.ts`（新增）、`src/views/TeamsView.vue` | CSV/XLSX/DOCX 模板生成与解析、手机号判重、导入预览确认、批量建号、负责人置顶排序 | 第 96–100 项 |
+| 组织架构导入 | `src/views/TeamsView.vue` | Excel/Word 解析回填 + 实时概览，格式下拉补齐 | 第 109 / 113 项 |
+| 共用组件 | `src/components/GnSelect.vue`、`src/components/GnConfirm.vue`、`src/components/OrgTree.vue`、`src/style.css` | `zIndex` / `wide` / `confirmDisabled` 扩展、danger hover、细滚动条、新增行失焦取消 | 第 91–105 项 |
+| 主题主色 | `src/store.ts`、`src/views/ProfileView.vue`、`src/i18n/locales/*` | 6 组主色预设 + 明暗双套变量 + 持久化 | 第 94 项 |
+| 维护脚本 | `scripts/export-accounts.mjs`（新增）、`scripts/probe-passwords.mjs`（新增） | 账号导出 Excel（含明文密码）、密码候选探测 | 陷阱 81 |
 
 ---
 
@@ -516,6 +565,14 @@ pnpm typecheck        # vue-tsc + tsc -p server
 
 # 本地演示数据（幂等，不改已有账号密码）
 node scripts/seed-demo-friends.mjs   # 为管理员建 5 个演示好友，并加入首个团队 AMTeam
+
+# 账号导出（Excel，含明文密码，便于切换账号测试）
+node scripts/export-accounts.mjs             # 导出到 server/data/账号清单.xlsx
+node scripts/export-accounts.mjs --out D:/x.xlsx   # 指定输出路径
+node scripts/export-accounts.mjs --reset     # 候选口令未命中的账号统一重置为 ginkgo1234（会改库）
+
+# 密码探测（只读，报告每个账号的真实密码能否用候选表还原）
+node scripts/probe-passwords.mjs
 ```
 
 环境变量（全部可选）：
@@ -547,7 +604,9 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 | `org_nodes` | spaceId / parentId / name / path(物化路径) / depth / sort / leadUserId（不再区分类型，`type` 列已删除） |
 | `space_members` | spaceId / userId / orgNodeId / role(owner/admin/editor/viewer/guest) / status |
 | `acl_entries` | spaceId / resourceType(page/database) / resourceId / subjectType(user/org_node/space) / subjectId / role / deny / inherit |
-| `friendships` | userLow / userHigh（归一化用户对，唯一）/ status / requestedBy / message |
+| `friendships` | userLow / userHigh（归一化用户对，唯一）/ status / requestedBy / message / **requesterGroupId**（申请人希望对方进的组，同意时据此落组） |
+| `friend_groups` | id / ownerId / name / sort / **isDefault**（显式默认组；取消默认后允许全表无默认，新好友即落未分组） |
+| `friend_group_members` | ownerId / friendUserId / groupId（好友分组是我这边的一套视图，与 friendships 两端无关） |
 | `invites` | spaceId / orgNodeId / role / inviteeId / token / status / expiresAt |
 | `doc_locks` | pageId / spaceId / userId / sessionId / expiresAt（编辑占用，30s 清理过期） |
 | `webhooks` | url / secret / events(JSON) / lastEvent / lastStatus |
@@ -618,10 +677,29 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 56. **行内操作放在哪，决定鼠标要跑多远**：树/表的操作按钮习惯性钉在最右侧，行一宽（组织树这张卡能到 800px）就变成「看一眼左边、点一下右边」的往返运动，上下扫十几行尤其累。把按钮排到**主文本后面**、用 `justify-content: flex-start` 靠左对齐，鼠标基本不用横移。配套两条：固定宽度常驻占位（`flex: 0 0 68px` + `opacity: 0`）保证悬停时名称不跳；主文本要给 `min-width: 0 + text-overflow: ellipsis`，否则长名称会把固定宽度的占位挤出去，反而更乱。别把按钮放到名称「左边」——缩进已经承担了层级表达，左侧再插 68px 会让每个名字都像被缩进了一级。
 57. **「选中」要有两个出口**：只给一个「清除筛选」的小 × 按钮是不够的，用户的第一反应是再点一下刚才那一行。点击处理写成 `emit('select', selectedId === id ? '' : id)`，让「空 id」成为合法的取消信号，父组件把它翻译成「回到未选态」即可（这里正好复用了成员卡收起的过渡）。注意不要在按钮/输入框上触发这个切换——`closest('button, input, a, textarea')` 的判断要在切换逻辑之前。
 58. **右键菜单本身不能把行挡住，也别在自己身上触发新的 actionability 检查**：菜单用 `position: fixed` + 估算尺寸夹进视口（`Math.min(clientX, innerWidth - W - 8)`），否则贴右下角右键会溢出屏幕。关闭时机一共四个：`mousedown` 落在 `.tm-menu` 之外、`scroll`（捕获阶段，成员列表自己滚也要关）、`resize`、`Esc`。「添加好友」这类不可重复的动作，先用 `listFriends()` / `listFriendsRequests(sent)` 的集合判成 `friend / pending / none` 再渲染，比事后报 409 体验好得多；危险项（移出团队）不要就地执行，转交给行内二次确认。
-
 59. **`minmax(0, 0px)` 不是可插值的长度**：做「右侧栏收起、左边铺满」的过渡时，`grid-template-columns` 从 `minmax(0,1fr) 330px` 变到 `minmax(0,1fr) minmax(0,0px)`，Chrome 只把 `gap` 插值了，第二列会中途一次性跳到 0（采样能看到 674/330 → 1013/0 的断档）。两端都写成定长（`330px` ↔ `0px`）才会真正逐帧插值。另外 0 宽轨道里的内容照旧会画出来，`overflow: hidden` 不能省。
 60. **不可逆的操作，行内一个按钮都别留**：并排的小图标（皇冠、×）看着方便，但鼠标扫过、触摸板误触都能点到，而且它们和「拖拽句柄」挤在同一行。把入口收进右键菜单 + 中心弹窗确认，误触概率能从「偶尔发生」降到「几乎为零」。代价是发现性：必须配一句显式提示（表头的小胶囊），否则用户根本不知道有右键菜单。弹窗里 `tone=danger` 时把焦点放在「取消」上，回车不会替你确认。
 61. **通知要按「谁真的关心」发，不要按「谁在团队里」发**：换部门负责人给全团队 47 人各推一条，等于制造 47 条噪音；只给新负责人推一条，部门成员又不知道以后找谁。判据是 `substr(n.path, 1, length(?)) = ?`（path 前缀），取该节点整棵子树的在职成员；被替换的人额外补一条「你不再是负责人」，否则他还以为自己在管。
+62. **`@blur` 会抢在按钮的 `@click` 之前跑**：行内输入（新建下级、重命名）把「失焦即结束」写进 `@blur` 之后，点「确定」会先让 input 失焦 → 状态被清空 → 等 `click` 真正触发时 `saveAdd` 读到 `addingParentId === undefined` 直接 return。现象是「点确定毫无反应，但回车能建」。凡是会触发失焦副作用的行内表单，按钮都要挂 `@mousedown.prevent`（阻止默认的焦点转移），顺序才会是 click 生效、blur 被挡在外面。
+63. **解析粘贴的手机号列表，别按分隔符切列**：Excel 粘出来可能用逗号、制表符，用户手打可能只用空格，还有人把姓名写在前面。直接在整行里正则找 `1[3-9]\d{9}`、剩下文字当姓名，三种写法通吃；表头行（「手机号,姓名」）因为找不到手机号被自然丢掉，不用专门判断第一行。去重放在解析之后按手机号做。
+64. **国内 Excel 另存的 CSV 是 GBK**：`FileReader.readAsText(file, 'utf-8')` 读出来姓名全是乱码。改读 ArrayBuffer，先 `new TextDecoder('utf-8').decode()`，结果里出现 `\ufffd` 再退回 `TextDecoder('gbk')` 重解一次。反过来导出模板必须加 `\ufeff` BOM，否则 Excel 打开同样乱码。
+65. **`sort` 是稳定的，不用自己造二级排序**：ES2019 之后 `Array.prototype.sort` 保证稳定，所以「负责人置顶」只需按 `isDeptLead` 比一次，同权重的成员原样保留后端 `ORDER BY joined_at` 的顺序，不需要再拿加入时间做二级 key。副作用也值得记住：先按时间排、再按布尔排，结果依然可预期。
+66. **hover 才出现的操作，记得给「确认态」留后门**：把行内按钮设成 `opacity:0`、`.row:hover` 才显示之后，点「解除」弹出的行内确认块如果还遵守这条规则，鼠标一移到确认按钮上就可能离开原行、整块又淡出，用户会以为点了没反应。单独给确认态加 `.is-confirm { opacity: 1 }`，并且别用 `visibility:hidden`（隐藏期间不能聚焦，键盘用户完全够不着）。
+67. **面板看不见，先别怀疑 z-index，看祖先裁切**：`PeoplePicker` 的面板曾经 `position:absolute; z-index:60` 嵌在卡片里，DOM 里能查到、矩形也落在视口内，但元素截图整块全白——被祖先的滚动容器 / 层叠上下文裁掉了。正解是 Teleport 到 body + `position:fixed`，坐标从触发器的 `getBoundingClientRect()` 现算，左右都 clamp 到视口内（`GnSelect` / `GnCascader` 已经是这个模式）。排查这类问题时用「元素截图」比看 boundingBox 靠谱：矩形正确不等于画出来了。
+68. **自己生成 Office 文件不用引第三方库**：xlsx / docx 本质是 zip，`fflate` 已在依赖里，写几个最小 XML 部件（xlsx 的 `[Content_Types].xml` + workbook + sheet + styles，docx 的 document.xml）就能产出 Excel / Word 都能打开的模板；解析侧用 `DOMParser` + `getElementsByTagNameNS('*', name)` 兼容带前缀的标签。重点是 `Blob` 只收 `ArrayBuffer` 视图：`zipSync()` 返回的 `Uint8Array<ArrayBufferLike>` 在 TS 5.9 下不能直接塞进 Blob，用 `bytes.slice().buffer as ArrayBuffer`（和 `exportSpaceZip` 一致）。
+69. **导入先预览，不等于导入就写入**：文件解析完直接改 textarea，用户根本没机会看到「哪几行被判重、哪几行解析失败」。把预览做成宽版确认弹窗、逐行标状态，确认后只载入可导入行；真正写库仍由原来的「建号并加入」按钮触发。手机号的判重要分层说清楚：文件内重复 / 已在团队 = 跳过，已有平台账号 = 直接入组（不是错误），不然用户会把「账号已存在」当成失败反复重试。
+70. **换主色要同时管明暗两套值**：只把 `--gn-accent` 写成单一色值，切到暗色主题后主色还是亮色版的深蓝，在深底上几乎看不见。`ACCENT_PRESETS` 每个颜色给 `light/lightSoft/dark/darkSoft` 四值，`applyAccent()` 读当前 `store.theme` 再写根节点内联变量；`applyTheme()` 必须也调一次，否则切换明暗时内联变量会盖住 CSS 里的暗色默认值。偏好存 meta，启动时先恢复主色再套主题。
+71. **Teleport 出去的面板要同时排除「面板内点击」**：`PeoplePicker` 把面板 Teleport 到 body 后，文档级捕获的 `onDocDown` 只判断 `rootRef.contains(target)`，点面板里的团队 tab 会被当成点外部，先 `open=false` 把面板卸载，click 根本没机会派发——用户看到「点 tab 下拉就没了」。修法是给面板加 `panelRef`，外部判断同时排除它；GnSelect / GnCascader 早就是这么写的，新增 Teleport 组件别漏。
+72. **「不能删除」要在前后端各拦一次**：前端把删除图标置灰并 tooltip 说明原因，只是体验；后端 `DELETE /friends/groups/:id` 必须数一次组内人数，非空直接 409，否则绕过 UI 的调用会让好友悄悄回落到未分组。同理，整组迁移要在事务里先搬人再删组，默认组被迁走时把目标组接任默认。
+73. **别让禁用按钮承担 tooltip**：`disabled` 的 button 在部分浏览器不派发 `mouseenter`，提示永远出不来。给图标套一层 `<span v-tooltip>`，禁用状态放在内层 button 上；另外弹窗里的 `GnSelect` 面板默认 z-index 1200，会被 `GnConfirm` 的 3000 遮罩盖住，需要 `zIndex` prop 抬到 3100。
+74. **内部哨兵值不能当表单初始值**：`UNGROUPED = '__none__'` 这类只在前后端之间传的标记，一旦被塞进 `v-model` 而没有对应选项，`GnSelect` 的 label 计算（`find(...)?.label ?? modelValue`）会把原始字符串原样显示给用户，看到的就是 `__none__`。给选择器设初值时必须与 `options` 做交集校验，或者像这里一样直接从真实数据里挑，别图省事复用「默认值」计算属性。
+75. **实时搜索必须配防抖 + 序号**：输入即搜若每次敲键都发请求，既压后端又会让「先发的后回」覆盖最新结果。300ms 防抖把连续输入合成一次，再加一个单调递增的请求序号，只有 `seq === searchSeq` 的响应才允许落地；清空和卸载时都要清定时器、递增序号，避免残留回调把结果又写回来。
+76. **「解析成可编辑文本」和「执行导入」必须是两个动作**：选文件只负责把 Excel / Word / CSV 转成文本填进 textarea，并给出解析概览让用户校验修改；真正的写库只在用户点「开始导入」时发生。复用已有的 `readMemberFile()` 处理多格式，不要为新入口重写一套解析。验证时特别确认「选完文件但没点按钮」这一步后端数据零变化。
+77. **「取消默认」和「没有默认」是两件事**：早期实现里 `isDefault:false` 会立刻挑一个组补上默认，用户点了取消看起来什么都没发生，后来又在 `defaultGroupId()` 里回落到第一个组，导致新建好友还是悄悄落进某个组。真正取消默认后应当**没有任何默认组**——把「显式默认」和「兜底选组」拆成两个函数：`defaultGroupId()` 只认 `is_default=1`，`firstGroupId()` 才按排序取第一个，且只在「删除组 / 迁移组」这种必须指定继任者的场景调用。新好友没选组就落未分组，不要替用户猜。
+78. **搜索框的语义要跟页面主对象对齐**：顶部搜索框紧贴着「我的好友」列表，用户预期是筛这个列表；把它接去全平台用户搜索既不符合预期，又让「加好友」这条主路径被挤到搜索框里。正确拆法是：搜索框只做本地过滤（对已有数据 computed 即可，无需防抖和请求序号），全平台搜索挪进独立的「加好友」面板。
+79. **非空断言只是编译期的**：`target!.id` 在 `target` 运行时为 null 时照样抛 `TypeError`。迁移到「未分组」的分支里目标组本来就不存在，必须写 `target ? target.id : NONE_GROUP`，别用 `!` 掩盖。写完这类分支后一定要用真实请求打一遍——前端「看起来成功」但接口 500 的情况，事务已提交、数据已改，只有看服务端日志才能发现。
+80. **flex 里的块级包装元素会带一条匿名行盒**：`.tm-format` 是 `<div>`（块级）却只为了给按钮加一个定位上下文，它自身那条行盒把里面的按钮整体往下顶，与同行兄弟按钮错位。改成 `display:inline-flex; align-items:center` 即可去掉多余行盒；凡是「只为了定位/包裹而存在」的 div，都要确认它不是块级。
+81. **密码是单向哈希，导不出明文也别试图反解**：`users.password_hash` 存的是 `scrypt$salt$hash`，不可逆。`scripts/export-accounts.mjs` 的做法不是破解，而是**用候选口令逐个校验**——本项目的账号密码有确定规律（种子账号固定口令、团队批量建号「账号=初始密码=手机号」、管理员默认 `admin123`），一张候选表就能 100% 命中。写这类导出脚本时：① 只读打开库，不要用 `node:sqlite` 的写模式去跑探测；② 候选表要覆盖「通用弱口令 + 账号本身 + 手机号 + 昵称」四类派生；③ 命中不了时**不要静默写一个假密码**，要么留空、要么显式 `--reset` 让用户知情后重置。
 
 
 ---
@@ -636,3 +714,17 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 5. 如发现新的模块分层异常，在文末追加提醒
 
 手动修改后，请把修改合并到 skill 的输出流程中，保证下次 skill 运行不会覆盖你的手写补充。
+
+### 本地测试账号速查
+
+需要「切换到某个账号验证逻辑」时，不要手抄账号密码，跑导出脚本：
+
+```bash
+node scripts/export-accounts.mjs
+```
+
+产物 `server/data/账号清单.xlsx` 含账号、密码、昵称、角色、手机号、邮箱，以及自建空间数 / 加入空间数 / 好友数 / 未读通知 / 注册时间，方便挑一个「有好友有空间」的角色测好友分组、团队权限这类联动逻辑。
+
+⚠️ 该文件含**明文密码**，仅限本地开发库使用，不要提交进 Git（`server/data/` 已在忽略列表内），也不要外发。
+
+密码规律备忘：管理员 `admin123`；种子演示账号 `demo1234`；团队批量建号的账号密码与手机号相同。
