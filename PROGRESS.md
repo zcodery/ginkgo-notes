@@ -328,6 +328,7 @@ ginkgoNotes/
 | 142 | 透明 PNG 头像不再变黑底 | ✅ | 用户上传透明 PNG 头像后背景变黑。根因：`ProfileView.shrinkImage` 重绘到 canvas 后**硬编码** `toDataURL('image/jpeg', 0.86)`，JPEG 无 alpha 通道，透明像素被烧成黑色；后端本来已允许 `data:image/png`。修复两层：① 转换层——用 `getImageData` 扫 alpha 通道，含透明像素（或读不到像素）则导出 PNG 保住透明，否则仍走 JPEG 省体积；② 显示层——各级头像容器（`.ua/.pc-avatar/.sb-avatar/...`）都有实色底用于无图时首字母占位，全局加 `:is(...):has(> img){background:transparent!important}` 让有图时底色让位、透明区透出页面。新增隔离 mock E2E `e2e-avatar-alpha.mjs` 8/8（透明→PNG 且解码后确有 alpha<255、不透明→JPEG、头像容器背景 computed 透明，零真实写操作）（陷阱 115） |
 | 143 | 团队邀请条在矮视口被压扁裁切 | ✅ | 用户截图反馈：团队页顶部「待你处理的团队邀请」绿条只露出标题一行，下面的邀请人行和接受/拒绝按钮被裁掉（「看不全面」）。根因：宽屏媒体查询 `@media(min-width:1180px)` 把 `.tm-main` 设为纵向 flex、`.tm-cols{flex:1 1 auto}`，而邀请条 `.tm-invite-inbox` 带 `overflow:hidden`，使其默认 `min-height:auto` 解析为 0 → 作为可收缩项在团队内容撑高时被压扁（视口越矮越明显；此前 E2E 只 mock 个人空间、视口 950 高，没触发）。修复：给 `.tm-invite-inbox` 加 `flex:0 0 auto` 不收缩，按内容自然高度显示，高度不足由团队内容区内部滚动消化。E2E `e2e-team-invite.mjs` 强化为「已加入团队 + 8 节点 + 1500×560 矮视口」场景，新增 3 条几何断言（未被裁切 / 邀请行完整落在条内 / 接受按钮完整可见），修复前 3 红、修复后 20/20（陷阱 116） |
 | 144 | 管辖范围外成员权限位去掉横杠占位 | ✅ | 用户截图反馈：成员列表里越界成员右侧的「—」不要显示，直接空着右边。改动：`TeamsView` 成员行 `v-else`（`m.role` 为空 = 不在管辖范围）的占位 span 从 `>—</span>` 改为 `></span>`，文本留空、宽度塌陷为 0 不可见；保留 `.tm-tag-masked` class 与 tooltip（语义与既有 `e2e-scope.mjs` 的占位符断言不受影响），不暴露对方权限信息的行为不变。可见成员的角色标签照常显示。新增隔离 mock E2E `e2e-masked-placeholder.mjs` 6/6（占位元素仍在 / 文本为空无横杠 / 可见成员标签正常 / 无 JS 异常，零真实写操作） |
+| 145 | 圆形数字徽标数字居中 | ✅ | 用户截图反馈：「待接受邀请」旁的圆形徽标里数字「1」偏下、不在圆中间。根因：`.tm-count` 只设了 `min-width/padding/border-radius`，是普通 inline 元素，数字按行基线排布会偏下；而顶部邀请条的 `.tm-inbox-count` 早已用 `inline-flex`+居中，两个类不一致。修复：给 `.tm-count` 补 `display:inline-flex; align-items:center; justify-content:center; height:18px; line-height:1`（三处复用：组织架构数 / 成员数 / 待接受邀请数一并修好）。新增隔离 mock E2E `e2e-count-badge.mjs` 4/4——用 `Range.getBoundingClientRect` 精确量文本包围盒相对徽标的偏移，dx=dy=0 才算居中（陷阱 117） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -615,6 +616,7 @@ ginkgoNotes/
 | 127 | `e358d27` | fix(avatar) | 透明 PNG 头像保留 alpha：上传含透明导出 PNG、不含则 JPEG，头像容器有图时背景透明；隔离 mock E2E 8/8 |
 | 128 | `969ac9c` | fix(team) | 邀请条在宽屏矮视口下不再被 flex 压扁裁切：`.tm-invite-inbox` 加 `flex:0 0 auto`；E2E 补 3 条几何断言并强化场景，20/20 |
 | 129 | `353773a` | fix(team) | 管辖范围外成员权限位去掉横杠占位、改为留空；隔离 mock E2E 6/6 |
+| 130 | `707a0c5` | fix(team) | 圆形数字徽标 `.tm-count` 补 flex 双向居中 + 固定高度，数字不再偏下；Range 几何居中断言 E2E 4/4 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
@@ -1017,6 +1019,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 115. **图片压成 data URL 时，别把透明图硬导出 JPEG —— alpha 通道会被烧成黑色**。用户上传透明 PNG 头像后背景变黑，根因是 `shrinkImage` 一律 `toDataURL('image/jpeg', 0.86)`：JPEG 没有 alpha，透明像素直接变黑。**转换层**修法：重绘后 `getImageData` 扫 alpha 通道，任一像素 `a<255` 就导出 `image/png`（后端白名单要允许 png），否则仍导出 jpeg 省体积；`getImageData` 抛错（跨域污染等）时保守走 PNG。别用「文件扩展名是不是 .png」判断——扩展名不代表真的有透明像素，也可能 PNG 全不透明。**显示层**别漏：头像容器为了无图时的首字母占位都有实色底（`var(--gn-accent)` 等），转成 PNG 后透明区仍会透出主色块，要 `:is(...):has(> img){background:transparent!important}` 在有图时撤掉底色，才能真透出页面。**验证**：把导出的 data URL 塞回 canvas 读 alpha 通道断言确有 `a<255`，光断言 `startsWith('data:image/png')` 不够。另注：本次 3100 dev server 返回的 style.css 模块是空的（tailwind 插件链路），全局样式要在构建产物预览里验，别被 dev 的空 CSS 误判成规则没写对。
 
 116. **flex 纵向布局里，带 `overflow:hidden` 的「顶部提示条」要显式 `flex:0 0 auto`，否则会被内容区压扁裁切**。用户截图：团队页顶部「待你处理的团队邀请」绿条只剩标题，邀请人行和接受/拒绝按钮不见了。根因不是渲染逻辑（卡片明明渲染了，E2E 里 `locator` 都数得到），而是布局：宽屏 `@media(min-width:1180px)` 把 `.tm-main` 变成纵向 flex、内容区 `.tm-cols{flex:1 1 auto;min-height:0}`；邀请条 `.tm-invite-inbox` 用 `overflow:hidden` 做圆角裁切，而 CSS 规范里 **`overflow:hidden` 会让 flex item 的 `min-height:auto` 解析成 0**（不再是内容最小高度），于是它沦为可无限收缩项，被内容区挤到只剩一行。视口越矮越明显。**修法**：给这类「固定头部 / 提示条」加 `flex:0 0 auto`（或 `flex-shrink:0`），让它按内容自然高度占位，剩余空间与滚动交给 `flex:1 1 auto;min-height:0` 的内容区。**排查范式**：用户说「内容被裁 / 看不全」但 DOM 里元素都在 → 先量 `el.clientHeight` vs `el.scrollHeight`（`clientHeight < scrollHeight` 就是被裁），再看父容器是不是 flex、该项有没有被压。**测试教训**：首个 E2E 用 950px 高视口、只 mock 个人空间（无 `.tm-cols`），完全没触发；必须还原「有内容区 + 矮视口」的真实组合，并用几何断言（行/按钮的 `getBoundingClientRect` 是否落在条内）而非单纯的 `count()` 才能抓到。
+
+117. **圆形数字徽标要让数字真正居中，别只靠 `min-width + padding + border-radius`**。用户截图：「待接受邀请」旁圆徽标里数字「1」偏下、不在圆心。根因：`.tm-count` 是普通 inline 元素，数字按**行基线**排布，而圆角胶囊设了 padding 后行盒与视觉圆心不重合 → 数字下沉；同文件里 `.tm-inbox-count` 早就用 `inline-flex + align-items:center + justify-content:center + line-height:1` 做对了，两个同类徽标样式不一致。**修法**：圆形/胶囊数字徽标统一 `display:inline-flex; align-items:center; justify-content:center; height:18px; line-height:1`；一处改完全部复用点（组织架构数 / 成员数 / 待接受邀请数）一起修好。**验证**：别只看 computed 的 `align-items`（写了 center 不代表真的居中，inline 元素基线会破坏），用 `Range.selectNodeContents(el).getBoundingClientRect()` 量文本包围盒中心与徽标中心的偏移 `dx/dy`，`≤1.5px` 才算真居中。（另：computed style 里 `inline-flex` 会被归一化成 `flex`，断言要兼容 `flex`。）
 
 ---
 
