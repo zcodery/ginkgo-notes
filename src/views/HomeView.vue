@@ -17,8 +17,8 @@ import ActivityCalendar from '@/components/home/ActivityCalendar.vue'
 import StatCards from '@/components/home/StatCards.vue'
 import QuickStart from '@/components/home/QuickStart.vue'
 import ActivityHeatmap from '@/components/home/ActivityHeatmap.vue'
-import { t } from '@/i18n'
-import { locale } from '@/i18n'
+import { t, locale, LOCALES } from '@/i18n'
+import type { Page } from '@/types'
 import { userState } from '@/userState'
 import { QUICK_TEMPLATES, todayStamp } from '@/home/templates'
 import { importFiles, exportBackup } from '@/home/backup'
@@ -125,9 +125,40 @@ async function createBlank() {
   goToPage(page.id)
 }
 
+/**
+ * 今天已经由快捷模板生成的页面，按模板 id 索引。
+ *
+ * 判定条件是「标题匹配 + 今天创建」，不能用「正文与模板一致」——
+ * 用户往往已经在模板里写了内容，正文早就变了；也不能只看标题，
+ * 否则「深度思考」这类不带日期的模板隔天就再也建不了新的。
+ * 标题同时比对三种语言，切换界面语言后仍认得出昨天/今天那篇。
+ */
+const todayTemplatePages = computed(() => {
+  const out = new Map<string, Page>()
+  const stamp = todayStamp(locale.value)
+  const today = dayKey(Date.now())
+  const todayCreated = store.pages.filter(
+    (p) => !p.trashed && dayKey(p.createdAt) === today,
+  )
+  for (const tpl of QUICK_TEMPLATES) {
+    const titles = new Set(LOCALES.map((l) => tpl.title[l.code](stamp)))
+    const hit = todayCreated
+      .filter((p) => titles.has(p.title.trim()))
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
+    if (hit) out.set(tpl.id, hit)
+  }
+  return out
+})
+
 async function createFromTemplate(id: string) {
   const tpl = QUICK_TEMPLATES.find((x) => x.id === id)
   if (!tpl) return
+  // 同一模板一天只生成一篇：已存在就直接打开，不再造一篇重复的
+  const existing = todayTemplatePages.value.get(id)
+  if (existing) {
+    goToPage(existing.id)
+    return
+  }
   const stamp = todayStamp(locale.value)
   const page = await createPage({
     title: tpl.title[locale.value](stamp),
@@ -249,7 +280,10 @@ function timeAgo(ts: number) {
           </div>
 
           <div class="dh-col dh-col-right">
-            <QuickStart :create="createFromTemplate" />
+            <QuickStart
+              :create="createFromTemplate"
+              :existing="[...todayTemplatePages.keys()]"
+            />
             <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
           </div>
 

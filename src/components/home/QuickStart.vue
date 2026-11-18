@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { BookOpen, Compass, Repeat, Zap } from 'lucide-vue-next'
+import { BookOpen, Check, Compass, Repeat, Zap } from 'lucide-vue-next'
 import { QUICK_TEMPLATES } from '@/home/templates'
 import { locale, t } from '@/i18n'
 // 想换成自己的图，替换 src/assets/home-hero.jpg（同时重新导出 .webp）即可
@@ -8,9 +8,11 @@ import { locale, t } from '@/i18n'
 import heroBgWebp from '@/assets/home-hero.webp'
 import heroBgJpg from '@/assets/home-hero.jpg'
 
-defineProps<{
+const props = defineProps<{
   /** 创建模板笔记 */
   create: (id: string) => void
+  /** 今天已经生成过的模板 id：按钮打勾，点击直接打开已有笔记 */
+  existing: string[]
 }>()
 
 const ICONS = { notebook: BookOpen, repeat: Repeat, compass: Compass, zap: Zap }
@@ -41,6 +43,7 @@ const templates = computed(() =>
     ...tpl,
     icon: ICONS[tpl.icon],
     text: tpl.label[locale.value],
+    exists: props.existing.includes(tpl.id),
   })),
 )
 </script>
@@ -66,9 +69,12 @@ const templates = computed(() =>
           v-for="tpl in templates"
           :key="tpl.id"
           class="qs-btn"
+          :class="{ 'is-existing': tpl.exists }"
+          v-tooltip="tpl.exists ? t('home.quickOpenExisting') : tpl.text"
           @click="create(tpl.id)"
         >
-          <component :is="tpl.icon" :size="13" :stroke-width="2" />
+          <Check v-if="tpl.exists" :size="13" :stroke-width="2.4" />
+          <component :is="tpl.icon" v-else :size="13" :stroke-width="2" />
           <span>{{ tpl.text }}</span>
         </button>
       </div>
@@ -200,6 +206,15 @@ const templates = computed(() =>
 }
 .qs-btn:first-child:hover {
   background: color-mix(in srgb, var(--gn-accent) 86%, var(--gn-text));
+  color: var(--gn-accent-ink);
+}
+/* 今天已生成：打勾 + 强调色描边，点它只是打开已有笔记，不会再建一篇 */
+.qs-btn.is-existing {
+  border-color: color-mix(in srgb, var(--gn-accent) 65%, transparent);
+  color: var(--gn-accent);
+}
+.qs-btn.is-existing:first-child {
+  background: color-mix(in srgb, var(--gn-accent) 80%, var(--gn-bg));
   color: var(--gn-accent-ink);
 }
 /**
