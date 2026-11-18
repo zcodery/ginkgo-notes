@@ -21,13 +21,16 @@ import GnConfirm from '@/components/GnConfirm.vue'
 import PeoplePicker from '@/components/PeoplePicker.vue'
 import OrgTree from '@/components/OrgTree.vue'
 import {
+  acceptInvite,
   checkMemberPhones,
   createSpace,
+  declineInvite,
   errorText,
   getSpaceOrg,
   importOrg,
   inviteToSpace,
   listFriends,
+  listMyInvites,
   listSentFriendRequests,
   listSpaceInvites,
   listSpaces,
@@ -40,6 +43,7 @@ import {
   type OrgImportResult,
   type OrgNodeInfo,
   type SpaceInfo,
+  type SpaceInviteInfo,
   type SpaceMemberInfo,
 } from '@/api/features'
 import { goHome, reloadPages, reloadSpaces, store, switchSpace } from '@/store'
@@ -54,7 +58,10 @@ const spaces = ref<SpaceInfo[]>([])
 const current = ref<SpaceInfo | null>(null)
 const nodes = ref<OrgNodeInfo[]>([])
 const members = ref<SpaceMemberInfo[]>([])
+/** 我发出的、待对方接受的邀请（管理员视角） */
 const pending = ref<{ id: string; invitee: SpaceMemberInfo | null; role: string; orgNodeId: string }[]>([])
+/** 别人发出的、待我处理的邀请（被邀请人视角）——好友点通知进团队页后要看到的就是这一块 */
+const myInvites = ref<SpaceInviteInfo[]>([])
 /** 邀请候选里要排除的人：已经在团队里的成员 */
 const memberUsernames = computed(() => members.value.map((m) => m.username))
 const loading = ref(true)
@@ -186,6 +193,37 @@ async function run(fn: () => Promise<void>) {
 
 async function refreshSpaces() {
   spaces.value = await listSpaces()
+}
+
+/** 拉取待我处理的邀请；失败不阻塞团队页渲染（后端老版本可能没有该接口） */
+async function refreshMyInvites() {
+  try {
+    myInvites.value = await listMyInvites()
+  } catch {
+    myInvites.value = []
+  }
+}
+
+/** 接受邀请：加入空间 → 刷新空间列表 → 自动切到刚加入的团队 */
+function acceptMyInvite(inv: SpaceInviteInfo) {
+  return run(async () => {
+    const { spaceId } = await acceptInvite(inv.id)
+    myInvites.value = myInvites.value.filter((x) => x.id !== inv.id)
+    await refreshSpaces()
+    await reloadSpaces()
+    const joined = spaces.value.find((s) => s.id === spaceId)
+    if (joined) await load(joined)
+    flash(`已加入「${inv.spaceName}」`)
+  })
+}
+
+/** 拒绝邀请：只从待处理列表移除，不改动成员关系 */
+function declineMyInvite(inv: SpaceInviteInfo) {
+  return run(async () => {
+    await declineInvite(inv.id)
+    myInvites.value = myInvites.value.filter((x) => x.id !== inv.id)
+    flash(`已拒绝「${inv.spaceName}」的邀请`)
+  })
 }
 
 /**
@@ -983,6 +1021,7 @@ onMounted(async () => {
   try {
     await refreshSpaces()
     await reloadSpaces()
+    await refreshMyInvites()
     // 优先打开第一个团队；没有团队时退到个人空间，避免主区整片空白
     const initial = spaces.value.find((s) => s.type === 'team') ?? spaces.value[0]
     if (initial) await select(initial)
@@ -1041,7 +1080,34 @@ onBeforeUnmount(() => {
       <main class="tm-main">
         <div v-if="loading" class="tm-empty">加载中…</div>
 
-        <template v-else-if="current && current.type === 'team'">
+        <template v-else>
+        <!-- 待我处理的团队邀请：好友点通知跳进来的落点，必须一眼能看到接受/拒绝 -->
+        <section v-if="myInvites.length" class="tm-invite-inbox">
+          <div class="tm-inbox-head">
+            <UserPlus :size="14" />
+            <span>待你处理的团队邀请</span>
+            <span class="tm-inbox-count">{{ myInvites.length }}</span>
+          </div>
+          <div v-for="inv in myInvites" :key="inv.id" class="tm-inbox-row">
+            <span class="tm-inbox-avatar">{{ (inv.from.name || inv.from.username || '?').slice(0, 1) }}</span>
+            <div class="tm-inbox-info">
+              <div class="tm-inbox-title">
+                <b>{{ inv.from.name || inv.from.username }}</b> 邀请你加入 <b>{{ inv.spaceName }}</b>
+              </div>
+              <div class="tm-inbox-meta">角色：{{ roleLabel(inv.role) }}</div>
+            </div>
+            <div class="tm-inbox-actions">
+              <button type="button" class="tm-btn primary" :disabled="busy" @click="acceptMyInvite(inv)">
+                <Check :size="13" />接受
+              </button>
+              <button type="button" class="tm-btn" :disabled="busy" @click="declineMyInvite(inv)">
+                <X :size="13" />拒绝
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <template v-if="current && current.type === 'team'">
           <header class="tm-head">
             <div class="tm-head-text">
               <div class="tm-head-line">
@@ -1393,6 +1459,7 @@ onBeforeUnmount(() => {
             <Plus :size="13" />新建团队
           </button>
         </div>
+        </template>
 
         <p v-if="err" class="tm-err">{{ err }}</p>
       </main>
@@ -2100,6 +2167,85 @@ onBeforeUnmount(() => {
   margin-top: 4px;
   padding-top: 8px;
   border-top: 1px dashed var(--gn-border);
+}
+
+/* ---------- 待我处理的邀请（收件箱，主区顶部醒目条） ---------- */
+.tm-invite-inbox {
+  margin-bottom: 14px;
+  border: 1px solid var(--gn-accent);
+  border-radius: 10px;
+  background: var(--gn-accent-soft, var(--gn-bg-hover));
+  overflow: hidden;
+}
+.tm-inbox-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gn-accent);
+  border-bottom: 1px solid var(--gn-border);
+}
+.tm-inbox-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: var(--gn-accent);
+  color: var(--gn-accent-ink, #fff);
+  font-size: 11px;
+  line-height: 1;
+}
+.tm-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+}
+.tm-inbox-row + .tm-inbox-row {
+  border-top: 1px solid var(--gn-border);
+}
+.tm-inbox-avatar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--gn-bg);
+  color: var(--gn-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.tm-inbox-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.tm-inbox-title {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--gn-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-inbox-title b {
+  color: var(--gn-accent);
+}
+.tm-inbox-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--gn-text-muted);
+}
+.tm-inbox-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
 }
 
 /* ---------- 邀请区 ---------- */
