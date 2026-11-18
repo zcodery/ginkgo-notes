@@ -97,6 +97,7 @@ export default {
     dashboardTitle: '写作仪表盘',
     dashboardEyebrow: '写作仪表盘',
     dashboardDate: '{y}-{m}-{d} 周{w}',
+    quickOpenExisting: '今天已生成，点击直接打开',
     activity: '本月活跃',
     activeDays: '本月 {n} 天有记录',
     bioEmpty: '写点什么介绍自己',

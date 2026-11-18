@@ -99,6 +99,7 @@ const zhTW: Messages = {
     dashboardTitle: '寫作儀表盤',
     dashboardEyebrow: '寫作儀表盤',
     dashboardDate: '{y}-{m}-{d} 週{w}',
+    quickOpenExisting: '今天已產生，點擊直接開啟',
     activity: '本月活躍',
     activeDays: '本月 {n} 天有記錄',
     bioEmpty: '寫點什麼介紹自己',

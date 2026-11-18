@@ -100,6 +100,7 @@ const en: Messages = {
     dashboardTitle: 'Writing dashboard',
     dashboardEyebrow: 'Writing dashboard',
     dashboardDate: '{y}-{m}-{d} {w}',
+    quickOpenExisting: 'Created today · click to open',
     activity: 'This month',
     activeDays: '{n} active days this month',
     bioEmpty: 'Say something about yourself',
