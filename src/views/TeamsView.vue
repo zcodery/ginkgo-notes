@@ -1310,9 +1310,26 @@ onBeforeUnmount(() => {
 
                 <div v-if="visiblePending.length" class="tm-pending">
                   <div class="tm-subtitle">待接受邀请<span class="tm-count">{{ visiblePending.length }}</span></div>
+                  <!-- 待接受的行跟上面的正式成员保持同一套结构（头像 + 名字 + @用户名 + 角色），
+                       否则左边没有头像、名字缩进对不齐，看起来像是没渲染完 -->
                   <div v-for="p in visiblePending" :key="p.id" class="tm-member is-pending">
-                    <div class="tm-member-main">{{ p.invitee?.name || p.invitee?.username || p.id }}</div>
-                    <span class="tm-tag">{{ p.role }}</span>
+                    <!-- 成员行有拖拽手柄占位（10px），待接受行不可拖拽，补一个等宽空占位才能左对齐 -->
+                    <span class="tm-grip-ghost" aria-hidden="true"></span>
+                    <div class="tm-avatar tm-avatar-pending">
+                      {{ (p.invitee?.name || p.invitee?.username || '?').slice(0, 1) }}
+                    </div>
+                    <div class="tm-member-main">
+                      <div class="tm-member-name">
+                        <span class="tm-name-text">{{ p.invitee?.name || p.invitee?.username || p.id }}</span>
+                        <span class="tm-pending-chip" v-tooltip="'邀请已发出，等对方接受后才算加入团队'">
+                          待接受
+                        </span>
+                      </div>
+                      <div class="tm-member-sub">
+                        {{ p.invitee?.username ? '@' + p.invitee.username : '邀请已发出' }}
+                      </div>
+                    </div>
+                    <span class="tm-tag" v-tooltip="'对方接受后获得的角色'">{{ roleLabel(p.role) }}</span>
                   </div>
                 </div>
               </div>
@@ -2092,8 +2109,41 @@ onBeforeUnmount(() => {
 .tm-member:hover {
   background: var(--gn-bg-soft);
 }
+/* 待接受邀请：跟正式成员同一套排版，但用浅底 + 虚线头像 + 「待接受」小标签
+   表达「还没真正加入」，避免和已加入成员混在一起分不清 */
 .tm-member.is-pending {
+  margin-top: 4px;
+  background: var(--gn-bg-hover);
   color: var(--gn-text-soft);
+}
+.tm-avatar.tm-avatar-pending {
+  /* 浅底行上再用 accent-soft 会和底色糊在一起，改成纸白底 + 虚线描边，
+     一眼看出「还没加入」，同时字色压暗一点免得抢过已加入成员 */
+  background: var(--gn-bg);
+  border: 1px dashed var(--gn-border-strong);
+  color: var(--gn-text-soft);
+}
+/* 只占位、不可见：让待接受行与带拖拽手柄的成员行左边缘对齐 */
+.tm-grip-ghost {
+  width: 10px;
+  flex: 0 0 10px;
+  margin: 0 -5px 0 -3px;
+}
+.tm-pending-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 7px;
+  border: 1px solid var(--gn-accent-soft);
+  border-radius: 99px;
+  background: var(--gn-bg);
+  color: var(--gn-accent);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
 }
 .tm-member-main {
   flex: 1 1 auto;
