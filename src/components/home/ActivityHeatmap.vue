@@ -32,6 +32,7 @@ const weeks = computed(() => buildYearHeat(props.year, props.stats))
 /* ---------------- 自适应折行：让全年格子在当前列宽里完整显示 ---------------- */
 
 const scrollEl = ref<HTMLElement | null>(null)
+const cardEl = ref<HTMLElement | null>(null)
 /** 折行后每行周数（1 行时等于全年周数） */
 const perRow = ref(53)
 /**
@@ -42,13 +43,21 @@ const perRow = ref(53)
 const WRAP_CELL_H = 11
 /** 0 表示单行（正方形），>0 表示折行时的格子高度 */
 const wrappedCellH = ref(0)
+/**
+ * 卡片高度低于这个值时，月度区只剩 35px —— 标题 16px + 月份标签 14px
+ * 就把这点空间吃光，柱子被 flex 压成 0px（用户看到「柱状图不见了」）。
+ * 此时把标题挪到图的左侧，竖向空间全部留给柱子。
+ */
+const COMPACT_CARD_H = 340
+/** 卡片是否处于「高度紧张」状态（单行才有意义，折行时柱图本来就收起） */
+const compact = ref(false)
 
 /**
  * 根据容器实际宽度决定单行还是两行。
  * 只负责「行数 + 折行格子高度」：列宽交给 CSS 的 1fr 按容器实际宽度均分，
  * 这样网格永远铺满卡片、右侧不留白，也不会因为宽度不整除而横向裁切。
  */
-function relayout(width: number) {
+function relayout(width: number, cardH: number) {
   const n = weeks.value.length || 53
   const gapTotal = (cols: number) => (cols - 1) * GAP
 
@@ -57,6 +66,8 @@ function relayout(width: number) {
   if (oneCell >= CELL_MIN) {
     perRow.value = n
     wrappedCellH.value = 0
+    // 两栏布局下热力图独占整行、卡片变矮，启用紧凑月度区
+    compact.value = cardH > 0 && cardH < COMPACT_CARD_H
     return
   }
 
@@ -65,6 +76,7 @@ function relayout(width: number) {
   const twoCell = (width - WEEK_COL - gapTotal(half)) / half
   perRow.value = half
   wrappedCellH.value = Math.round(Math.min(WRAP_CELL_H, twoCell))
+  compact.value = false
 }
 
 /** 每段（一行）的网格数据：周列表 + 该行里的月份标签 */
@@ -96,12 +108,13 @@ const segments = computed(() => {
 let ro: ResizeObserver | null = null
 onMounted(() => {
   if (scrollEl.value) {
-    ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width
-      if (w) relayout(w)
+    ro = new ResizeObserver(() => {
+      const w = scrollEl.value?.clientWidth
+      if (w) relayout(w, cardEl.value?.clientHeight ?? 0)
     })
     ro.observe(scrollEl.value)
-    relayout(scrollEl.value.clientWidth)
+    if (cardEl.value) ro.observe(cardEl.value)
+    relayout(scrollEl.value.clientWidth, cardEl.value?.clientHeight ?? 0)
   }
 })
 onBeforeUnmount(() => {
@@ -149,7 +162,7 @@ function cellTitle(ts: number, count: number) {
 </script>
 
 <template>
-  <section class="ht-card" :class="{ 'is-wrapped': segments.length > 1 }">
+  <section ref="cardEl" class="ht-card" :class="{ 'is-wrapped': segments.length > 1, 'is-compact': compact }">
     <header class="ht-head">
       <div class="ht-title-wrap">
         <h3 class="ht-title">{{ t('home.heatTitle') }}</h3>
@@ -414,6 +427,24 @@ function cellTitle(ts: number, count: number) {
   flex: 1 1 auto;
   min-height: 0;
 }
+/* 卡片变矮时（两栏布局下热力图独占整行），月度区只剩 35px：
+   标题 16px + 月份标签 14px 就把空间吃光，柱子被压成 0px。
+   此时把标题挪到图的左侧，竖向空间全留给柱子 —— 卡片总高不变、页脚不裁切。 */
+.ht-card.is-compact .ht-months {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 8px;
+}
+.ht-card.is-compact .ht-months-head {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+}
+.ht-card.is-compact .ht-months-chart {
+  align-self: stretch;
+}
 .ht-months-head {
   display: flex;
   align-items: baseline;
@@ -453,7 +484,8 @@ function cellTitle(ts: number, count: number) {
      而不是「一排贴底的碎条 + 大片空白」 */
   width: 100%;
   max-width: 26px;
-  min-height: 0;
+  /* 兜底高度：卡片再矮也要留出能看见柱子的轨道，不能被 flex 压成 0px */
+  min-height: 16px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -463,6 +495,8 @@ function cellTitle(ts: number, count: number) {
 }
 .ht-mbar {
   width: 100%;
+  /* 零值月份也留一个可见的小方块，像贡献图的最小色阶 */
+  min-height: 3px;
   border-radius: 3px 3px 1px 1px;
   background: var(--gn-accent-soft);
 }
