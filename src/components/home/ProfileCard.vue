@@ -133,40 +133,43 @@ const todayKey = dayKey(Date.now())
 
 <template>
   <section class="pc-card">
-    <div class="pc-avatar">
-      <img v-if="avatar" :src="avatar" alt="" />
-      <span v-else>{{ initial }}</span>
-    </div>
+    <!-- 头部：头像 + 名字 + 简介合成一组，组内紧凑排布 -->
+    <div class="pc-head">
+      <div class="pc-avatar">
+        <img v-if="avatar" :src="avatar" alt="" />
+        <span v-else>{{ initial }}</span>
+      </div>
 
-    <h2 class="pc-name">{{ displayName || t('app.untitled') }}</h2>
+      <h2 class="pc-name">{{ displayName || t('app.untitled') }}</h2>
 
-    <div class="pc-bio">
-      <p v-if="!editing" class="pc-bio-text" :class="{ empty: !bio }" @click="startEdit">
-        {{ bio || t('home.bioEmpty') }}
-      </p>
-      <textarea
-        v-else
-        v-model="draft"
-        class="pc-bio-input"
-        rows="2"
-        maxlength="120"
-        :placeholder="t('home.bioPlaceholder')"
-        autofocus
-        @keydown.enter.exact.prevent="saveEdit"
-        @keydown.esc.prevent="cancelEdit"
-        @blur="saveEdit"
-      ></textarea>
-      <div v-if="editing" class="pc-bio-actions">
-        <button class="pc-bio-ok" :disabled="saving" @mousedown.prevent @click="saveEdit">
-          <Check :size="12" :stroke-width="2.4" />{{ t('home.bioSave') }}
-        </button>
-        <button class="pc-bio-cancel" @mousedown.prevent @click="cancelEdit">
-          <X :size="12" :stroke-width="2.2" />{{ t('home.bioCancel') }}
+      <div class="pc-bio">
+        <p v-if="!editing" class="pc-bio-text" :class="{ empty: !bio }" @click="startEdit">
+          {{ bio || t('home.bioEmpty') }}
+        </p>
+        <textarea
+          v-else
+          v-model="draft"
+          class="pc-bio-input"
+          rows="2"
+          maxlength="120"
+          :placeholder="t('home.bioPlaceholder')"
+          autofocus
+          @keydown.enter.exact.prevent="saveEdit"
+          @keydown.esc.prevent="cancelEdit"
+          @blur="saveEdit"
+        ></textarea>
+        <div v-if="editing" class="pc-bio-actions">
+          <button class="pc-bio-ok" :disabled="saving" @mousedown.prevent @click="saveEdit">
+            <Check :size="12" :stroke-width="2.4" />{{ t('home.bioSave') }}
+          </button>
+          <button class="pc-bio-cancel" @mousedown.prevent @click="cancelEdit">
+            <X :size="12" :stroke-width="2.2" />{{ t('home.bioCancel') }}
+          </button>
+        </div>
+        <button v-else class="pc-bio-edit" :title="t('home.bioEdit')" @click="startEdit">
+          <Pencil :size="11" :stroke-width="2" />
         </button>
       </div>
-      <button v-else class="pc-bio-edit" :title="t('home.bioEdit')" @click="startEdit">
-        <Pencil :size="11" :stroke-width="2" />
-      </button>
     </div>
 
     <div class="pc-links">
@@ -174,7 +177,7 @@ const todayKey = dayKey(Date.now())
         v-for="l in links"
         :key="l.key"
         class="pc-link"
-        :title="l.label"
+        v-tooltip="l.label"
         @click="l.run"
       >
         <component :is="l.icon" :size="15" :stroke-width="1.9" />
@@ -242,7 +245,10 @@ const todayKey = dayKey(Date.now())
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 撑满左栏高度，并让各块内容均匀铺开，卡片下方不留空洞 */
+  /* 各内容块均匀分布（沿用原有做法），卡片下方不留空洞。
+     头部三块已合并成 .pc-head 组，组内按 gap 紧凑排布 ——
+     之前它们是卡片的直接子元素，space-between 把空隙摊到了
+     「头像 → 名字」之间，那一段空得最刺眼。 */
   justify-content: space-between;
   gap: 10px;
   padding: 18px 16px 14px;
@@ -251,6 +257,22 @@ const todayKey = dayKey(Date.now())
   background: var(--gn-bg);
   flex: 1 1 auto;
   min-height: 0;
+}
+/**
+ * 头部组：头像、名字、简介合成一块。
+ *
+ * 之前这三块是卡片的直接子元素，卡片用 justify-content: space-between
+ * 把剩余高度平均摊到每个缝隙里 —— 头像底部到名字顶部就空出了 50 多像素，
+ * 看着像「上面空了一块」。合成一组后组内按 gap 紧凑排布，
+ * 剩余高度交给下面的柱状图。
+ */
+.pc-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex: 0 0 auto;
 }
 .pc-avatar {
   width: 76px;
@@ -374,6 +396,7 @@ const todayKey = dayKey(Date.now())
   gap: 6px;
   width: 100%;
   margin-top: 2px;
+  flex: 0 0 auto;
 }
 .pc-link {
   flex: 0 1 30px;
@@ -412,9 +435,15 @@ const todayKey = dayKey(Date.now())
 }
 .pc-activity {
   width: 100%;
-  margin-top: 6px;
+  margin-top: 2px;
   padding-top: 10px;
   border-top: 1px solid var(--gn-border);
+  /* 改成纵向 flex 容器：柱状图必须拿到一个「确定高度」，
+     里面的 height:% 才能解析出实际像素。
+     之前这里是普通块容器，父高度不定，30 根柱子全被压成 0 高，
+     图表整个是空的 —— 视觉上就是「本月活跃」下面一大块空白。 */
+  display: flex;
+  flex-direction: column;
   flex: 0 0 auto;
 }
 .pc-act-head {
@@ -434,10 +463,25 @@ const todayKey = dayKey(Date.now())
   letter-spacing: -0.01em;
 }
 .pc-bars {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 92px;
+  /* 固定绘图区高度：柱子必须在一个「确定高度」的容器里，
+     height:% 才解析得出来；同时不让它无限长高 ——
+     近 30 天往往只有几天有记录，柱子一高就是一孤零零的长条。 */
+  flex: 0 1 160px;
+  min-height: 92px;
+  /* 水平参考线：数据稀疏时，绘图区也是一张完整的图表画布，
+     而不是「两根柱子 + 一片空白」。线要淡，不能抢柱子的视线。 */
+  background-image: repeating-linear-gradient(
+    to top,
+    color-mix(in srgb, var(--gn-border) 60%, transparent) 0 1px,
+    transparent 1px 40px
+  );
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% 100%;
 }
 .pc-bar {
   flex: 1 1 0;
@@ -460,6 +504,7 @@ const todayKey = dayKey(Date.now())
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   margin-top: 2px;
+  flex: 0 0 auto;
 }
 .pc-stat {
   display: flex;
@@ -489,6 +534,7 @@ const todayKey = dayKey(Date.now())
   gap: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--gn-border);
+  flex: 0 0 auto;
 }
 .pc-year-label {
   font-size: 10.5px;

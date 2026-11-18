@@ -55,6 +55,11 @@ const monthClipId = `sc-clip-month-${uid}`
 
 <template>
   <section class="sc-wrap">
+    <!--
+      发布趋势：两张卡上下堆叠，各占满中栏宽度。
+      之前是左右并排（每张只有 165px 宽），折线图被压成窄条；
+      改成上下堆叠后折线横向铺满，数字在左、折线在右，卡片高度也更从容。
+    -->
     <div class="sc-grid">
       <article class="sc-card">
         <div class="sc-head">
@@ -66,25 +71,27 @@ const monthClipId = `sc-clip-month-${uid}`
             <template v-else>{{ t('home.flat') }}</template>
           </span>
         </div>
-        <div class="sc-num">{{ week.current }}</div>
-        <!-- key 绑路径数据：数据是异步到的，路径从空变成有值时整段 SVG 重建，动画重新播放一次 -->
-        <svg
-          :key="weekSpark.line"
-          class="sc-spark"
-          :viewBox="`0 0 100 ${TREND_H}`"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <clipPath :id="weekClipId">
-              <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
-            </clipPath>
-          </defs>
-          <g :clip-path="`url(#${weekClipId})`">
-            <path :d="weekSpark.area" class="sc-spark-area" />
-            <path :d="weekSpark.line" class="sc-spark-line" />
-          </g>
-        </svg>
-        <div class="sc-foot">{{ t('home.weekTrend') }}</div>
+        <div class="sc-main">
+          <span class="sc-num">{{ week.current }}</span>
+          <!-- key 绑路径数据：数据是异步到的，路径从空变成有值时整段 SVG 重建，动画重新播放一次 -->
+          <svg
+            :key="weekSpark.line"
+            class="sc-spark"
+            :viewBox="`0 0 100 ${TREND_H}`"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <clipPath :id="weekClipId">
+                <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
+              </clipPath>
+            </defs>
+            <g :clip-path="`url(#${weekClipId})`">
+              <path :d="weekSpark.area" class="sc-spark-area" />
+              <path :d="weekSpark.line" class="sc-spark-line" />
+            </g>
+          </svg>
+          <span class="sc-foot">{{ t('home.weekTrend') }}</span>
+        </div>
       </article>
 
       <article class="sc-card">
@@ -97,63 +104,55 @@ const monthClipId = `sc-clip-month-${uid}`
             <template v-else>{{ t('home.flat') }}</template>
           </span>
         </div>
-        <div class="sc-num">{{ month.current }}</div>
-        <svg
-          :key="monthSpark.line"
-          class="sc-spark"
-          :viewBox="`0 0 100 ${TREND_H}`"
-          preserveAspectRatio="none"
-        >
-          <defs>
-            <clipPath :id="monthClipId">
-              <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
-            </clipPath>
-          </defs>
-          <g :clip-path="`url(#${monthClipId})`">
-            <path :d="monthSpark.area" class="sc-spark-area" />
-            <path :d="monthSpark.line" class="sc-spark-line" />
-          </g>
-        </svg>
-        <div class="sc-foot">{{ t('home.monthTrend') }}</div>
+        <div class="sc-main">
+          <span class="sc-num">{{ month.current }}</span>
+          <svg
+            :key="monthSpark.line"
+            class="sc-spark"
+            :viewBox="`0 0 100 ${TREND_H}`"
+            preserveAspectRatio="none"
+          >
+            <defs>
+              <clipPath :id="monthClipId">
+                <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
+              </clipPath>
+            </defs>
+            <g :clip-path="`url(#${monthClipId})`">
+              <path :d="monthSpark.area" class="sc-spark-area" />
+              <path :d="monthSpark.line" class="sc-spark-line" />
+            </g>
+          </svg>
+          <span class="sc-foot">{{ t('home.monthTrend') }}</span>
+        </div>
       </article>
     </div>
 
+    <!--
+      收件箱 / 灵感清单 / 草稿箱：三条紧凑横条。
+      之前是三张竖排卡片，被拉伸到 200px 高后图标在顶、数字在中间、说明在底，
+      中间全是空的；横条排布每条只有一行高度，信息反而更清楚。
+    -->
     <div class="sc-mini">
-      <article class="sm-card">
-        <div class="sm-icon inbox">✉</div>
-        <div class="sm-body">
-          <div class="sm-num">{{ inbox.unread }}</div>
-          <div class="sm-label">{{ t('home.inbox') }}</div>
-        </div>
-        <div class="sm-extra">
-          <div>{{ t('home.inboxUnread', { n: inbox.unread }) }}</div>
-          <div>{{ t('home.inboxTotal', { n: inbox.total }) }}</div>
-        </div>
-      </article>
+      <div class="sm-card">
+        <span class="sm-icon inbox">✉</span>
+        <span class="sm-num">{{ inbox.unread }}</span>
+        <span class="sm-label">{{ t('home.inbox') }}</span>
+        <span class="sm-extra">{{ t('home.inboxUnread', { n: inbox.unread }) }} · {{ t('home.inboxTotal', { n: inbox.total }) }}</span>
+      </div>
 
-      <article class="sm-card">
-        <div class="sm-icon idea">✦</div>
-        <div class="sm-body">
-          <div class="sm-num">{{ idea.total }}</div>
-          <div class="sm-label">{{ t('home.ideas') }}</div>
-        </div>
-        <div class="sm-extra">
-          <div>{{ t('home.ideaTotal', { n: idea.total }) }}</div>
-          <div>{{ t('home.ideaPages', { n: idea.pages }) }}</div>
-        </div>
-      </article>
+      <div class="sm-card">
+        <span class="sm-icon idea">✦</span>
+        <span class="sm-num">{{ idea.total }}</span>
+        <span class="sm-label">{{ t('home.ideas') }}</span>
+        <span class="sm-extra">{{ t('home.ideaTotal', { n: idea.total }) }} · {{ t('home.ideaPages', { n: idea.pages }) }}</span>
+      </div>
 
-      <article class="sm-card">
-        <div class="sm-icon draft">✎</div>
-        <div class="sm-body">
-          <div class="sm-num">{{ draft.total }}</div>
-          <div class="sm-label">{{ t('home.drafts') }}</div>
-        </div>
-        <div class="sm-extra">
-          <div>{{ t('home.draftTotal', { n: draft.total }) }}</div>
-          <div>{{ t('home.draftPages', { n: draft.pages }) }}</div>
-        </div>
-      </article>
+      <div class="sm-card">
+        <span class="sm-icon draft">✎</span>
+        <span class="sm-num">{{ draft.total }}</span>
+        <span class="sm-label">{{ t('home.drafts') }}</span>
+        <span class="sm-extra">{{ t('home.draftTotal', { n: draft.total }) }} · {{ t('home.draftPages', { n: draft.pages }) }}</span>
+      </div>
     </div>
   </section>
 </template>
@@ -163,14 +162,16 @@ const monthClipId = `sc-clip-month-${uid}`
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 吸收中栏剩余高度：日历卡锁定了 46% 的高度后，
+  /* 吸收中栏剩余高度：日历卡锁定了 45% 的高度后，
      剩下的空间由统计卡吃掉，内部各块跟着拉伸而不是留空洞 */
   flex: 1 1 auto;
   min-height: 0;
 }
 .sc-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* 两张发布卡上下堆叠，各占满中栏宽度 */
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
@@ -183,6 +184,7 @@ const monthClipId = `sc-clip-month-${uid}`
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
+  min-height: 0;
 }
 .sc-head {
   display: flex;
@@ -210,27 +212,41 @@ const monthClipId = `sc-clip-month-${uid}`
 .sc-delta.flat {
   color: var(--gn-text-muted);
 }
+/* 数字 + 折线 + 环比说明排成一行：横向空间给折线，纵向不再被挤扁 */
+.sc-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .sc-num {
   font-size: 22px;
   font-weight: 650;
   letter-spacing: -0.03em;
   color: var(--gn-text);
   line-height: 1.15;
+  flex: 0 0 auto;
 }
 .sc-spark {
-  width: 100%;
-  /* 折线区跟着卡片一起长高（发布卡被拉伸时折线图也跟着变高） */
   flex: 1 1 auto;
-  height: auto;
-  min-height: 30px;
+  height: 100%;
+  min-width: 0;
+  min-height: 26px;
   display: block;
   overflow: visible;
+}
+.sc-foot {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--gn-text-muted);
+  white-space: nowrap;
 }
 /**
  * 折线「从左到右」画出来：
  * 用一个裁剪矩形罩住图表，矩形从 0 宽横向拉开（scaleX 0→1），
  * 线和填充区域就跟着被逐步揭示出来。
- * 每个月度卡片的动画错开一点延迟，避免两张卡同时动显得僵硬。
+ * 每张卡片的动画错开一点延迟，避免两张卡同时动显得僵硬。
  */
 .sc-spark-reveal {
   transform-box: view-box;
@@ -266,37 +282,33 @@ const monthClipId = `sc-clip-month-${uid}`
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
-.sc-foot {
-  font-size: 10.5px;
-  color: var(--gn-text-muted);
-}
+/* ---- 三个紧凑横条 ---- */
 .sc-mini {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  flex: 1 1 auto;
-  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 .sm-card {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  /* 被拉伸时三块内容均匀分布（图标在顶、数字居中、说明在底），
-     比全部挤在中间留一大块空白好看 */
-  justify-content: space-between;
-  padding: 11px 12px 10px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 11px;
   border: 1px solid var(--gn-border);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--gn-bg);
+  text-align: left;
 }
 .sm-icon {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
-  font-size: 12.5px;
+  border-radius: 6px;
+  font-size: 11.5px;
   line-height: 1;
 }
 .sm-icon.inbox {
@@ -311,27 +323,24 @@ const monthClipId = `sc-clip-month-${uid}`
   background: color-mix(in srgb, #3fae8c 16%, transparent);
   color: #2f9074;
 }
-.sm-body {
-  display: flex;
-  align-items: baseline;
-  gap: 5px;
-}
 .sm-num {
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 650;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   color: var(--gn-text);
+  line-height: 1.1;
 }
 .sm-label {
   font-size: 11.5px;
   color: var(--gn-text-muted);
+  white-space: nowrap;
 }
 .sm-extra {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  margin-left: auto;
   font-size: 10.5px;
   color: var(--gn-text-muted);
-  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>

@@ -292,6 +292,18 @@ function monthlyActive(stats: Map<string, DayStat>, year: number): number[] {
 }
 
 /**
+ * 某年 12 个月的活跃次数（对外导出）。
+ *
+ * 供首页右栏的「月度活跃分布」柱图使用。
+ */
+export function monthlyActiveCounts(
+  stats: Map<string, DayStat>,
+  year: number,
+): number[] {
+  return monthlyActive(stats, year)
+}
+
+/**
  * 某年单月活跃峰值（次数 + 是哪个月）。
  *
  * 用于首页左栏的「月峰值」指标。
