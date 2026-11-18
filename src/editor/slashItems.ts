@@ -244,7 +244,7 @@ export const slashItems: SlashItem[] = [
     icon: Columns3,
     shortcut: 'fl2',
     keywords: ['columns', 'column', 'fenlan', '分栏', '双栏', '两栏', '并排', '多栏', '现有行', '转换'],
-    group: '基础块',
+    group: '布局',
     run: (editor) => editor.chain().focus().convertToColumns({ count: 2 }).run(),
   },
   {
@@ -254,7 +254,7 @@ export const slashItems: SlashItem[] = [
     icon: Columns3,
     shortcut: 'fl3',
     keywords: ['columns', 'column', 'fenlan', '分栏', '三栏', '并排', '多栏', '现有行', '转换'],
-    group: '基础块',
+    group: '布局',
     run: (editor) => editor.chain().focus().convertToColumns({ count: 3 }).run(),
   },
   {
@@ -264,7 +264,7 @@ export const slashItems: SlashItem[] = [
     icon: Columns3,
     shortcut: 'fl4',
     keywords: ['columns', 'column', 'fenlan', '分栏', '四栏', '并排', '多栏', '现有行', '转换'],
-    group: '基础块',
+    group: '布局',
     run: (editor) => editor.chain().focus().convertToColumns({ count: 4 }).run(),
   },
   {
