@@ -65,6 +65,8 @@ ginkgoNotes/
 │   ├── main.ts
 │   ├── store.ts         # Pinia 全局状态
 │   ├── types.ts         # 前后端共用类型
+│   ├── assets/          # 静态资源（Vite 走独立文件，不内联 data URI，见陷阱 97）
+│   │   └── home-hero.svg # 首页 Hero 区背景插画（银杏叶主题，可直接替换）
 │   ├── api/             # fetch 封装 + 按领域分组的接口清单
 │   │   ├── client.ts    # Bearer 头 / 401 清理 / 空间切换头 / SSE 手写解析
 │   │   └── features.ts
@@ -121,10 +123,10 @@ ginkgoNotes/
 │   │   ├── OrgTree.vue         # 组织架构树（折叠动画 / 就地增删改名 / 拖拽调层级 / 承载成员拖入落点）
 │   │   ├── NotificationBell.vue # 通知铃铛（静默时段、按类型图标）
 │   │   ├── home/               # 首页仪表盘组件
-│   │   │   ├── ProfileCard.vue    # 个人卡（头像 / 可编辑签名 / 快捷入口 / 活跃柱图 / 概览）
+│   │   │   ├── ProfileCard.vue    # 个人卡（头像 / 可编辑签名 / 快捷入口 / 活跃柱图 / 概览 / 年度三指标）
 │   │   │   ├── ActivityCalendar.vue # 月历（ISO 周数、活动打点、点选看当天笔记）
 │   │   │   ├── StatCards.vue     # 发布趋势迷你图 + 收件箱 / 灵感清单 / 草稿箱
-│   │   │   ├── QuickStart.vue    # 「今天从这里开始」模板横幅（一键建笔记）
+│   │   │   ├── QuickStart.vue    # 右栏顶部 Hero 区（背景图层 + 柔化遮罩 + 模板按钮）
 │   │   │   └── ActivityHeatmap.vue # 全年热力图（GitHub 贡献图风格、可切年）
 │   │   ├── ImageExportModal.vue # 笔记导出图片预览弹层
 │   │   ├── IconPicker.vue      # 页面图标（emoji / Lucide / 上传 / 外链）
@@ -306,7 +308,8 @@ ginkgoNotes/
 | 125 | 空间切换器上移到侧栏左上角 | ✅ | 原先藏在左下角个人菜单里的「我的笔记 / 公共原稿 / 各团队」全部上移，新组件 `src/components/SpaceSwitcher.vue` 挂在侧栏头部左上角，点击展开下拉面板切换空间；面板底部提供「新建团队」内联表单（输入名称 → 创建 → 自动进入新团队）与「团队管理」入口；个人菜单只留个人信息 / 好友 / 管理后台 / 退出登录 |
 | 126 | 首页改为三栏写作仪表盘 | ✅ | 按设计稿重写 `HomeView.vue`：左栏个人卡（头像 / 可编辑签名 / 6 个产品内快捷入口 / 近 30 天活跃柱图 / 笔记·收藏·字数概览），中栏月历（ISO 周数、有活动打点、点击看当天笔记）+ 发布统计（本周 / 本月 + 迷你趋势线 + 收件箱 / 灵感清单 / 草稿箱三小卡），右栏「今天从这里开始」模板横幅（4 个模板一键建笔记）+ 全年热力图（GitHub 贡献图风格、可切年）+ 最近编辑；新增 `src/home/metrics.ts`（纯函数指标计算）、`src/home/templates.ts`（四套三语模板）、`src/home/backup.ts`（导入 / 备份抽出复用），组件落在 `src/components/home/`；签名存服务端 `settings/profile`（用户设置白名单新增该键）。原「首页导入 / 备份」能力保留在仪表盘顶部（陷阱 94） |
 | 127 | 仪表盘撑满整个主页空间 | ✅ | 去掉 `home-inner` 的 1360px 居中上限（改为 `width:100%` + 2600px 宽松上限），三栏宽度改为「左 240 / 中 340 / 右 `1fr` 吃掉剩余」；「最近编辑」从右栏抽出为**跨三栏独占整行**，卡片网格 `minmax(168px,1fr)` 自动增列；热力图由固定 11px 格子 + 固定宽度重构为**二维 CSS Grid**（`12px repeat(N, minmax(9px,1fr))` + `aspect-ratio:1`），容器变宽格子等分变大并铺满右栏，容器不够宽时保持 9px 最小尺寸横向滚动；月份标签从绝对定位改为**直接落在对应周列的网格项**，列宽怎么变都自动对齐（陷阱 95） |
-| 128 | 首页一屏铺满（不滚动 + 无空洞） | ✅ | `home-inner` 改 `min-height:100%` + flex 列向，网格行模板 `minmax(min-content,1fr) auto` 让三栏**等高铺满**第 1 行，`align-items:stretch` + 各栏卡片 `flex:1` 吃掉剩余高度；左栏个人卡改 `justify-content:space-between` 均匀分布、柱图固定 92px 不再被拉高；右栏新增 `src/components/home/YearActivity.vue`「月度活跃」卡片（12 个月柱状图 + 活跃天数 / 最长连续 / 月峰值三项指标，`metrics.ts` 补 `monthlyActive` / `longestStreak` / `activeDayCount`），吸收热力图下方的富余空间；垂直留白收紧（padding 26/28/22、head margin 14、最近编辑 padding 11/14/10）后 1920×1080 / 1920×924 / 1600×900 / 1440×900 **四档常见视口 scrollHeight 完全等于 clientHeight**（不再出现滚动条），1280×720 与移动端内容确实超高时才滚动（陷阱 96） |
+| 128 | 首页一屏铺满（不滚动 + 无空洞） | ✅ | `home-inner` 改 `min-height:100%` + flex 列向，网格行模板 `minmax(min-content,1fr) auto` 让三栏**等高铺满**第 1 行，`align-items:stretch` + 各栏卡片 `flex:1` 吃掉剩余高度；左栏个人卡改 `justify-content:space-between` 均匀分布、柱图固定 92px 不再被拉高；右栏新增「月度活跃」卡片（12 个月柱状图 + 活跃天数 / 最长连续 / 月峰值三项指标），吸收热力图下方的富余空间；垂直留白收紧（padding 26/28/22、head margin 14、最近编辑 padding 11/14/10）后 1920×1080 / 1920×924 / 1600×900 / 1440×900 **四档常见视口 scrollHeight 完全等于 clientHeight**（不再出现滚动条），1280×720 与移动端内容确实超高时才滚动（陷阱 96） |
+| 129 | 首页三处布局调整（年度指标移左栏 / 背景图 Hero 区 / 标题上移） | ✅ | ① 右栏「月度活跃」模块**整块移除**，其三项年度指标（活跃天数 / 最长连续 / 月峰值）迁入**左栏个人卡底部**，新增「{y} 年记录」分组（`metrics.ts` 补 `monthPeak` 返回峰值次数与所在月份），随热力图选中年份联动；② 右栏顶部「写作仪表盘」卡片改为**可伸展的 Hero 区**（`flex:1 1 auto` + `min-height:168px`），内置背景图层 + 渐变柔化遮罩，右侧大片留白用于展示背景图；新增银杏主题插画 `src/assets/home-hero.svg`，暗色主题下压暗至 `opacity .42`；③ 首页顶部内边距由 26px 收紧至 12px，标题栏紧贴页面顶部（陷阱 97） |
 
 ### P1 — 部分完成 / 待完善
 | # | 模块 | 状态 | 缺失项 |
@@ -575,11 +578,12 @@ ginkgoNotes/
 | 110 | `bce88ec` | feat(home) | 首页改为三栏写作仪表盘：个人卡 / 月历 / 发布统计 / 模板横幅 / 全年热力图，签名落服务端 |
 | 111 | `ba4be39` | feat(home) | 仪表盘撑满整个主页空间：去掉 1360px 上限，右栏吃剩余宽度，最近编辑独占整行，热力图改弹性网格 |
 | 112 | `d9d7d15` | feat(home) | 首页一屏铺满：三栏等高、无空洞、常见视口不再出现滚动条；右栏新增「月度活跃」卡片 |
+| 113 | `d951084` | feat(home) | 首页三处布局调整：年度指标移入左栏、右栏顶部改为背景图 Hero 区、标题上移 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `d9d7d15` — feat(home): 首页一屏铺满，三栏等高且不再出现滚动条
-> 最新**功能**提交：`d9d7d15` — feat(home): 首页一屏铺满，三栏等高且不再出现滚动条（本地已提交，待推送）
+**HEAD**: `d951084` — feat(home): 首页三处布局调整，年度指标移入左栏、右栏顶部改为背景图 Hero 区、标题上移
+> 最新**功能**提交：`d951084` — feat(home): 首页三处布局调整，年度指标移入左栏、右栏顶部改为背景图 Hero 区、标题上移（本地已提交，待推送）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -840,6 +844,12 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
     另外三个容易踩的点：①**个人签名要落服务端**，不能只存在 `localStorage`——本项目的用户偏好（空间名 / 通知偏好 / 快捷键）都存在服务端 `user_settings` 表里，签名跟着走同一个 `settings/:key` 接口，只需要把 `SETTING_KEYS` 白名单加上 `profile`，前端 `getUserSetting` / `putUserSetting` 的 key 联合类型同步放宽即可；②**热力图首列可能落在上一年年末**（2026-01-01 所在周从 2025-12-29 开始），按月打标签时必须先判 `getFullYear()`，否则会莫名其妙标出一个「12月」；③**迷你趋势线的百分比在「持平」时不能显示 `-0%`**，`Math.abs(0)` 拼上箭头看着像负数，单独给一个「持平」文案。
 
     还有一点：**E2E 里切换暗色主题别去动 IndexedDB** —— 本项目的 `meta` 偏好实际存在 `localStorage`（键 `ginkgo-meta:theme`、值是 `JSON.stringify('dark')`），IndexedDB 里只有 pages / assets / databases。往 IndexedDB 的 `meta` store 写会直接报 `NotFoundError`，而且 store 用了 `keyPath: 'meta'`，再传 key 参数会报 `DataError`。
+
+97. **Vite 把 SVG 内联成 data URI 会让 CSS `url()` 整条作废**：给页面加 SVG 背景图时，如果 SVG 体积小于 `assetsInlineLimit`（默认 4KB），Vite 会把它转成 `data:image/svg+xml,...` 内联。**它的转义只做了部分百分号编码，`translate(1150 200)` / `rotate(18)` 里的括号原样保留**，而 CSS 的 `url()` 遇到未转义的右括号就提前结束 —— 整条 `background-image` 声明直接被浏览器丢弃，**不报任何错**，表现为「背景图整块不显示」，而开发者盯着 SVG 源码根本看不出问题（SVG 本身完全正确）。排查时先看 `getComputedStyle(el).backgroundImage` 是不是 `none`、以及 `el.style.cssText` 是不是空字符串 —— 是的话就不是 SVG 内容的问题，而是 URL 形态的问题。修法有两条：**① 让 SVG 不内联**（`build.assetsInlineLimit: 0` 或把 `?url` 后缀配合 `assetsInclude` 一起用，注意 Vite 8 下 `?url` 仍可能走内联逻辑，最稳的是 `assetsInlineLimit: 0`）；**② 或者干脆把 SVG 写成不含括号的形式**。本项目选了 ①，因为背景插画里 `transform` 属性用得很多，绕不开括号。
+
+    同一条还有两个配套的坑：**背景图上要盖一层柔化遮罩**，否则浅色插画会让前景文字读不清（用 `color-mix(in srgb, var(--gn-bg) X%, transparent)` 做从左到右的渐变，左侧文字区几乎全遮、右侧留出图）；**暗色主题下浅色背景图会「发亮」**，需要额外一条 `html.dark .背景层 { opacity: .42 }` 压暗 —— 注意 scoped 样式里写 `:global(html.dark)` 才不会被加作用域哈希而失效。
+
+98. **组件里的指标要跟着别的组件的年份走**：把「年度活跃天数 / 最长连续 / 月峰值」从右栏卡片挪到左栏个人卡后，这三个数字的统计年份必须**跟随热力图的年份选择器**（`heatYear`），否则用户在热力图上翻到 2025 年，左栏却还显示 2026 年的数字，两处对不上。做法是在 `HomeView.vue` 里把 `heatYear` 一起传下去，并让 `monthPeak()` 这类函数同时返回「峰值次数 + 峰值所在月份」，这样鼠标悬停还能给出「峰值出现在 X 月」的补充信息。指标函数本身保持在 `src/home/metrics.ts` 里做纯函数（不依赖 Vue / DOM），组件只负责接收 props。
 
 
 ---
