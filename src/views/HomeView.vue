@@ -243,37 +243,37 @@ function timeAgo(ts: number) {
               </div>
               <p v-else class="dh-day-empty">{{ t('home.dayEmpty') }}</p>
             </section>
-
-            <!-- 最近编辑 -->
-            <section class="dh-recent">
-              <header class="dh-recent-head">
-                <Clock :size="13" :stroke-width="2" />
-                <span>{{ t('home.recent') }}</span>
-                <button class="dh-recent-more" @click="store.searchOpen = true">
-                  <Search :size="12" :stroke-width="2" />{{ t('home.findMore') }}
-                </button>
-              </header>
-              <div v-if="recentPages.length" class="dh-recent-grid">
-                <button
-                  v-for="p in recentPages"
-                  :key="p.id"
-                  class="dh-recent-card"
-                  @click="goToPage(p.id)"
-                >
-                  <span class="dh-recent-icon"><PageIcon :icon="p.icon" :size="16" /></span>
-                  <span class="dh-recent-title">{{ p.title || t('app.untitled') }}</span>
-                  <span class="dh-recent-time">{{ timeAgo(p.updatedAt) }}</span>
-                </button>
-              </div>
-              <div v-else class="dh-empty">
-                <Sparkles :size="20" :stroke-width="1.5" />
-                <p>{{ t('home.empty') }}</p>
-                <button class="gn-btn gn-btn-primary" @click="createBlank">
-                  <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
-                </button>
-              </div>
-            </section>
           </div>
+
+          <!-- 最近编辑：独占整行，铺满整个主页宽度 -->
+          <section class="dh-recent">
+            <header class="dh-recent-head">
+              <Clock :size="13" :stroke-width="2" />
+              <span>{{ t('home.recent') }}</span>
+              <button class="dh-recent-more" @click="store.searchOpen = true">
+                <Search :size="12" :stroke-width="2" />{{ t('home.findMore') }}
+              </button>
+            </header>
+            <div v-if="recentPages.length" class="dh-recent-grid">
+              <button
+                v-for="p in recentPages"
+                :key="p.id"
+                class="dh-recent-card"
+                @click="goToPage(p.id)"
+              >
+                <span class="dh-recent-icon"><PageIcon :icon="p.icon" :size="16" /></span>
+                <span class="dh-recent-title">{{ p.title || t('app.untitled') }}</span>
+                <span class="dh-recent-time">{{ timeAgo(p.updatedAt) }}</span>
+              </button>
+            </div>
+            <div v-else class="dh-empty">
+              <Sparkles :size="20" :stroke-width="1.5" />
+              <p>{{ t('home.empty') }}</p>
+              <button class="gn-btn gn-btn-primary" @click="createBlank">
+                <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
+              </button>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -303,7 +303,9 @@ function timeAgo(ts: number) {
   overflow-y: auto;
 }
 .home-inner {
-  max-width: 1360px;
+  /* 撑满整个主页空间：只保留一个很宽松的上限，避免超宽屏上过于松散 */
+  width: 100%;
+  max-width: 2600px;
   margin: 0 auto;
   padding: 26px 28px 40px;
 }
@@ -334,7 +336,8 @@ function timeAgo(ts: number) {
 }
 .dh-grid {
   display: grid;
-  grid-template-columns: 232px minmax(280px, 340px) minmax(360px, 1fr);
+  /* 左栏个人卡固定，中栏日历按内容，右栏吃掉剩余空间 */
+  grid-template-columns: minmax(228px, 240px) minmax(290px, 340px) minmax(420px, 1fr);
   gap: 14px;
   align-items: start;
 }
@@ -430,6 +433,8 @@ function timeAgo(ts: number) {
   color: var(--gn-text-muted);
 }
 .dh-recent {
+  /* 最近编辑独占整行，铺满整个主页宽度 */
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 9px;
@@ -464,7 +469,7 @@ function timeAgo(ts: number) {
 }
 .dh-recent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   gap: 8px;
 }
 .dh-recent-card {

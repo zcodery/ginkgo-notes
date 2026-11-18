@@ -15,9 +15,12 @@ const emit = defineEmits<{
   (e: 'update:year', year: number): void
 }>()
 
-/** 格子尺寸（px）与间隙 */
-const CELL = 11
+/** 格子间隙（px）；格子尺寸由容器宽度等分决定 */
 const GAP = 3
+/** 星期标签列宽 */
+const WEEK_COL = 12
+/** 格子最小边长：容器不够宽时保持这个尺寸并横向滚动 */
+const CELL_MIN = 9
 const WEEK_HEAD = ['一', '二', '三', '四', '五', '六', '日']
 
 const weeks = computed(() => buildYearHeat(props.year, props.stats))
@@ -87,35 +90,42 @@ function cellTitle(ts: number, count: number) {
     </header>
 
     <div class="ht-scroll gn-scroll">
-      <div class="ht-inner" :style="{ width: `${weeks.length * (CELL + GAP)}px` }">
-        <div class="ht-months">
+      <div
+        class="ht-grid"
+        :style="{
+          gridTemplateColumns: `${WEEK_COL}px repeat(${weeks.length}, minmax(${CELL_MIN}px, 1fr))`,
+          gap: `${GAP}px`,
+        }"
+      >
+        <!-- 月份标签直接落在对应周列上，列宽变化时自动对齐 -->
+        <span
+          v-for="m in monthMarks"
+          :key="m.index"
+          class="ht-month"
+          :style="{ gridColumn: `${m.index + 2}`, gridRow: '1' }"
+        >
+          {{ m.label }}月
+        </span>
+
+        <span
+          v-for="(w, i) in WEEK_HEAD"
+          :key="`wd-${i}`"
+          class="ht-weeklabel"
+          :style="{ gridColumn: '1', gridRow: `${i + 2}` }"
+        >
+          {{ i % 2 === 0 ? w : '' }}
+        </span>
+
+        <template v-for="(w, wi) in weeks" :key="wi">
           <span
-            v-for="m in monthMarks"
-            :key="m.index"
-            class="ht-month"
-            :style="{ left: `${m.index * (CELL + GAP)}px` }"
-          >
-            {{ m.label }}月
-          </span>
-        </div>
-        <div class="ht-body">
-          <div class="ht-weekhead">
-            <span v-for="(w, i) in WEEK_HEAD" :key="w" class="ht-weeklabel" :style="{ top: `${i * (CELL + GAP)}px` }">
-              {{ i % 2 === 0 ? w : '' }}
-            </span>
-          </div>
-          <div class="ht-grid">
-            <div v-for="(w, wi) in weeks" :key="wi" class="ht-col">
-              <span
-                v-for="(c, ci) in w.cells"
-                :key="ci"
-                class="ht-cell"
-                :class="`lv${c.level}`"
-                :title="cellTitle(c.ts, c.count)"
-              ></span>
-            </div>
-          </div>
-        </div>
+            v-for="(c, ci) in w.cells"
+            :key="c.ts"
+            class="ht-cell"
+            :class="`lv${c.level}`"
+            :style="{ gridColumn: `${wi + 2}`, gridRow: `${ci + 2}` }"
+            :title="cellTitle(c.ts, c.count)"
+          ></span>
+        </template>
       </div>
     </div>
 
@@ -201,57 +211,40 @@ function cellTitle(ts: number, count: number) {
   overflow-y: hidden;
   padding-bottom: 2px;
 }
-.ht-inner {
-  position: relative;
-}
-.ht-months {
-  position: relative;
-  height: 14px;
+/**
+ * 整张热力图是一个二维网格：
+ * 第 1 列是星期标签列，其后是 N 个等宽的周列。
+ * 格子用 aspect-ratio 保持正方形，列宽由容器宽度等分得到（minmax 下限 9px），
+ * 因此容器一放宽，格子与整张图就跟着撑满；容器不够宽时保持最小尺寸并横向滚动。
+ * 第 1 行留给月份标签，标签直接落在对应周列上，列宽变化时自动对齐。
+ */
+.ht-grid {
+  display: grid;
+  grid-template-rows: auto repeat(7, auto);
 }
 .ht-month {
-  position: absolute;
-  top: 0;
+  justify-self: start;
+  align-self: end;
   font-size: 10px;
+  line-height: 13px;
   color: var(--gn-text-muted);
   white-space: nowrap;
 }
-.ht-body {
-  display: flex;
-  gap: 5px;
-}
-.ht-weekhead {
-  position: relative;
-  width: 12px;
-  flex: 0 0 auto;
-  height: calc(7 * (11px + 3px) - 3px);
-}
 .ht-weeklabel {
-  position: absolute;
-  left: 0;
+  align-self: center;
   font-size: 9.5px;
   line-height: 11px;
   color: var(--gn-text-muted);
 }
-/* 星期标签按格子中心对齐：标签行高 11px，格子从 0 开始，故上移 3px */
-.ht-weeklabel:nth-child(even) {
-  transform: translateY(-3px);
-}
-.ht-grid {
-  display: flex;
-  gap: 3px;
-}
-.ht-col {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
 .ht-cell {
-  width: 11px;
-  height: 11px;
+  width: 100%;
+  max-width: 18px;
+  aspect-ratio: 1;
+  align-self: start;
+  justify-self: center;
   border-radius: 2.5px;
   background: var(--gn-bg-soft);
   border: 1px solid var(--gn-border);
-  flex: 0 0 auto;
 }
 .ht-cell.lv0 {
   background: var(--gn-bg-soft);
