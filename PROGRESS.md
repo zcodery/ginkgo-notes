@@ -332,6 +332,7 @@ ginkgoNotes/
 | 146 | 同意好友申请时原子新建分组 + 申请行布局修复 | ✅ | 用户三点反馈：① 同意好友申请选分组时要支持新建，且新组随同意一起创建，避免「建了组又拒绝」留空组；② 拒绝按钮和同意按钮高度看着不一致；③ 分组下拉要撑开剩余宽度。**①原子建组（跨前后端）**：后端 `POST /friends/requests/:id/accept` 支持 `newGroupName`，重名/超长先在事务外校验，事务内 `INSERT friend_groups` + 同意 + 双向 `assignGroup` 一次完成（回滚则组与同意一起撤销，不留空组）；前端 `acceptFriendRequest(id, groupId?, newGroupName?)` 加参；`FriendsView` 同意下拉选项末尾加「＋ 新建分组」哨兵，选中展开输入框，同意时传 `newGroupName`（空名拦截），选已有组仍传 `groupId`。**②视觉高度**：量得三控件 `getBoundingClientRect` 都是 28px、top/bottom 完全对齐——差异是「实心绿 vs 淡描边」视错觉，给普通按钮加 `--gn-bg-hover` 实底 + `--gn-border-strong` 边框消除。**③下拉撑满**：`GnSelect` 加 `grow` prop（`.grow{flex:1 1 auto;min-width:0}` + trigger `width:100%`），申请下拉传 grow，实测吃掉「行宽-两按钮-两gap」全部剩余（144/258）。新增隔离 mock E2E `e2e-friend-accept.mjs` 13/13：原子性（不单独调 createGroup、accept 带 newGroupName）、几何三控件等高、下拉撑满、选已有组传 groupId（陷阱 118） |
 | 147 | 待接受邀请显示中文角色并优化行样式 | ✅ | 用户两处反馈：① 团队页「待接受邀请」列表里角色显示成后端原始值 `editor` / `viewer`；② 这些行样式太素。**①角色 label**：模板直接输出了 `{{ p.role }}`，而本文件早有 `roleLabel()`（`owner/admin/editor/viewer/guest` → 所有者/管理员/可编辑/可查看/访客）只用在正式成员行——改为 `roleLabel(p.role)`。全仓已无裸角色输出（顶部邀请收件箱本来就用 roleLabel）。**②行样式**：原来只有一行裸文字，没有头像、左侧比正式成员行少 17px 缩进、也没有「还没加入」的状态感。改为与成员行同一套结构（头像 + 姓名 + `@用户名` + 角色），并加三处区分：整行浅底 `--gn-bg-hover`、头像改纸白底 + 虚线描边 + 字色压暗、名字后加「待接受」白底绿字小胶囊（hover 说明「等对方接受后才算加入团队」）。左侧对齐用 `span.tm-grip-ghost` 补成员行拖拽手柄的 10px 占位（待接受行不可拖拽，不能也不该真渲染手柄）。新增隔离 mock E2E `e2e-pending-invites.mjs` 11/11：三条邀请角色分别渲染为「可编辑/可查看/管理员」且不出现英文原值、每行均有头像与「待接受」标签、姓名与 `@用户名` 正常、头像左边缘与成员行对齐（≤6px 组内缩进）、无 JS 异常（陷阱 119） |
 | 148 | 暗色主题整页发黑看不清（`:global` 用错位置） | ✅ | 用户截图：切到暗色后团队页几乎全黑、文字和背景糊在一起。排查关键：`getComputedStyle(html).opacity` 返回 **0.3**、`filter: saturate(.7) brightness(.72)`，即整个 `<html>` 被压成 30% 不透明——所有后代不论自身颜色多亮都会跟着变暗，所以看起来像「文字是深色」其实是被整页透明化。用 CDP `CSS.getMatchedStylesForNode` 定位到唯一来源：`html.dark{opacity:.3;filter:...}`，来自 `QuickStart.vue` 里 `:global(html.dark) .qs-bg { opacity:.3; filter:... }`——**scoped 编译只把 `:global(...)` 里的选择器提成全局，后面的 `.qs-bg` 被丢掉**，于是「只压暗首屏背景图」的规则变成了「压暗整个页面」。修复：把整条选择器包进 `:global()` → `:global(html.dark .qs-bg)`，产物变为 `html.dark .qs-bg{opacity:.3;filter:...}`，背景图仍按预期压暗、页面恢复正常。新增隔离 mock E2E `e2e-dark-theme.mjs` 7/7：亮/暗两种主题下 `html` 的 opacity 均为 1、暗色下 html 无滤镜、`.qs-bg` 仍为 0.3 且带 saturate、正文亮度差 >150、无 JS 异常（陷阱 120） |
+| 149 | 分栏在斜杠菜单里独立成「布局」分组 | ✅ | 用户截图反馈：斜杠菜单里 分栏（2 栏）/（3 栏）/（4 栏）三条挤在「基础块」末尾、紧贴分割线，应该单独一个模块。改动只在 `slashItems.ts`：三条的 `group` 由 `'基础块'` 改为 `'布局'`。**不需要注册新分组**——`SlashMenu.vue` 的 `groups` 是对 `props.items` 按顺序用 `Map` 聚合（组的位置 = 该组第一条在数组中的位置，组内按数组顺序），所以只改字符串就多出一节，且 `.slash-group + .slash-group` 的顶部分隔线自动生效。三条本来相邻，展示顺序与 `activeIndex` 键盘导航（走过滤后的扁平数组序）一致，不会出现"高亮跳着走"。最终组序：基础块 → 布局 → 媒体 → 高级块 → AI。新增 E2E `e2e-slash-groups.mjs` 6/6（直接 import Vite 转换后的模块复算分组，断言 布局组独立且正好 3 条、基础块无残留、组序、搜 `fenlan` 三条均落在布局组）（陷阱 121） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -623,6 +624,7 @@ ginkgoNotes/
 | 131 | `9349490` | feat(friend) | 同意好友申请时原子新建分组（后端事务内建组+同意，拒绝/回滚不留空组）+ 申请行布局修复（下拉 grow 撑满、按钮视觉等高）；隔离 mock E2E 13/13 |
 | 132 | `708dca2` | fix(team) | 待接受邀请的角色改用 `roleLabel` 显示中文，并按成员行结构补头像 / `@用户名` / 「待接受」胶囊、浅底与虚线头像区分「还没加入」；隔离 mock E2E 11/11 |
 | 133 | `a4f6877` | fix(theme) | 修正 `:global` 用法：`QuickStart` 的暗色背景图规则不再编译成 `html.dark{opacity:.3}`，暗色主题整页压暗问题修复；隔离 mock E2E 7/7 |
+| 134 | `6258cf0` | feat(editor) | 斜杠菜单里 分栏（2/3/4 栏）从「基础块」独立为「布局」分组；新增 `e2e-slash-groups.mjs` 6/6 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
@@ -739,6 +741,14 @@ ginkgoNotes/
 | 1 | `21bc5e0` | fix(home) | 四个模板 `body` 三语置空；E2E 新增「新笔记 content / excerpt 均为空」断言；已有笔记不动 |
 
 > 验证：`vue-tsc --noEmit` + `tsc -p server --noEmit` + `vite build` 通过；E2E **105/105 + 35/35 + 24/24 + 13/13 + 16/16 + 17/17**（quick-templates 新增两条空正文断言）。去重逻辑不受影响。
+
+### ✅ 本轮提交构成（2026-11-18，分栏独立成「布局」分组，1 个功能提交）
+
+| # | Hash | 类型 | 内容 |
+|---|---|---|---|
+| 1 | `6258cf0` | feat(editor) | `slashItems.ts` 三条分栏 `group` → `'布局'`，斜杠菜单多出独立一节；新增 `e2e-slash-groups.mjs` 6/6 |
+
+> 验证：`vue-tsc --noEmit` 通过；E2E `e2e-slash-groups.mjs` 6/6（布局组独立、正好 3 条、基础块无残留、组序 基础块→布局→媒体→高级块→AI、搜 `fenlan` 仍命中三条）。纯前端菜单数据改动，无接口/DB 变更，不影响已发布环境的行为，但线上需重新构建发布才可见。
 
 ---
 
@@ -1033,6 +1043,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 119. **同一份数据在不同区块展示时，容易漏掉已有的格式化函数；「看着不像样」往往是缺了同级的排版结构**。用户报团队页「待接受邀请」里显示 `editor` / `viewer` 而不是中文——本文件早就有 `roleLabel()` 映射，只是这个块直接写了 `{{ p.role }}`。这类 bug 的排查范式：看到界面露出后端枚举值 / 时间戳 / ISO 字符串，先 grep 项目里有没有现成的 `xxxLabel` / `formatXxx`，90% 是漏用而不是没写。**样式侧**：这些行和上方正式成员用的是同一个容器类 `.tm-member`，但只放了姓名一段文字，缺了头像、`@用户名`、状态标签 → 左边比成员行少 17px（成员行的拖拽手柄占位 10px + 手柄负边距 + gap，分组行再加 6px），看起来像没渲染完。修法不是给待接受行单独写一套 padding（数字会随成员行改动而漂），而是**补一个同宽的空占位** `.tm-grip-ghost`（`width:10px; flex:0 0 10px; margin:0 -5px 0 -3px`，与 `.tm-grip` 完全一致）让布局自然对齐；不要真的复用 `.tm-grip`——它的 `opacity` 会在 hover 时被点亮，给不可拖拽的行露出拖拽手柄是错的行为暗示。**区分状态用「浅底 + 虚线 + 胶囊」三件套**，比只改字色更明确：`.tm-avatar-pending` 用时注意特异性——`.tm-avatar` 定义在后面会覆盖 `.tm-avatar-pending` 的 `color/background`，要写成 `.tm-avatar.tm-avatar-pending`。**验证**：除了「文本等于中文 label」，还要断言「不含英文原值」的正则（否则 `roleLabel` 万一 fallback 回原值仍会通过），以及用 `getBoundingClientRect().left` 比较两行的头像左边缘（`count()` 和文本断言都发现不了错位）。
 
 120. **scoped 样式里的 `:global(...)` 必须包住「整条选择器」，写成 `:global(a) b` 会丢掉后半段，把局部规则变成全局规则**。用户切到暗色主题后整站近乎全黑、文字和背景糊成一片。第一直觉会去查暗色变量（`html.dark` 的 `--gn-text` / `--gn-bg` 都正常）、查有没有遮罩层（`elementFromPoint` 命中的全是正常元素）、查祖先 opacity（遍历祖先也没找到）——真正的元凶是 `getComputedStyle(document.documentElement).opacity === '0.3'` 且带 `filter: saturate(.7) brightness(.72)`：**整个 `<html>` 被压成 30% 透明**，后代自身颜色再亮也会一起变暗，所以看着像「文字是深色的」。定位手段：`CSS.getMatchedStylesForNode`（CDP）比遍历 `document.styleSheets` 靠谱——它能直接给出命中该节点的规则与来源样式表，本项目的规则在 scoped 注入的独立 sheet 里，手工遍历容易漏。根因：`QuickStart.vue` 里想只压暗首屏背景图，写了 `:global(html.dark) .qs-bg { opacity:.3; filter:... }`，scoped 编译器只把括号里的 `html.dark` 提成全局、后面的 `.qs-bg` 被扔掉，产物成了 `html.dark{opacity:.3;filter:...}`。**修法**：`:global(html.dark .qs-bg)`——整条选择器写进括号里。**验证要落到构建产物**：`vite build` 后 `grep -o "html\.dark{[^}]*}" dist/assets/*.css`，确认没有意外的裸 `html.dark` 规则，再在浏览器里断言 `getComputedStyle(html).opacity === '1'`（这条断言能直接抓住同类回归）。**通用教训**：改「局部」样式的规则一旦跑到 `html` / `body` 上，伤害是全局的；凡是想写给根元素或跨 scoped 的规则，构建后必须检查产物里的选择器长什么样。
+
+121. **斜杠菜单的分组不是一个注册表，而是「按 items 顺序用 Map 聚合」，组的显示位置与键盘导航顺序可能不同步**。`SlashMenu.vue` 里 `groups` 遍历 `props.items` 把 `item.group` 塞进 `Map`——组标题的位置 = 该组**第一条**在数组里的位置，组内按数组顺序。所以新增一节只要把 `group` 字符串改掉即可，无需任何注册/排序配置（改 `slashItems.ts` 是一行的事）。代价是两个顺序可能分叉：键盘上下移动走的是 `filterSlashItems()` 返回的**扁平数组序**，渲染却是**分组后的视觉序**；一旦同一组的条目在数组里不连续（中间夹了别的组），视觉上会被提前/挪后，而高亮跟着数组走，就会出现"按下键高亮往回跳"。**规避办法**：同组的条目在 `slashItems` 数组里保持连续，且组的首次出现顺序与数组顺序一致。**验证技巧**：这类纯数据分组不必起浏览器点菜单，直接在页面里 `await import('/src/editor/slashItems.ts')`（Vite 会转好 TS）拿真数组、按组件的同一套 Map 逻辑复算一遍，断言组名/组内条目/组序即可——`e2e-slash-groups.mjs` 就是这么做的（6/6）。
 
 ---
 
