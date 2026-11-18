@@ -327,6 +327,7 @@ ginkgoNotes/
 | 141 | 团队页补上「待我处理的邀请」入口 | ✅ | 用户反馈：建团队拉好友后，好友点通知里的邀请进 `/teams` 却找不到同意的地方。根因不是权限/后端——后端 `GET /spaces/invites`、`accept`、`decline` 与前端 API 封装**全都现成**，只是 `TeamsView` 从没调用过 `listMyInvites/acceptInvite/declineInvite`，页面只渲染「我已加入的空间」+「我发出的邀请（管理员视角）」，被邀请人视角整块 UI 缺失。修复：`TeamsView` 新增 `myInvites`，主区顶部加醒目邀请卡（邀请人 / 团队名 / 角色 + 接受/拒绝），接受后调 `acceptInvite` → 刷新 spaces + `reloadSpaces` → 自动选中新团队，拒绝调 `declineInvite` → 仅移除卡片；`refreshMyInvites` 单独 try/catch 容错（老后端无此接口也不阻塞页面）。新增隔离 mock E2E `e2e-team-invite.mjs` 17/17（接受 / 拒绝 / 无邀请三场景，零真实写操作）（陷阱 114） |
 | 142 | 透明 PNG 头像不再变黑底 | ✅ | 用户上传透明 PNG 头像后背景变黑。根因：`ProfileView.shrinkImage` 重绘到 canvas 后**硬编码** `toDataURL('image/jpeg', 0.86)`，JPEG 无 alpha 通道，透明像素被烧成黑色；后端本来已允许 `data:image/png`。修复两层：① 转换层——用 `getImageData` 扫 alpha 通道，含透明像素（或读不到像素）则导出 PNG 保住透明，否则仍走 JPEG 省体积；② 显示层——各级头像容器（`.ua/.pc-avatar/.sb-avatar/...`）都有实色底用于无图时首字母占位，全局加 `:is(...):has(> img){background:transparent!important}` 让有图时底色让位、透明区透出页面。新增隔离 mock E2E `e2e-avatar-alpha.mjs` 8/8（透明→PNG 且解码后确有 alpha<255、不透明→JPEG、头像容器背景 computed 透明，零真实写操作）（陷阱 115） |
 | 143 | 团队邀请条在矮视口被压扁裁切 | ✅ | 用户截图反馈：团队页顶部「待你处理的团队邀请」绿条只露出标题一行，下面的邀请人行和接受/拒绝按钮被裁掉（「看不全面」）。根因：宽屏媒体查询 `@media(min-width:1180px)` 把 `.tm-main` 设为纵向 flex、`.tm-cols{flex:1 1 auto}`，而邀请条 `.tm-invite-inbox` 带 `overflow:hidden`，使其默认 `min-height:auto` 解析为 0 → 作为可收缩项在团队内容撑高时被压扁（视口越矮越明显；此前 E2E 只 mock 个人空间、视口 950 高，没触发）。修复：给 `.tm-invite-inbox` 加 `flex:0 0 auto` 不收缩，按内容自然高度显示，高度不足由团队内容区内部滚动消化。E2E `e2e-team-invite.mjs` 强化为「已加入团队 + 8 节点 + 1500×560 矮视口」场景，新增 3 条几何断言（未被裁切 / 邀请行完整落在条内 / 接受按钮完整可见），修复前 3 红、修复后 20/20（陷阱 116） |
+| 144 | 管辖范围外成员权限位去掉横杠占位 | ✅ | 用户截图反馈：成员列表里越界成员右侧的「—」不要显示，直接空着右边。改动：`TeamsView` 成员行 `v-else`（`m.role` 为空 = 不在管辖范围）的占位 span 从 `>—</span>` 改为 `></span>`，文本留空、宽度塌陷为 0 不可见；保留 `.tm-tag-masked` class 与 tooltip（语义与既有 `e2e-scope.mjs` 的占位符断言不受影响），不暴露对方权限信息的行为不变。可见成员的角色标签照常显示。新增隔离 mock E2E `e2e-masked-placeholder.mjs` 6/6（占位元素仍在 / 文本为空无横杠 / 可见成员标签正常 / 无 JS 异常，零真实写操作） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -613,6 +614,7 @@ ginkgoNotes/
 | 126 | `feccd9e` | fix(team) | 团队页补上「待我处理的邀请」入口：好友点通知进来可接受/拒绝，接受后自动切入新团队；新增隔离 mock E2E 17/17 |
 | 127 | `e358d27` | fix(avatar) | 透明 PNG 头像保留 alpha：上传含透明导出 PNG、不含则 JPEG，头像容器有图时背景透明；隔离 mock E2E 8/8 |
 | 128 | `969ac9c` | fix(team) | 邀请条在宽屏矮视口下不再被 flex 压扁裁切：`.tm-invite-inbox` 加 `flex:0 0 auto`；E2E 补 3 条几何断言并强化场景，20/20 |
+| 129 | `353773a` | fix(team) | 管辖范围外成员权限位去掉横杠占位、改为留空；隔离 mock E2E 6/6 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
