@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { buildYearHeat, monthlyActiveCounts, type DayStat } from '@/home/metrics'
 import { t } from '@/i18n'
@@ -19,30 +19,92 @@ const emit = defineEmits<{
 const GAP = 3
 /** 星期标签列宽 */
 const WEEK_COL = 12
-/** 格子最小边长：容器不够宽时保持这个尺寸并横向滚动 */
-const CELL_MIN = 9
+/**
+ * 单行时格子的最小边长。低于这个值就折成两行：
+ * 与其把 53 周挤成一条横向滚动的细带（= 用户说的「展示不全」），
+ * 不如像 GitHub 移动端那样折行，格子仍然是看得清的正方形。
+ */
+const CELL_MIN = 8
+/** 格子上限：超宽屏上别把格子拉得过大 */
+const CELL_MAX = 20
+/** 折行后的格子目标尺寸：两行本身已占满卡片，取 12px 兼顾可读与留白 */
+const WRAP_CELL_MAX = 12
 const WEEK_HEAD = ['一', '二', '三', '四', '五', '六', '日']
 
 const weeks = computed(() => buildYearHeat(props.year, props.stats))
 
+/* ---------------- 自适应折行：让全年格子在当前列宽里完整显示 ---------------- */
+
+const scrollEl = ref<HTMLElement | null>(null)
+/** 折行后每行周数（1 行时等于全年周数） */
+const perRow = ref(53)
+/** 实际格子边长 */
+const cellSize = ref(14)
+
 /**
- * 每个月第一列所在的列下标，用于月份标签。
- *
- * 首列可能落在上一年年末（2026-01-01 所在周从 2025-12-29 开始），
- * 那种列不标月份，否则会误显示成「12月」。
+ * 根据容器实际宽度决定单行还是两行。
+ * 计算只考虑「格子 + 间隙 + 星期标签列」，格子尺寸取整数，
+ * 这样总宽不会超出容器 → 永远不会出现横向滚动裁切。
  */
-const monthMarks = computed(() => {
-  const out: { index: number; label: number }[] = []
-  let last = -1
-  weeks.value.forEach((w, i) => {
-    const d = new Date(w.cells[0]!.ts)
-    if (d.getFullYear() !== props.year) return
-    if (d.getMonth() !== last) {
-      last = d.getMonth()
-      out.push({ index: i, label: d.getMonth() + 1 })
-    }
-  })
+function relayout(width: number) {
+  const n = weeks.value.length || 53
+  const gapTotal = (cols: number) => (cols - 1) * GAP
+
+  // 先试单行
+  const oneCell = Math.floor((width - WEEK_COL - gapTotal(n)) / n)
+  if (oneCell >= CELL_MIN) {
+    perRow.value = n
+    cellSize.value = Math.min(CELL_MAX, oneCell)
+    return
+  }
+
+  // 单行太挤 → 折两行，每行格子取整数宽
+  const half = Math.ceil(n / 2)
+  const twoCell = Math.floor((width - WEEK_COL - gapTotal(half)) / half)
+  perRow.value = half
+  cellSize.value = Math.min(WRAP_CELL_MAX, Math.max(6, twoCell))
+}
+
+/** 每段（一行）的网格数据：周列表 + 该行里的月份标签 */
+const segments = computed(() => {
+  const list = weeks.value
+  const size = perRow.value
+  const out: {
+    weeks: typeof list
+    marks: { index: number; label: number }[]
+  }[] = []
+
+  for (let start = 0; start < list.length; start += size) {
+    const chunk = list.slice(start, start + size)
+    const marks: { index: number; label: number }[] = []
+    let last = -1
+    chunk.forEach((w, i) => {
+      const d = new Date(w.cells[0]!.ts)
+      if (d.getFullYear() !== props.year) return
+      if (d.getMonth() !== last) {
+        last = d.getMonth()
+        marks.push({ index: i, label: d.getMonth() + 1 })
+      }
+    })
+    out.push({ weeks: chunk, marks })
+  }
   return out
+})
+
+let ro: ResizeObserver | null = null
+onMounted(() => {
+  if (scrollEl.value) {
+    ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width
+      if (w) relayout(w)
+    })
+    ro.observe(scrollEl.value)
+    relayout(scrollEl.value.clientWidth)
+  }
+})
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  ro = null
 })
 
 /** 12 个月的活跃次数（用于月度分布柱图） */
@@ -85,7 +147,7 @@ function cellTitle(ts: number, count: number) {
 </script>
 
 <template>
-  <section class="ht-card">
+  <section class="ht-card" :class="{ 'is-wrapped': segments.length > 1 }">
     <header class="ht-head">
       <div class="ht-title-wrap">
         <h3 class="ht-title">{{ t('home.heatTitle') }}</h3>
@@ -103,23 +165,24 @@ function cellTitle(ts: number, count: number) {
     </header>
 
     <!--
-      GitHub 贡献图样式：整年 53 个周列排成一行。
-      之前拆成上下两段（各 27 列）是为了把右栏的竖向空间填满，
-      但那样每列被拉到 35px 宽、格子只有 18px 居中，
-      横向每列都留一条空隙，整张图看起来稀疏零散、不像一张图。
-      恢复成单行 53 列后格子紧凑相连；腾出来的高度交给下方的月度分布。
+      GitHub 贡献图样式：优先整年 53 周排一行；
+      列宽不够 8px/格时折成两行（每行固定 27 列），格子始终填满列宽、
+      列间隙恒定 3px —— 折行也不会出现「列被拉宽、格子居中留白」的稀疏感。
+      这样 1280~1600 的三栏布局下全年格子也能完整显示，不用横向滚动。
     -->
-    <div class="ht-scroll gn-scroll">
+    <div ref="scrollEl" class="ht-scroll gn-scroll">
       <div
+        v-for="(seg, si) in segments"
+        :key="si"
         class="ht-grid"
         :style="{
-          gridTemplateColumns: `${WEEK_COL}px repeat(${weeks.length}, minmax(${CELL_MIN}px, 1fr))`,
+          gridTemplateColumns: `${WEEK_COL}px repeat(${seg.weeks.length}, ${cellSize}px)`,
           gap: `${GAP}px`,
         }"
       >
         <!-- 月份标签直接落在对应周列上，列宽变化时自动对齐 -->
         <span
-          v-for="m in monthMarks"
+          v-for="m in seg.marks"
           :key="m.index"
           class="ht-month"
           :style="{ gridColumn: `${m.index + 2}`, gridRow: '1' }"
@@ -129,14 +192,14 @@ function cellTitle(ts: number, count: number) {
 
         <span
           v-for="(w, i) in WEEK_HEAD"
-          :key="`wd-${i}`"
+          :key="`wd-${si}-${i}`"
           class="ht-weeklabel"
           :style="{ gridColumn: '1', gridRow: `${i + 2}` }"
         >
           {{ i % 2 === 0 ? w : '' }}
         </span>
 
-        <template v-for="(w, wi) in weeks" :key="wi">
+        <template v-for="(w, wi) in seg.weeks" :key="w.cells[0]!.ts">
           <span
             v-for="(c, ci) in w.cells"
             :key="c.ts"
@@ -175,7 +238,13 @@ function cellTitle(ts: number, count: number) {
     </div>
 
     <footer class="ht-foot">
-      <span>{{ t('home.heatFoot', { n: summary.days }) }}</span>
+      <span>
+        {{ t('home.heatFoot', { n: summary.days }) }}
+        <!-- 折行时月度柱图让位给格子，峰值信息挪到这里，避免信息丢失 -->
+        <template v-if="segments.length > 1">
+          · {{ t('home.heatMonthlyPeak', { m: monthPeak.month, n: monthPeak.count }) }}
+        </template>
+      </span>
       <span class="ht-legend">
         {{ t('home.heatLess') }}
         <span class="ht-cell lv0"></span>
@@ -255,7 +324,11 @@ function cellTitle(ts: number, count: number) {
   font-variant-numeric: tabular-nums;
 }
 .ht-scroll {
-  /* 网格按内容撑开（宽度不够时横向滚动），不跟卡片抢竖向空间 */
+  /* 网格按内容撑开，不跟卡片抢竖向空间。
+     折成两行时两个网格竖向堆叠，行间留一点呼吸感。 */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex: 0 0 auto;
   overflow-x: auto;
   overflow-y: hidden;
@@ -271,6 +344,18 @@ function cellTitle(ts: number, count: number) {
 .ht-grid {
   display: grid;
   grid-template-rows: auto repeat(7, auto);
+  width: max-content;
+}
+.ht-grid .ht-cell {
+  /* 列宽已经是整数像素，格子直接铺满整列，保证紧密相连 */
+  max-width: none;
+  width: 100%;
+  justify-self: stretch;
+}
+/* 折成两行后格子本身已经把卡片填满，月度柱图会让内容溢出被裁切，
+   所以只在折行时收起它；峰值信息已挪到页脚，不会丢信息。 */
+.ht-card.is-wrapped .ht-months {
+  display: none;
 }
 .ht-month {
   /* 标签比格子宽，居中会压到相邻月份，这里靠左对齐到所属周列 */

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { Plus, Upload, Download, Sparkles, Clock, ArrowRight, Search, X } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { Plus, Upload, Download, Sparkles, Clock, ArrowRight, Search, CalendarDays } from 'lucide-vue-next'
 import {
   store,
   recentPages,
@@ -41,6 +41,8 @@ const importInput = ref<HTMLInputElement | null>(null)
 const busy = ref(false)
 const heatYear = ref(new Date().getFullYear())
 const selectedDay = ref<number | null>(null)
+/** 底部「最近编辑 / 当天笔记」共用一个卡，用 tab 切换，不再单独占右栏高度 */
+const recentTab = ref<'recent' | 'day'>('recent')
 
 /** 当前空间里的页面（不含回收站） */
 const livePages = computed(() => store.pages.filter((p) => !p.trashed))
@@ -161,6 +163,21 @@ const dayPages = computed(() => {
     .sort((a, b) => b.updatedAt - a.updatedAt)
 })
 
+/**
+ * 点日历某天：有笔记就自动切到「当天笔记」tab；
+ * 没笔记就留在「最近编辑」（沿用之前「无笔记不展示板块」的行为）。
+ */
+function onPickDay(ts: number) {
+  selectedDay.value = ts
+  if (dayPages.value.length) recentTab.value = 'day'
+  else if (recentTab.value === 'day') recentTab.value = 'recent'
+}
+
+/** 数据变化后当天不再有笔记时，自动退回「最近编辑」 */
+watch(dayPages, (pages) => {
+  if (recentTab.value === 'day' && !pages.length) recentTab.value = 'recent'
+})
+
 function timeAgo(ts: number) {
   const diff = Date.now() - ts
   const m = Math.floor(diff / 60000)
@@ -221,7 +238,7 @@ function timeAgo(ts: number) {
           </div>
 
           <div class="dh-col dh-col-mid">
-            <ActivityCalendar :stats="stats" @pick="selectedDay = $event" />
+            <ActivityCalendar :stats="stats" @pick="onPickDay" />
             <StatCards
               :week="weekStat"
               :month="monthStat"
@@ -234,22 +251,66 @@ function timeAgo(ts: number) {
           <div class="dh-col dh-col-right">
             <QuickStart :create="createFromTemplate" />
             <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
+          </div>
 
-            <!-- 选中日期当天写下的笔记：没有笔记时整块不出现 -->
-            <section v-if="selectedDay != null && dayPages.length" class="dh-day">
-              <header class="dh-day-head">
-                <Clock :size="13" :stroke-width="2" />
-                <span>{{ dayKey(selectedDay) }}</span>
-                <span class="dh-day-count">{{ dayPages.length }}</span>
+          <!-- 底部整行：最近编辑 / 当天笔记 共用一个卡，tab 切换。
+               之前「当天笔记」单独挂在右栏底部，挤掉了热力图一大截高度；
+               挪到这里后右栏只剩 Hero + 热力图，热力图能完整铺开。 -->
+          <section class="dh-recent">
+            <header class="dh-recent-head">
+              <div class="dh-tabs" role="tablist">
                 <button
-                  class="dh-day-close"
-                  :title="t('home.dayClose')"
-                  :aria-label="t('home.dayClose')"
-                  @click="selectedDay = null"
+                  class="dh-tab"
+                  :class="{ on: recentTab === 'recent' }"
+                  role="tab"
+                  :aria-selected="recentTab === 'recent'"
+                  @click="recentTab = 'recent'"
                 >
-                  <X :size="13" :stroke-width="2.2" />
+                  <Clock :size="13" :stroke-width="2" />
+                  <span>{{ t('home.recent') }}</span>
                 </button>
-              </header>
+                <button
+                  v-if="selectedDay != null && dayPages.length"
+                  class="dh-tab"
+                  :class="{ on: recentTab === 'day' }"
+                  role="tab"
+                  :aria-selected="recentTab === 'day'"
+                  @click="recentTab = 'day'"
+                >
+                  <CalendarDays :size="13" :stroke-width="2" />
+                  <span>{{ dayKey(selectedDay) }}</span>
+                  <span class="dh-tab-count">{{ dayPages.length }}</span>
+                </button>
+              </div>
+              <button class="dh-recent-more" @click="store.searchOpen = true">
+                <Search :size="12" :stroke-width="2" />{{ t('home.findMore') }}
+              </button>
+            </header>
+
+            <div v-show="recentTab === 'recent'">
+              <div v-if="recentPages.length" class="dh-recent-grid">
+                <button
+                  v-for="p in recentPages"
+                  :key="p.id"
+                  class="dh-recent-card"
+                  @click="goToPage(p.id)"
+                >
+                  <span class="dh-recent-icon"><PageIcon :icon="p.icon" :size="16" /></span>
+                  <span class="dh-recent-title">{{ p.title || t('app.untitled') }}</span>
+                  <span class="dh-recent-time">{{ timeAgo(p.updatedAt) }}</span>
+                </button>
+              </div>
+              <div v-else class="dh-empty">
+                <Sparkles :size="20" :stroke-width="1.5" />
+                <p>{{ t('home.empty') }}</p>
+                <button class="gn-btn gn-btn-primary" @click="createBlank">
+                  <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 选中日期当天写下的笔记 -->
+            <div v-show="recentTab === 'day'" class="dh-day">
               <div class="dh-day-list">
                 <button
                   v-for="p in dayPages"
@@ -263,36 +324,6 @@ function timeAgo(ts: number) {
                   <ArrowRight :size="12" class="dh-day-arrow" />
                 </button>
               </div>
-            </section>
-          </div>
-
-          <!-- 最近编辑：独占整行，铺满整个主页宽度 -->
-          <section class="dh-recent">
-            <header class="dh-recent-head">
-              <Clock :size="13" :stroke-width="2" />
-              <span>{{ t('home.recent') }}</span>
-              <button class="dh-recent-more" @click="store.searchOpen = true">
-                <Search :size="12" :stroke-width="2" />{{ t('home.findMore') }}
-              </button>
-            </header>
-            <div v-if="recentPages.length" class="dh-recent-grid">
-              <button
-                v-for="p in recentPages"
-                :key="p.id"
-                class="dh-recent-card"
-                @click="goToPage(p.id)"
-              >
-                <span class="dh-recent-icon"><PageIcon :icon="p.icon" :size="16" /></span>
-                <span class="dh-recent-title">{{ p.title || t('app.untitled') }}</span>
-                <span class="dh-recent-time">{{ timeAgo(p.updatedAt) }}</span>
-              </button>
-            </div>
-            <div v-else class="dh-empty">
-              <Sparkles :size="20" :stroke-width="1.5" />
-              <p>{{ t('home.empty') }}</p>
-              <button class="gn-btn gn-btn-primary" @click="createBlank">
-                <Plus :size="15" :stroke-width="2.2" />{{ t('home.newNote') }}
-              </button>
             </div>
           </section>
         </div>
@@ -382,57 +413,26 @@ function timeAgo(ts: number) {
 .dh-col-left {
   position: static;
 }
+/* 当天笔记列表：现在嵌在底部卡里，不再是一张独立卡 */
 .dh-day {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 13px 14px 12px;
-  border: 1px solid var(--gn-border);
-  border-radius: 12px;
-  background: var(--gn-bg);
-}
-.dh-day-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--gn-text-muted);
-}
-.dh-day-count {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--gn-text-muted);
-}
-/* 关闭按钮：鼠标移入整块时才显现，避免一直挂在标题栏上抢视线 */
-.dh-day-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 auto;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--gn-text-muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
-}
-.dh-day:hover .dh-day-close,
-.dh-day-close:focus-visible {
-  opacity: 1;
-}
-.dh-day-close:hover {
-  background: var(--gn-bg-hover);
-  color: var(--gn-text);
+  /* 与「最近编辑」卡片等高：切换 tab 时底部行高度不变，上方热力图不会被挤 */
+  height: 76px;
 }
 .dh-day-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 4px 12px;
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.dh-day-list::-webkit-scrollbar {
+  height: 5px;
+  width: 5px;
+}
+.dh-day-list::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--gn-border);
 }
 .dh-day-item {
   display: flex;
@@ -506,6 +506,46 @@ function timeAgo(ts: number) {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--gn-text-muted);
+}
+/* tab 切换：只在有选中日期且有笔记时出现「当天笔记」页签 */
+.dh-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.dh-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dh-tab:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
+}
+.dh-tab.on {
+  background: var(--gn-accent-soft);
+  color: var(--gn-accent);
+}
+.dh-tab-count {
+  font-size: 10.5px;
+  font-weight: 500;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+/* 「最近编辑」和「当天笔记」两个面板同高，切换时不会让底部行跳动 */
+.dh-recent > div:not(.dh-recent-head) {
+  height: 76px;
 }
 .dh-recent-more {
   margin-left: auto;
