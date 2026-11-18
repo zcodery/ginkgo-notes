@@ -156,7 +156,13 @@ function cancelProfile() {
 const avatarInput = ref<HTMLInputElement | null>(null)
 const avatarBusy = ref(false)
 
-/** 压成 160px 方图，控制体积 */
+/**
+ * 压成 160px 方图，控制体积。
+ *
+ * 导出格式按「图中是否真的含透明像素」决定：有透明就走 PNG 保住 alpha 通道，
+ * 否则仍走 JPEG（体积小得多）。绝不能一律 toDataURL('image/jpeg') ——
+ * JPEG 没有 alpha 通道，透明像素会被烧成黑色，用户上传透明 PNG 头像就变黑块。
+ */
 function shrinkImage(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file)
@@ -166,11 +172,26 @@ function shrinkImage(file: File): Promise<string> {
       const c = document.createElement('canvas')
       c.width = S
       c.height = S
-      const ctx = c.getContext('2d')!
+      const ctx = c.getContext('2d', { willReadFrequently: true })!
       const side = Math.min(img.width, img.height)
       ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, S, S)
       URL.revokeObjectURL(url)
-      resolve(c.toDataURL('image/jpeg', 0.86))
+
+      // 扫描 alpha 通道：任一像素半透明/全透明都按带透明处理
+      let hasAlpha = false
+      try {
+        const { data } = ctx.getImageData(0, 0, S, S)
+        for (let i = 3; i < data.length; i += 4) {
+          if (data[i] < 255) {
+            hasAlpha = true
+            break
+          }
+        }
+      } catch {
+        // 极端情况下读不到像素（如被跨域污染），保守走 PNG 以保住透明
+        hasAlpha = true
+      }
+      resolve(hasAlpha ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.86))
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)

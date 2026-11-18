@@ -1812,3 +1812,11 @@ html.dark .gn-tag {
 .db-status-pop .db-opt-item.on {
   background: var(--gn-accent-soft);
 }
+
+/* 头像透明打底：容器一旦放了 <img>，就撤掉首字母占位的实色背景，
+   让 PNG 的透明像素透出页面底色（各级头像容器统一，避免只修一处其它地方仍是色块）。
+   无图时保留各自的实色底 + 首字母。 scoped 样式带 [data-v] 属性选择器，
+   这里用 :is + :has 提到同等以上特异性，确保覆盖组件内的 background。 */
+:is(.ua, .pc-avatar, .sb-avatar, .pp-avatar, .fr-avatar, .ad-avatar, .pa-avatar):has(> img) {
+  background: transparent !important;
+}
