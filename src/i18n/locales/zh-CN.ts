@@ -115,7 +115,6 @@ export default {
     today: '今天',
     calendarFoot: '本月 {n} 天有记录',
     dayEmpty: '这天没有笔记',
-    dayClose: '关闭',
     weekPublish: '本周发布',
     monthPublish: '本月发布',
     weekTrend: '较上周',

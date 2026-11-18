@@ -117,7 +117,6 @@ const zhTW: Messages = {
     today: '今天',
     calendarFoot: '本月 {n} 天有記錄',
     dayEmpty: '這天沒有筆記',
-    dayClose: '關閉',
     weekPublish: '本週發布',
     monthPublish: '本月發布',
     weekTrend: '較上週',

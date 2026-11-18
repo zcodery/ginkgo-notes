@@ -118,7 +118,6 @@ const en: Messages = {
     today: 'Today',
     calendarFoot: '{n} days with notes this month',
     dayEmpty: 'No notes on this day',
-    dayClose: 'Close',
     weekPublish: 'Published this week',
     monthPublish: 'Published this month',
     weekTrend: 'vs last week',
