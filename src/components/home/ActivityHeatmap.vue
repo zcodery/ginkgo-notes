@@ -25,10 +25,6 @@ const WEEK_COL = 12
  * 不如像 GitHub 移动端那样折行，格子仍然是看得清的正方形。
  */
 const CELL_MIN = 8
-/** 格子上限：超宽屏上别把格子拉得过大 */
-const CELL_MAX = 20
-/** 折行后的格子目标尺寸：两行本身已占满卡片，取 12px 兼顾可读与留白 */
-const WRAP_CELL_MAX = 12
 const WEEK_HEAD = ['一', '二', '三', '四', '五', '六', '日']
 
 const weeks = computed(() => buildYearHeat(props.year, props.stats))
@@ -38,31 +34,37 @@ const weeks = computed(() => buildYearHeat(props.year, props.stats))
 const scrollEl = ref<HTMLElement | null>(null)
 /** 折行后每行周数（1 行时等于全年周数） */
 const perRow = ref(53)
-/** 实际格子边长 */
-const cellSize = ref(14)
+/**
+ * 折行时格子的高度上限。折行后列宽由 1fr 铺满容器，格子宽度可能到 14px，
+ * 若仍保持正方形，两行格子会把页脚挤出卡片 —— 所以折行时只限制高度，
+ * 宽度不变：格子略扁但依然紧密铺满、不裁切。
+ */
+const WRAP_CELL_H = 11
+/** 0 表示单行（正方形），>0 表示折行时的格子高度 */
+const wrappedCellH = ref(0)
 
 /**
  * 根据容器实际宽度决定单行还是两行。
- * 计算只考虑「格子 + 间隙 + 星期标签列」，格子尺寸取整数，
- * 这样总宽不会超出容器 → 永远不会出现横向滚动裁切。
+ * 只负责「行数 + 折行格子高度」：列宽交给 CSS 的 1fr 按容器实际宽度均分，
+ * 这样网格永远铺满卡片、右侧不留白，也不会因为宽度不整除而横向裁切。
  */
 function relayout(width: number) {
   const n = weeks.value.length || 53
   const gapTotal = (cols: number) => (cols - 1) * GAP
 
-  // 先试单行
-  const oneCell = Math.floor((width - WEEK_COL - gapTotal(n)) / n)
+  // 先试单行：每列能分到多少像素
+  const oneCell = (width - WEEK_COL - gapTotal(n)) / n
   if (oneCell >= CELL_MIN) {
     perRow.value = n
-    cellSize.value = Math.min(CELL_MAX, oneCell)
+    wrappedCellH.value = 0
     return
   }
 
-  // 单行太挤 → 折两行，每行格子取整数宽
+  // 单行太挤 → 折两行；高度取「列宽」与上限中较小的一个，窄屏仍是正方形
   const half = Math.ceil(n / 2)
-  const twoCell = Math.floor((width - WEEK_COL - gapTotal(half)) / half)
+  const twoCell = (width - WEEK_COL - gapTotal(half)) / half
   perRow.value = half
-  cellSize.value = Math.min(WRAP_CELL_MAX, Math.max(6, twoCell))
+  wrappedCellH.value = Math.round(Math.min(WRAP_CELL_H, twoCell))
 }
 
 /** 每段（一行）的网格数据：周列表 + 该行里的月份标签 */
@@ -165,10 +167,9 @@ function cellTitle(ts: number, count: number) {
     </header>
 
     <!--
-      GitHub 贡献图样式：优先整年 53 周排一行；
-      列宽不够 8px/格时折成两行（每行固定 27 列），格子始终填满列宽、
-      列间隙恒定 3px —— 折行也不会出现「列被拉宽、格子居中留白」的稀疏感。
-      这样 1280~1600 的三栏布局下全年格子也能完整显示，不用横向滚动。
+      GitHub 贡献图样式：优先整年 53 周排一行；列宽不够 8px/格时折成两行。
+      列宽用 1fr 按容器实际宽度均分、格子铺满整列 —— 既铺满卡片不留白，
+      也不会出现「列被拉宽、格子居中留缝」的稀疏感；gap 恒定 3px。
     -->
     <div ref="scrollEl" class="ht-scroll gn-scroll">
       <div
@@ -176,8 +177,9 @@ function cellTitle(ts: number, count: number) {
         :key="si"
         class="ht-grid"
         :style="{
-          gridTemplateColumns: `${WEEK_COL}px repeat(${seg.weeks.length}, ${cellSize}px)`,
+          gridTemplateColumns: `${WEEK_COL}px repeat(${seg.weeks.length}, minmax(0, 1fr))`,
           gap: `${GAP}px`,
+          '--ht-cell-h': `${wrappedCellH}px`,
         }"
       >
         <!-- 月份标签直接落在对应周列上，列宽变化时自动对齐 -->
@@ -336,21 +338,28 @@ function cellTitle(ts: number, count: number) {
 }
 /**
  * 整张热力图是一个二维网格：
- * 第 1 列是星期标签列，其后是 53 个等宽的周列（1fr 均分）。
+ * 第 1 列是星期标签列，其后是若干等宽的周列（1fr 均分容器宽度）。
  * 格子宽度取满所在列、高度由 aspect-ratio 推出，所以始终是正方形，
- * 且横向紧密相连 —— 这是 GitHub 贡献图的标准观感。
+ * 横向紧密相连且铺满整张卡片 —— 这是 GitHub 贡献图的标准观感。
  * 第 1 行留给月份标签，标签直接落在对应周列上，列宽变化时自动对齐。
  */
 .ht-grid {
   display: grid;
   grid-template-rows: auto repeat(7, auto);
-  width: max-content;
+  /* 1fr 需要一个确定宽度的容器才能均分；不能是 max-content */
+  width: 100%;
 }
 .ht-grid .ht-cell {
-  /* 列宽已经是整数像素，格子直接铺满整列，保证紧密相连 */
+  /* 格子跟着列宽走：铺满整列、无 max-width 上限、无居中留缝 */
   max-width: none;
   width: 100%;
   justify-self: stretch;
+}
+/* 折行时格子宽度仍由 1fr 铺满整列，但高度封顶（CSS 变量由 relayout 算出）：
+   两行格子如果保持正方形会把页脚挤出卡片。格子略扁一点，仍紧密相连。 */
+.ht-card.is-wrapped .ht-grid .ht-cell {
+  aspect-ratio: auto;
+  height: var(--ht-cell-h, 11px);
 }
 /* 折成两行后格子本身已经把卡片填满，月度柱图会让内容溢出被裁切，
    所以只在折行时收起它；峰值信息已挪到页脚，不会丢信息。 */
