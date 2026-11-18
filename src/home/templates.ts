@@ -48,9 +48,9 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
     icon: 'compass',
     label: { 'zh-CN': '深度思考', 'zh-TW': '深度思考', en: 'Deep think' },
     title: {
-      'zh-CN': () => '深度思考',
-      'zh-TW': () => '深度思考',
-      en: () => 'Deep think',
+      'zh-CN': (d) => `${d} 深度思考`,
+      'zh-TW': (d) => `${d} 深度思考`,
+      en: (d) => `${d} Deep think`,
     },
     body: { 'zh-CN': '', 'zh-TW': '', en: '' },
   },
