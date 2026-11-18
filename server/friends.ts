@@ -495,10 +495,28 @@ friendsRouter.post('/friends/requests/:id/accept', (req, res) => {
       ? body.groupId
       : NONE_GROUP
     : ''
+  // 同意时顺带新建分组：整段放进同一个事务里 —— 同意成功才建组，
+  // 校验失败 / 事务回滚时组也不会被留下（避免「建了组却没同意」的空组）。
+  const newGroupName = typeof body.newGroupName === 'string' ? body.newGroupName.trim() : ''
+  if (newGroupName && newGroupName.length > 20) throw new HttpError(400, '分组名称最多 20 个字')
+  if (newGroupName && db.prepare('SELECT 1 FROM friend_groups WHERE owner_id = ? AND name = ?').get(user.id, newGroupName)) {
+    throw new HttpError(409, '已经有同名分组了')
+  }
   // 同意时自己也选一次分组；没选就用默认组，申请人那边用它申请时选的分组
-  const mine = chosenGroup(user.id, raw, true)
+  let mine = chosenGroup(user.id, raw, true)
   const theirs = chosenGroup(row.requested_by, row.requester_group_id, true)
   transaction(() => {
+    if (newGroupName) {
+      const max = db
+        .prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM friend_groups WHERE owner_id = ?')
+        .get(user.id) as { m: number }
+      const isDefault = myGroups(user.id).length ? 0 : 1
+      const groupId = randomUUID()
+      db.prepare(
+        'INSERT INTO friend_groups (id, owner_id, name, is_default, sort, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+      ).run(groupId, user.id, newGroupName, isDefault, max.m + 1, now)
+      mine = groupId
+    }
     db.prepare("UPDATE friendships SET status = 'accepted', updated_at = ? WHERE id = ?").run(now, row.id)
     assignGroup(user.id, row.requested_by, mine)
     assignGroup(row.requested_by, user.id, theirs)

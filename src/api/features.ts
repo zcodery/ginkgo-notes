@@ -372,8 +372,8 @@ export const listFriendRequests = () => api<FriendRequestInfo[]>('GET', '/friend
 export const listSentFriendRequests = () => api<FriendRequestInfo[]>('GET', '/friends/requests/sent')
 export const sendFriendRequest = (username: string, message?: string, groupId?: string) =>
   api('POST', '/friends/requests', { username, message, groupId })
-export const acceptFriendRequest = (id: string, groupId?: string) =>
-  api('POST', `/friends/requests/${id}/accept`, { groupId })
+export const acceptFriendRequest = (id: string, groupId?: string, newGroupName?: string) =>
+  api('POST', `/friends/requests/${id}/accept`, { groupId, newGroupName })
 export const declineFriendRequest = (id: string) => api('POST', `/friends/requests/${id}/decline`)
 export const removeFriend = (id: string) => api('DELETE', `/friends/${id}`)
 export const blockFriend = (id: string) => api('POST', `/friends/${id}/block`)

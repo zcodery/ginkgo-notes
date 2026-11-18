@@ -17,8 +17,10 @@ const props = withDefaults(
     minWidth?: number
     /** 放在确认弹窗等高层容器里时要抬高层级 */
     zIndex?: number
+    /** 撑满父容器剩余宽度（如好友申请操作行里，把空余宽度都给下拉框） */
+    grow?: boolean
   }>(),
-  { disabled: false, minWidth: 108, zIndex: 1200 },
+  { disabled: false, minWidth: 108, zIndex: 1200, grow: false },
 )
 
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
@@ -127,7 +129,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="rootRef" class="gn-select" :class="{ open, disabled }">
+  <div ref="rootRef" class="gn-select" :class="{ open, disabled, grow }">
     <button
       ref="triggerRef"
       type="button"
@@ -169,6 +171,13 @@ onBeforeUnmount(() => {
 .gn-select {
   position: relative;
   flex: 0 0 auto;
+}
+.gn-select.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.gn-select.grow .gn-select-trigger {
+  width: 100%;
 }
 .gn-select-trigger {
   display: inline-flex;

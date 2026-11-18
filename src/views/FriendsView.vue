@@ -74,11 +74,30 @@ const addGroupId = ref<string>(UNGROUPED)
 const addGroupTouched = ref(false)
 const acceptGroups = ref<Record<string, string>>({})
 
+/** 「同意时新建分组」的选项值（哨兵，不是真实分组 id） */
+const NEW_GROUP = '__new_group__'
+/** 每个申请各自的新组名草稿；选中「新建分组」后展开输入框 */
+const newGroupDrafts = ref<Record<string, string>>({})
+const NEW_GROUP_INPUT_CLASS = 'fr-new-group-input'
+
 /** 所有选组入口共用：未分组永远可选，哪怕当前没有正式分组 */
 const groupOptions = computed(() => [
   { value: UNGROUPED, label: '未分组' },
   ...groups.value.map((g) => ({ value: g.id, label: g.name })),
 ])
+/** 同意申请专用：末尾多一项「新建分组」，选中后展开输入 */
+const acceptGroupOptions = computed(() => [
+  ...groupOptions.value,
+  { value: NEW_GROUP, label: '＋ 新建分组' },
+])
+
+/** 同意申请的下拉值变化：选到「新建分组」时确保草稿有位子 */
+function onAcceptGroupChange(id: string, value: string) {
+  acceptGroups.value[id] = value
+  if (value === NEW_GROUP && newGroupDrafts.value[id] === undefined) {
+    newGroupDrafts.value[id] = ''
+  }
+}
 const defaultGroupValue = computed(
   () => groups.value.find((g) => g.isDefault)?.id ?? UNGROUPED,
 )
@@ -197,8 +216,18 @@ function add(item: UserSearchItem) {
 }
 
 function accept(id: string) {
+  const picked = acceptGroups.value[id] || defaultGroupValue.value
+  const newName = picked === NEW_GROUP ? (newGroupDrafts.value[id] || '').trim() : ''
+  // 「新建分组」但没填名字：拦一下，别当成没选而塞进默认组
+  if (picked === NEW_GROUP && !newName) {
+    flash('请填写新建分组的名称')
+    return
+  }
   return run(async () => {
-    await acceptFriendRequest(id, acceptGroups.value[id] || defaultGroupValue.value)
+    // 传 newGroupName 时后端在同一事务里建组 + 同意，拒绝/回滚都不会留下空组
+    await acceptFriendRequest(id, picked === NEW_GROUP ? undefined : picked, newName || undefined)
+    delete acceptGroups.value[id]
+    delete newGroupDrafts.value[id]
     await refresh()
   })
 }
@@ -800,16 +829,33 @@ onMounted(async () => {
                   <div class="fr-name">{{ r.from?.name }}</div>
                   <div class="fr-sub">{{ r.message || '请求添加你为好友' }}</div>
                   <div class="fr-request-ops">
-                    <GnSelect
-                      v-model="acceptGroups[r.id]"
-                      :options="groupOptions"
-                      :min-width="96"
-                      v-tooltip="'同意后把对方放进这个分组'"
-                    />
-                    <button type="button" class="fr-btn primary" :disabled="busy" @click="accept(r.id)">
-                      <Check :size="12" />同意
-                    </button>
-                    <button type="button" class="fr-btn" :disabled="busy" @click="decline(r.id)">拒绝</button>
+                    <div class="fr-request-ops-row">
+                      <GnSelect
+                        :model-value="acceptGroups[r.id] || defaultGroupValue"
+                        :options="acceptGroupOptions"
+                        :min-width="88"
+                        grow
+                        v-tooltip="'同意后把对方放进这个分组'"
+                        @update:model-value="onAcceptGroupChange(r.id, $event)"
+                      />
+                      <button type="button" class="fr-btn primary" :disabled="busy" @click="accept(r.id)">
+                        <Check :size="12" />同意
+                      </button>
+                      <button type="button" class="fr-btn" :disabled="busy" @click="decline(r.id)">拒绝</button>
+                    </div>
+                    <div v-if="acceptGroups[r.id] === NEW_GROUP" class="fr-request-newgroup">
+                      <input
+                        v-model="newGroupDrafts[r.id]"
+                        :class="NEW_GROUP_INPUT_CLASS"
+                        class="fr-input"
+                        maxlength="20"
+                        placeholder="新分组名称"
+                        :disabled="busy"
+                        @keydown.enter.prevent="accept(r.id)"
+                        @keydown.esc.prevent="onAcceptGroupChange(r.id, defaultGroupValue)"
+                      />
+                      <span class="fr-request-newgroup-tip">同意后一并创建</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1195,9 +1241,36 @@ onMounted(async () => {
 }
 .fr-request-ops {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 7px;
+}
+.fr-request-ops-row {
+  display: flex;
   align-items: center;
   gap: 5px;
-  margin-top: 7px;
+}
+/* 同意 / 拒绝视觉重量对齐：两者都给实底，避免「实心 vs 淡描边」的高度错觉 */
+.fr-request-ops-row .fr-btn {
+  flex: 0 0 auto;
+}
+.fr-request-ops-row .fr-btn:not(.primary) {
+  border-color: var(--gn-border-strong, var(--gn-border));
+  background: var(--gn-bg-hover);
+}
+.fr-request-newgroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fr-request-newgroup .fr-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.fr-request-newgroup-tip {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--gn-text-muted);
 }
 
 /* ---------- 分组 ---------- */
