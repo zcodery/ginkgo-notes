@@ -17,6 +17,7 @@ import ActivityCalendar from '@/components/home/ActivityCalendar.vue'
 import StatCards from '@/components/home/StatCards.vue'
 import QuickStart from '@/components/home/QuickStart.vue'
 import ActivityHeatmap from '@/components/home/ActivityHeatmap.vue'
+import YearActivity from '@/components/home/YearActivity.vue'
 import { t } from '@/i18n'
 import { locale } from '@/i18n'
 import { userState } from '@/userState'
@@ -220,6 +221,7 @@ function timeAgo(ts: number) {
           <div class="dh-col dh-col-right">
             <QuickStart :create="createFromTemplate" />
             <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
+            <YearActivity :stats="stats" :year="heatYear" />
 
             <!-- 选中日期当天写下的笔记 -->
             <section v-if="selectedDay != null" class="dh-day">
@@ -307,7 +309,11 @@ function timeAgo(ts: number) {
   width: 100%;
   max-width: 2600px;
   margin: 0 auto;
-  padding: 26px 28px 40px;
+  padding: 26px 28px 22px;
+  /* 竖向也铺满：内容不足一屏时把仪表盘撑到满高，页面就不会出现滚动条 */
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .dh-head {
   display: flex;
@@ -315,7 +321,7 @@ function timeAgo(ts: number) {
   justify-content: space-between;
   gap: 20px;
   flex-wrap: wrap;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .dh-head h1 {
   margin: 0 0 4px;
@@ -338,18 +344,22 @@ function timeAgo(ts: number) {
   display: grid;
   /* 左栏个人卡固定，中栏日历按内容，右栏吃掉剩余空间 */
   grid-template-columns: minmax(228px, 240px) minmax(290px, 340px) minmax(420px, 1fr);
+  /* 第 1 行吃掉剩余高度（各栏等高铺满），第 2 行是最近编辑（自适应） */
+  grid-template-rows: minmax(min-content, 1fr) auto;
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .dh-col {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
 }
 .dh-col-left {
-  position: sticky;
-  top: 0;
+  position: static;
 }
 .dh-day {
   display: flex;
@@ -435,10 +445,11 @@ function timeAgo(ts: number) {
 .dh-recent {
   /* 最近编辑独占整行，铺满整个主页宽度 */
   grid-column: 1 / -1;
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: 9px;
-  padding: 13px 14px 12px;
+  padding: 11px 14px 10px;
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
@@ -537,13 +548,12 @@ function timeAgo(ts: number) {
 
 @media (max-width: 1180px) {
   .dh-grid {
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
+    /* 两栏 + 右栏整行 + 最近编辑，共三行 */
+    grid-template-rows: minmax(min-content, 1fr) auto auto;
   }
   .dh-col-right {
     grid-column: 1 / -1;
-  }
-  .dh-col-left {
-    position: static;
   }
 }
 @media (max-width: 768px) {
@@ -555,6 +565,15 @@ function timeAgo(ts: number) {
   }
   .dh-grid {
     grid-template-columns: minmax(0, 1fr);
+    /* 单栏：内容按自然高度堆叠，页面可滚动 */
+    grid-template-rows: auto auto;
+    flex: 0 0 auto;
+  }
+  .dh-col-left {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    z-index: 2;
   }
   .dh-head-actions {
     flex-wrap: wrap;

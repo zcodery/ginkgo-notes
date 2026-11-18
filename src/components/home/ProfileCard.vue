@@ -215,11 +215,15 @@ const todayKey = dayKey(Date.now())
   display: flex;
   flex-direction: column;
   align-items: center;
+  /* 撑满左栏高度，并让各块内容均匀铺开，卡片下方不留空洞 */
+  justify-content: space-between;
   gap: 10px;
   padding: 18px 16px 14px;
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .pc-avatar {
   width: 76px;
@@ -380,6 +384,7 @@ const todayKey = dayKey(Date.now())
   margin-top: 6px;
   padding-top: 10px;
   border-top: 1px solid var(--gn-border);
+  flex: 0 0 auto;
 }
 .pc-act-head {
   display: flex;
@@ -401,7 +406,7 @@ const todayKey = dayKey(Date.now())
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 38px;
+  height: 92px;
 }
 .pc-bar {
   flex: 1 1 0;

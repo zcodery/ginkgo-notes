@@ -153,6 +153,8 @@ function cellTitle(ts: number, count: number) {
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
+  /* 自然高度：右栏剩余空间交给下方的月度活跃卡片 */
+  flex: 0 0 auto;
 }
 .ht-head {
   display: flex;

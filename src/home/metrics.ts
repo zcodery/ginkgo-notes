@@ -281,6 +281,66 @@ export function startOfWeek(now = Date.now()): number {
  * 环比百分比。
  * 上期为 0 时：本期也为 0 → 0%；本期 > 0 → 100%。
  */
+/**
+ * 某年 12 个月的每日活跃次数总和。
+ *
+ * 用于「月度活跃」柱状图：横向铺满卡片宽度，比全年热力图更高，
+ * 能把右栏的竖向空间用起来。
+ */
+export function monthlyActive(stats: Map<string, DayStat>, year: number): number[] {
+  const out = new Array<number>(12).fill(0)
+  const prefix = String(year)
+  for (const [key, s] of stats) {
+    if (!key.startsWith(prefix)) continue
+    const m = Number(key.slice(5, 7))
+    if (m >= 1 && m <= 12) out[m - 1] += s.active
+  }
+  return out
+}
+
+/**
+ * 某年最长连续活跃天数。
+ *
+ * 日期键是本地时区的 YYYY-MM-DD，直接 `new Date(key)` 会按 UTC 解析导致差一天，
+ * 所以这里按 y-m-d 本地构造。
+ */
+export function longestStreak(stats: Map<string, DayStat>, year: number): number {
+  const prefix = String(year)
+  const days: string[] = []
+  for (const [key, s] of stats) {
+    if (key.startsWith(prefix) && s.active > 0) days.push(key)
+  }
+  days.sort()
+  let best = 0
+  let run = 0
+  let prev: number | null = null
+  for (const key of days) {
+    const ts = new Date(
+      Number(key.slice(0, 4)),
+      Number(key.slice(5, 7)) - 1,
+      Number(key.slice(8, 10)),
+    ).getTime()
+    run = prev != null && Math.round((ts - prev) / 86400000) === 1 ? run + 1 : 1
+    prev = ts
+    if (run > best) best = run
+  }
+  return best
+}
+
+/** 某年有活跃记录的天数 */
+export function activeDayCount(stats: Map<string, DayStat>, year: number): number {
+  let n = 0
+  for (const [key, s] of stats) {
+    if (key.startsWith(String(year)) && s.active > 0) n++
+  }
+  return n
+}
+
+/**
+ * 环比百分比。
+ *
+ * 上期为 0 时：本期也为 0 → 0%；本期 > 0 → 100%。
+ */
 export function deltaPercent(current: number, previous: number): number {
   if (previous === 0) return current === 0 ? 0 : 100
   return Math.round(((current - previous) / previous) * 100)

@@ -106,6 +106,9 @@ const activeDays = computed(
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
+  /* 撑满中栏剩余高度 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .cal-head {
   display: flex;
