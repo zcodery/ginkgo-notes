@@ -325,6 +325,7 @@ ginkgoNotes/
 | 139 | 快捷模板生成的笔记正文留空 | ✅ | 用户要求「生成的这几个里面都不要带默认内容，完全用户去编辑操作」。四个快捷模板（今日日记 / 每日复盘 / 深度思考 / 快速记录）的 `body` 三语全部置空，只保留带日期的标题；去重逻辑不变。已有笔记未改动，避免覆盖用户可能写下的内容（陷阱 112） |
 | 140 | 深度思考标题也带日期 | ✅ | 用户看到侧栏「深度思考」没带日期、其余三个模板都带，问是否故意。此前 `deep` 模板标题是固定字符串（当作可长期沉淀的主题，不绑某一天），现按用户选择改为与其他三个一致：`title[l]` 由 `() => '深度思考'` 改为 `(d) => \`${d} 深度思考\'`（zh-TW / en 同步为 `${d} Deep think`）。去重逻辑不变——`todayTemplatePages` 用标题+今天创建双重条件，带日期后跨天自然不会再命中昨天那篇；同步把 HomeView 里「否则深度思考这类不带日期的模板隔天建不了」的旧注释改为通用表述，并更新 mock E2E 种子（昨天的深度思考也用昨天日期）与一条新断言「新深度思考标题用今天日期」，18/18 通过（陷阱 113） |
 | 141 | 团队页补上「待我处理的邀请」入口 | ✅ | 用户反馈：建团队拉好友后，好友点通知里的邀请进 `/teams` 却找不到同意的地方。根因不是权限/后端——后端 `GET /spaces/invites`、`accept`、`decline` 与前端 API 封装**全都现成**，只是 `TeamsView` 从没调用过 `listMyInvites/acceptInvite/declineInvite`，页面只渲染「我已加入的空间」+「我发出的邀请（管理员视角）」，被邀请人视角整块 UI 缺失。修复：`TeamsView` 新增 `myInvites`，主区顶部加醒目邀请卡（邀请人 / 团队名 / 角色 + 接受/拒绝），接受后调 `acceptInvite` → 刷新 spaces + `reloadSpaces` → 自动选中新团队，拒绝调 `declineInvite` → 仅移除卡片；`refreshMyInvites` 单独 try/catch 容错（老后端无此接口也不阻塞页面）。新增隔离 mock E2E `e2e-team-invite.mjs` 17/17（接受 / 拒绝 / 无邀请三场景，零真实写操作）（陷阱 114） |
+| 142 | 透明 PNG 头像不再变黑底 | ✅ | 用户上传透明 PNG 头像后背景变黑。根因：`ProfileView.shrinkImage` 重绘到 canvas 后**硬编码** `toDataURL('image/jpeg', 0.86)`，JPEG 无 alpha 通道，透明像素被烧成黑色；后端本来已允许 `data:image/png`。修复两层：① 转换层——用 `getImageData` 扫 alpha 通道，含透明像素（或读不到像素）则导出 PNG 保住透明，否则仍走 JPEG 省体积；② 显示层——各级头像容器（`.ua/.pc-avatar/.sb-avatar/...`）都有实色底用于无图时首字母占位，全局加 `:is(...):has(> img){background:transparent!important}` 让有图时底色让位、透明区透出页面。新增隔离 mock E2E `e2e-avatar-alpha.mjs` 8/8（透明→PNG 且解码后确有 alpha<255、不透明→JPEG、头像容器背景 computed 透明，零真实写操作）（陷阱 115） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -609,6 +610,7 @@ ginkgoNotes/
 | 124 | `21bc5e0` | fix(home) | 四个快捷模板的正文全部置空，生成的笔记完全由用户编辑；专项 E2E 补「content / excerpt 均为空」断言 |
 | 125 | `7376362` | fix(home) | 深度思考标题也带日期，四个快捷模板命名规则统一；同步更新去重注释与 mock E2E 种子/断言（18/18） |
 | 126 | `feccd9e` | fix(team) | 团队页补上「待我处理的邀请」入口：好友点通知进来可接受/拒绝，接受后自动切入新团队；新增隔离 mock E2E 17/17 |
+| 127 | `e358d27` | fix(avatar) | 透明 PNG 头像保留 alpha：上传含透明导出 PNG、不含则 JPEG，头像容器有图时背景透明；隔离 mock E2E 8/8 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
@@ -1007,6 +1009,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 113. **改模板标题规则时，注释与测试种子是一体的，必须一起改**。用户问「深度思考为什么没带日期」，选择带日期后，改 `templates.ts` 的 `title[l]` 只是一半。另一半：① `HomeView.vue` 里 `todayTemplatePages` 的注释曾专门举「深度思考这种不带日期的模板」为例解释 `createdAt` 条件 —— 规则一改这条注释就成了反例，要换成通用表述（手动同名笔记误命中）；② mock E2E 的种子和断言若还写死固定标题「深度思考」，测的就不是新规则了 —— 种子要改成昨天日期的标题、并补一条「新标题用今天日期」的断言。去重靠「标题+今天创建」双重条件，标题一旦带日期，跨天自然不命中昨天那篇，`createdAt` 条件依然保留作兜底。
 
 114. **「功能后端 API 齐全」不等于「用户走得到」，先核对前端有没有 UI 入口**。用户报「好友点邀请通知进团队页后没有同意的地方」。第一反应容易往权限 / 后端状态上查，但后端 `GET /spaces/invites` + accept + decline 和前端三个 API 封装**全都是现成的** —— 缺的是调用方：`TeamsView` 只渲染「我已加入的空间」和「我发出的邀请」（管理员视角），完全没拉过 `listMyInvites`（被邀请人视角），所以通知 link `/teams` 把人送到页面后无按钮可点。**排查范式**：用户「某功能找不到入口」时，先 grep 该功能的 API 封装在 `.vue` 里有没有被调用 —— 定义了却零调用 = UI 漏做；被调用了再查权限 / 数据。**实现要点**：新拉的数据放主区顶部醒目条而非塞进某个已选团队（用户进来时 `current` 可能是个人空间）；接受后要 `acceptInvite` → `refreshSpaces` + `reloadSpaces`（侧栏与 store 同步）→ `load(新团队)` 三步才完整；老后端可能没有该接口，拉取单独 try/catch 吞错、不阻塞团队页。测试仍走 mock（团队 / 成员数据是真数据，绝不拿真实账号跑写操作）。
+
+115. **图片压成 data URL 时，别把透明图硬导出 JPEG —— alpha 通道会被烧成黑色**。用户上传透明 PNG 头像后背景变黑，根因是 `shrinkImage` 一律 `toDataURL('image/jpeg', 0.86)`：JPEG 没有 alpha，透明像素直接变黑。**转换层**修法：重绘后 `getImageData` 扫 alpha 通道，任一像素 `a<255` 就导出 `image/png`（后端白名单要允许 png），否则仍导出 jpeg 省体积；`getImageData` 抛错（跨域污染等）时保守走 PNG。别用「文件扩展名是不是 .png」判断——扩展名不代表真的有透明像素，也可能 PNG 全不透明。**显示层**别漏：头像容器为了无图时的首字母占位都有实色底（`var(--gn-accent)` 等），转成 PNG 后透明区仍会透出主色块，要 `:is(...):has(> img){background:transparent!important}` 在有图时撤掉底色，才能真透出页面。**验证**：把导出的 data URL 塞回 canvas 读 alpha 通道断言确有 `a<255`，光断言 `startsWith('data:image/png')` 不够。另注：本次 3100 dev server 返回的 style.css 模块是空的（tailwind 插件链路），全局样式要在构建产物预览里验，别被 dev 的空 CSS 误判成规则没写对。
 
 ---
 
