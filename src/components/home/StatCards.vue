@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { ArrowDownRight, ArrowUpRight } from 'lucide-vue-next'
 import { deltaPercent, type TrendPoint } from '@/home/metrics'
 import { t } from '@/i18n'
@@ -43,6 +43,14 @@ const monthSpark = computed(() => sparkPath(props.month.points))
 
 const weekDelta = computed(() => deltaPercent(props.week.current, props.week.previous))
 const monthDelta = computed(() => deltaPercent(props.month.current, props.month.previous))
+
+/**
+ * 裁剪区域 id：折线从左往右画出时用它做「扫过」遮罩。
+ * 用 useId 保证同一页面多个实例不会撞 id。
+ */
+const uid = useId()
+const weekClipId = `sc-clip-week-${uid}`
+const monthClipId = `sc-clip-month-${uid}`
 </script>
 
 <template>
@@ -59,9 +67,22 @@ const monthDelta = computed(() => deltaPercent(props.month.current, props.month.
           </span>
         </div>
         <div class="sc-num">{{ week.current }}</div>
-        <svg class="sc-spark" :viewBox="`0 0 100 ${TREND_H}`" preserveAspectRatio="none">
-          <path :d="weekSpark.area" class="sc-spark-area" />
-          <path :d="weekSpark.line" class="sc-spark-line" />
+        <!-- key 绑路径数据：数据是异步到的，路径从空变成有值时整段 SVG 重建，动画重新播放一次 -->
+        <svg
+          :key="weekSpark.line"
+          class="sc-spark"
+          :viewBox="`0 0 100 ${TREND_H}`"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <clipPath :id="weekClipId">
+              <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
+            </clipPath>
+          </defs>
+          <g :clip-path="`url(#${weekClipId})`">
+            <path :d="weekSpark.area" class="sc-spark-area" />
+            <path :d="weekSpark.line" class="sc-spark-line" />
+          </g>
         </svg>
         <div class="sc-foot">{{ t('home.weekTrend') }}</div>
       </article>
@@ -77,9 +98,21 @@ const monthDelta = computed(() => deltaPercent(props.month.current, props.month.
           </span>
         </div>
         <div class="sc-num">{{ month.current }}</div>
-        <svg class="sc-spark" :viewBox="`0 0 100 ${TREND_H}`" preserveAspectRatio="none">
-          <path :d="monthSpark.area" class="sc-spark-area" />
-          <path :d="monthSpark.line" class="sc-spark-line" />
+        <svg
+          :key="monthSpark.line"
+          class="sc-spark"
+          :viewBox="`0 0 100 ${TREND_H}`"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <clipPath :id="monthClipId">
+              <rect class="sc-spark-reveal" x="0" y="0" width="100" :height="TREND_H" />
+            </clipPath>
+          </defs>
+          <g :clip-path="`url(#${monthClipId})`">
+            <path :d="monthSpark.area" class="sc-spark-area" />
+            <path :d="monthSpark.line" class="sc-spark-line" />
+          </g>
         </svg>
         <div class="sc-foot">{{ t('home.monthTrend') }}</div>
       </article>
@@ -183,6 +216,34 @@ const monthDelta = computed(() => deltaPercent(props.month.current, props.month.
   height: 30px;
   display: block;
   overflow: visible;
+}
+/**
+ * 折线「从左到右」画出来：
+ * 用一个裁剪矩形罩住图表，矩形从 0 宽横向拉开（scaleX 0→1），
+ * 线和填充区域就跟着被逐步揭示出来。
+ * 每个月度卡片的动画错开一点延迟，避免两张卡同时动显得僵硬。
+ */
+.sc-spark-reveal {
+  transform-box: view-box;
+  transform-origin: left center;
+  animation: sc-sweep 0.85s cubic-bezier(0.22, 0.65, 0.3, 1) both;
+}
+.sc-card:nth-child(2) .sc-spark-reveal {
+  animation-delay: 0.12s;
+}
+@keyframes sc-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+/* 尊重「减少动态效果」的系统偏好：不画动画，直接呈现完整图表 */
+@media (prefers-reduced-motion: reduce) {
+  .sc-spark-reveal {
+    animation: none;
+  }
 }
 .sc-spark-area {
   fill: color-mix(in srgb, var(--gn-accent) 14%, transparent);

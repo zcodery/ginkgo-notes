@@ -367,13 +367,17 @@ const todayKey = dayKey(Date.now())
   color: var(--gn-text-soft);
 }
 .pc-links {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  /* 快捷入口数量随账号而变（没有 GitHub 主页时是 5 个），
+     用 flex 居中排布，5 个 / 6 个都对称，不会像等分网格那样偏在一侧留白 */
+  display: flex;
+  justify-content: center;
   gap: 6px;
   width: 100%;
   margin-top: 2px;
 }
 .pc-link {
+  flex: 0 1 30px;
+  width: 30px;
   aspect-ratio: 1;
   display: flex;
   align-items: center;

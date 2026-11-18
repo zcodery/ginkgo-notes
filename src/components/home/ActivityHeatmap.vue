@@ -42,10 +42,10 @@ let ro: ResizeObserver | null = null
 onMounted(() => {
   if (!scrollEl.value) return
   ro = new ResizeObserver((entries) => {
-    // 卡片内容宽度不足 480px 时视为窄屏：留一整年 53 列，靠横向滚动查看。
-    // 480 是实测分界：27 列 × 17px + 星期标签列 + 间距 ≈ 470px，
+    // 卡片内容宽度不足 450px 时视为窄屏：留一整年 53 列，靠横向滚动查看。
+    // 450 是实测分界：27 列 × 13px + 星期标签列 + 间距 ≈ 440px，
     // 再窄格子就小到看不清了。
-    narrow.value = entries[0].contentRect.width < 480
+    narrow.value = entries[0].contentRect.width < 450
   })
   ro.observe(scrollEl.value)
 })

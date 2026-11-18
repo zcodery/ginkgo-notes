@@ -362,8 +362,9 @@ function timeAgo(ts: number) {
 }
 .dh-grid {
   display: grid;
-  /* 左栏个人卡固定，中栏日历按内容，右栏吃掉剩余空间 */
-  grid-template-columns: minmax(228px, 240px) minmax(290px, 340px) minmax(420px, 1fr);
+  /* 左栏个人卡固定（上限 262px：个人卡内容较多，再窄头像下的简介和图标行就挤了），
+     中栏日历按内容，右栏吃掉剩余空间 */
+  grid-template-columns: minmax(228px, 262px) minmax(290px, 340px) minmax(420px, 1fr);
   /* 第 1 行吃掉剩余高度（各栏等高铺满），第 2 行是最近编辑（自适应） */
   grid-template-rows: minmax(min-content, 1fr) auto;
   gap: 14px;
@@ -604,7 +605,7 @@ function timeAgo(ts: number) {
 
 @media (max-width: 1180px) {
   .dh-grid {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 262px minmax(0, 1fr);
     /* 两栏 + 右栏整行 + 最近编辑，共三行 */
     grid-template-rows: minmax(min-content, 1fr) auto auto;
   }
