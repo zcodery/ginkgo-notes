@@ -16,6 +16,17 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  /**
+   * SVG 一律不内联成 data URI。
+   *
+   * Vite 内联 SVG 时只做了部分百分号编码，`translate(1150 200)` 里的括号原样保留；
+   * 而 CSS 的 `url()` 遇到未转义的右括号就提前结束，整条 background-image 声明作废，
+   * 表现为「背景图整块不显示」。让 SVG 走独立文件地址即可绕开。
+   */
+  assetsInclude: ['**/*.svg'],
+  build: {
+    assetsInlineLimit: 0,
+  },
   server: {
     port: 3100,
     host: true,

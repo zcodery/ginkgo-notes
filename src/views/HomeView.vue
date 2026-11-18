@@ -17,19 +17,21 @@ import ActivityCalendar from '@/components/home/ActivityCalendar.vue'
 import StatCards from '@/components/home/StatCards.vue'
 import QuickStart from '@/components/home/QuickStart.vue'
 import ActivityHeatmap from '@/components/home/ActivityHeatmap.vue'
-import YearActivity from '@/components/home/YearActivity.vue'
 import { t } from '@/i18n'
 import { locale } from '@/i18n'
 import { userState } from '@/userState'
 import { QUICK_TEMPLATES, todayStamp } from '@/home/templates'
 import { importFiles, exportBackup } from '@/home/backup'
 import {
+  activeDayCount,
   collectDayStats,
   countCreatedLastMonth,
   countCreatedLastWeek,
   countCreatedThisMonth,
   countCreatedThisWeek,
   dayKey,
+  longestStreak,
+  monthPeak,
   recentDailyCreated,
   recentMonthlyCreated,
   startOfDay,
@@ -74,6 +76,13 @@ const overview = computed(() => ({
   pages: livePages.value.length,
   favorite: favoritePages.value.length,
   words: livePages.value.reduce((n, p) => n + p.excerpt.length, 0),
+}))
+
+/** 左栏年度指标：活跃天数 / 最长连续 / 月峰值（跟随热力图选中的年份） */
+const yearStat = computed(() => ({
+  activeDays: activeDayCount(stats.value, heatYear.value),
+  streak: longestStreak(stats.value, heatYear.value),
+  peak: monthPeak(stats.value, heatYear.value),
 }))
 
 /* ---------------- 中栏：统计 ---------------- */
@@ -204,6 +213,10 @@ function timeAgo(ts: number) {
               :active-days="monthActive.days"
               :active-count="monthActive.count"
               :overview="overview"
+              :year-active-days="yearStat.activeDays"
+              :year-streak="yearStat.streak"
+              :year-peak="yearStat.peak"
+              :year="heatYear"
             />
           </div>
 
@@ -221,7 +234,6 @@ function timeAgo(ts: number) {
           <div class="dh-col dh-col-right">
             <QuickStart :create="createFromTemplate" />
             <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
-            <YearActivity :stats="stats" :year="heatYear" />
 
             <!-- 选中日期当天写下的笔记 -->
             <section v-if="selectedDay != null" class="dh-day">
@@ -309,7 +321,8 @@ function timeAgo(ts: number) {
   width: 100%;
   max-width: 2600px;
   margin: 0 auto;
-  padding: 26px 28px 22px;
+  /* 顶部只留一点呼吸感：标题往上贴，别在页头留一条空白带 */
+  padding: 12px 28px 22px;
   /* 竖向也铺满：内容不足一屏时把仪表盘撑到满高，页面就不会出现滚动条 */
   min-height: 100%;
   display: flex;

@@ -278,16 +278,9 @@ export function startOfWeek(now = Date.now()): number {
 }
 
 /**
- * 环比百分比。
- * 上期为 0 时：本期也为 0 → 0%；本期 > 0 → 100%。
- */
-/**
  * 某年 12 个月的每日活跃次数总和。
- *
- * 用于「月度活跃」柱状图：横向铺满卡片宽度，比全年热力图更高，
- * 能把右栏的竖向空间用起来。
  */
-export function monthlyActive(stats: Map<string, DayStat>, year: number): number[] {
+function monthlyActive(stats: Map<string, DayStat>, year: number): number[] {
   const out = new Array<number>(12).fill(0)
   const prefix = String(year)
   for (const [key, s] of stats) {
@@ -296,6 +289,20 @@ export function monthlyActive(stats: Map<string, DayStat>, year: number): number
     if (m >= 1 && m <= 12) out[m - 1] += s.active
   }
   return out
+}
+
+/**
+ * 某年单月活跃峰值（次数 + 是哪个月）。
+ *
+ * 用于首页左栏的「月峰值」指标。
+ */
+export function monthPeak(
+  stats: Map<string, DayStat>,
+  year: number,
+): { count: number; month: number } {
+  const list = monthlyActive(stats, year)
+  const count = Math.max(...list)
+  return { count, month: list.indexOf(count) + 1 }
 }
 
 /**

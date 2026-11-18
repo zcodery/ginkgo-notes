@@ -25,6 +25,14 @@ const props = defineProps<{
   activeCount: number
   /** 概览：笔记数 / 收藏数 / 字数 */
   overview: { pages: number; favorite: number; words: number }
+  /** 全年活跃天数 */
+  yearActiveDays: number
+  /** 全年最长连续记录天数 */
+  yearStreak: number
+  /** 全年月度峰值（次数 + 峰值所在月） */
+  yearPeak: { count: number; month: number }
+  /** 统计年份 */
+  year: number
 }>()
 
 const editing = ref(false)
@@ -205,6 +213,25 @@ const todayKey = dayKey(Date.now())
       <div class="pc-stat">
         <span class="pc-stat-num">{{ overview.words }}</span>
         <span class="pc-stat-label">{{ t('home.statWords') }}</span>
+      </div>
+    </div>
+
+    <!-- 全年活跃：活跃天数 / 最长连续 / 月峰值 -->
+    <div class="pc-year">
+      <span class="pc-year-label">{{ t('home.yearRecord', { y: year }) }}</span>
+      <div class="pc-year-grid">
+        <div class="pc-year-cell">
+          <span class="pc-year-num">{{ yearActiveDays }}</span>
+          <span class="pc-year-unit">{{ t('home.statActiveDays') }}</span>
+        </div>
+        <div class="pc-year-cell">
+          <span class="pc-year-num">{{ yearStreak }}</span>
+          <span class="pc-year-unit">{{ t('home.statStreak') }}</span>
+        </div>
+        <div class="pc-year-cell" :title="t('home.statPeakMonth', { m: yearPeak.month })">
+          <span class="pc-year-num">{{ yearPeak.count }}</span>
+          <span class="pc-year-unit">{{ t('home.statPeak') }}</span>
+        </div>
       </div>
     </div>
   </section>
@@ -449,5 +476,46 @@ const todayKey = dayKey(Date.now())
 .pc-stat-label {
   font-size: 10.5px;
   color: var(--gn-text-muted);
+}
+/* 全年活跃：三个数字并排，作为一整块铺在概览统计下方 */
+.pc-year {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gn-border);
+}
+.pc-year-label {
+  font-size: 10.5px;
+  color: var(--gn-text-muted);
+}
+.pc-year-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+.pc-year-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 2px;
+  border: 1px solid var(--gn-border);
+  border-radius: 9px;
+  background: var(--gn-bg-soft);
+}
+.pc-year-num {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--gn-accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.pc-year-unit {
+  font-size: 10px;
+  color: var(--gn-text-muted);
+  white-space: nowrap;
 }
 </style>
