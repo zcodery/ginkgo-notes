@@ -2171,6 +2171,11 @@ onBeforeUnmount(() => {
 
 /* ---------- 待我处理的邀请（收件箱，主区顶部醒目条） ---------- */
 .tm-invite-inbox {
+  /* 宽屏下 .tm-main 是纵向 flex 容器。此块 overflow:hidden 会让默认
+     min-height:auto 解析成 0，若允许收缩就会在团队内容撑高时被压扁、
+     把邀请行/接受按钮裁掉（用户截图「看不全面」）。固定不收缩，让它按
+     内容自然高度显示；高度不够时由下面的团队内容区内部滚动消化。 */
+  flex: 0 0 auto;
   margin-bottom: 14px;
   border: 1px solid var(--gn-accent);
   border-radius: 10px;
