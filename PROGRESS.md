@@ -326,6 +326,7 @@ ginkgoNotes/
 | 140 | 深度思考标题也带日期 | ✅ | 用户看到侧栏「深度思考」没带日期、其余三个模板都带，问是否故意。此前 `deep` 模板标题是固定字符串（当作可长期沉淀的主题，不绑某一天），现按用户选择改为与其他三个一致：`title[l]` 由 `() => '深度思考'` 改为 `(d) => \`${d} 深度思考\'`（zh-TW / en 同步为 `${d} Deep think`）。去重逻辑不变——`todayTemplatePages` 用标题+今天创建双重条件，带日期后跨天自然不会再命中昨天那篇；同步把 HomeView 里「否则深度思考这类不带日期的模板隔天建不了」的旧注释改为通用表述，并更新 mock E2E 种子（昨天的深度思考也用昨天日期）与一条新断言「新深度思考标题用今天日期」，18/18 通过（陷阱 113） |
 | 141 | 团队页补上「待我处理的邀请」入口 | ✅ | 用户反馈：建团队拉好友后，好友点通知里的邀请进 `/teams` 却找不到同意的地方。根因不是权限/后端——后端 `GET /spaces/invites`、`accept`、`decline` 与前端 API 封装**全都现成**，只是 `TeamsView` 从没调用过 `listMyInvites/acceptInvite/declineInvite`，页面只渲染「我已加入的空间」+「我发出的邀请（管理员视角）」，被邀请人视角整块 UI 缺失。修复：`TeamsView` 新增 `myInvites`，主区顶部加醒目邀请卡（邀请人 / 团队名 / 角色 + 接受/拒绝），接受后调 `acceptInvite` → 刷新 spaces + `reloadSpaces` → 自动选中新团队，拒绝调 `declineInvite` → 仅移除卡片；`refreshMyInvites` 单独 try/catch 容错（老后端无此接口也不阻塞页面）。新增隔离 mock E2E `e2e-team-invite.mjs` 17/17（接受 / 拒绝 / 无邀请三场景，零真实写操作）（陷阱 114） |
 | 142 | 透明 PNG 头像不再变黑底 | ✅ | 用户上传透明 PNG 头像后背景变黑。根因：`ProfileView.shrinkImage` 重绘到 canvas 后**硬编码** `toDataURL('image/jpeg', 0.86)`，JPEG 无 alpha 通道，透明像素被烧成黑色；后端本来已允许 `data:image/png`。修复两层：① 转换层——用 `getImageData` 扫 alpha 通道，含透明像素（或读不到像素）则导出 PNG 保住透明，否则仍走 JPEG 省体积；② 显示层——各级头像容器（`.ua/.pc-avatar/.sb-avatar/...`）都有实色底用于无图时首字母占位，全局加 `:is(...):has(> img){background:transparent!important}` 让有图时底色让位、透明区透出页面。新增隔离 mock E2E `e2e-avatar-alpha.mjs` 8/8（透明→PNG 且解码后确有 alpha<255、不透明→JPEG、头像容器背景 computed 透明，零真实写操作）（陷阱 115） |
+| 143 | 团队邀请条在矮视口被压扁裁切 | ✅ | 用户截图反馈：团队页顶部「待你处理的团队邀请」绿条只露出标题一行，下面的邀请人行和接受/拒绝按钮被裁掉（「看不全面」）。根因：宽屏媒体查询 `@media(min-width:1180px)` 把 `.tm-main` 设为纵向 flex、`.tm-cols{flex:1 1 auto}`，而邀请条 `.tm-invite-inbox` 带 `overflow:hidden`，使其默认 `min-height:auto` 解析为 0 → 作为可收缩项在团队内容撑高时被压扁（视口越矮越明显；此前 E2E 只 mock 个人空间、视口 950 高，没触发）。修复：给 `.tm-invite-inbox` 加 `flex:0 0 auto` 不收缩，按内容自然高度显示，高度不足由团队内容区内部滚动消化。E2E `e2e-team-invite.mjs` 强化为「已加入团队 + 8 节点 + 1500×560 矮视口」场景，新增 3 条几何断言（未被裁切 / 邀请行完整落在条内 / 接受按钮完整可见），修复前 3 红、修复后 20/20（陷阱 116） |
 
 ### P1 — 部分完成 / 待完善
 
@@ -611,6 +612,7 @@ ginkgoNotes/
 | 125 | `7376362` | fix(home) | 深度思考标题也带日期，四个快捷模板命名规则统一；同步更新去重注释与 mock E2E 种子/断言（18/18） |
 | 126 | `feccd9e` | fix(team) | 团队页补上「待我处理的邀请」入口：好友点通知进来可接受/拒绝，接受后自动切入新团队；新增隔离 mock E2E 17/17 |
 | 127 | `e358d27` | fix(avatar) | 透明 PNG 头像保留 alpha：上传含透明导出 PNG、不含则 JPEG，头像容器有图时背景透明；隔离 mock E2E 8/8 |
+| 128 | `969ac9c` | fix(team) | 邀请条在宽屏矮视口下不再被 flex 压扁裁切：`.tm-invite-inbox` 加 `flex:0 0 auto`；E2E 补 3 条几何断言并强化场景，20/20 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
@@ -1011,6 +1013,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 114. **「功能后端 API 齐全」不等于「用户走得到」，先核对前端有没有 UI 入口**。用户报「好友点邀请通知进团队页后没有同意的地方」。第一反应容易往权限 / 后端状态上查，但后端 `GET /spaces/invites` + accept + decline 和前端三个 API 封装**全都是现成的** —— 缺的是调用方：`TeamsView` 只渲染「我已加入的空间」和「我发出的邀请」（管理员视角），完全没拉过 `listMyInvites`（被邀请人视角），所以通知 link `/teams` 把人送到页面后无按钮可点。**排查范式**：用户「某功能找不到入口」时，先 grep 该功能的 API 封装在 `.vue` 里有没有被调用 —— 定义了却零调用 = UI 漏做；被调用了再查权限 / 数据。**实现要点**：新拉的数据放主区顶部醒目条而非塞进某个已选团队（用户进来时 `current` 可能是个人空间）；接受后要 `acceptInvite` → `refreshSpaces` + `reloadSpaces`（侧栏与 store 同步）→ `load(新团队)` 三步才完整；老后端可能没有该接口，拉取单独 try/catch 吞错、不阻塞团队页。测试仍走 mock（团队 / 成员数据是真数据，绝不拿真实账号跑写操作）。
 
 115. **图片压成 data URL 时，别把透明图硬导出 JPEG —— alpha 通道会被烧成黑色**。用户上传透明 PNG 头像后背景变黑，根因是 `shrinkImage` 一律 `toDataURL('image/jpeg', 0.86)`：JPEG 没有 alpha，透明像素直接变黑。**转换层**修法：重绘后 `getImageData` 扫 alpha 通道，任一像素 `a<255` 就导出 `image/png`（后端白名单要允许 png），否则仍导出 jpeg 省体积；`getImageData` 抛错（跨域污染等）时保守走 PNG。别用「文件扩展名是不是 .png」判断——扩展名不代表真的有透明像素，也可能 PNG 全不透明。**显示层**别漏：头像容器为了无图时的首字母占位都有实色底（`var(--gn-accent)` 等），转成 PNG 后透明区仍会透出主色块，要 `:is(...):has(> img){background:transparent!important}` 在有图时撤掉底色，才能真透出页面。**验证**：把导出的 data URL 塞回 canvas 读 alpha 通道断言确有 `a<255`，光断言 `startsWith('data:image/png')` 不够。另注：本次 3100 dev server 返回的 style.css 模块是空的（tailwind 插件链路），全局样式要在构建产物预览里验，别被 dev 的空 CSS 误判成规则没写对。
+
+116. **flex 纵向布局里，带 `overflow:hidden` 的「顶部提示条」要显式 `flex:0 0 auto`，否则会被内容区压扁裁切**。用户截图：团队页顶部「待你处理的团队邀请」绿条只剩标题，邀请人行和接受/拒绝按钮不见了。根因不是渲染逻辑（卡片明明渲染了，E2E 里 `locator` 都数得到），而是布局：宽屏 `@media(min-width:1180px)` 把 `.tm-main` 变成纵向 flex、内容区 `.tm-cols{flex:1 1 auto;min-height:0}`；邀请条 `.tm-invite-inbox` 用 `overflow:hidden` 做圆角裁切，而 CSS 规范里 **`overflow:hidden` 会让 flex item 的 `min-height:auto` 解析成 0**（不再是内容最小高度），于是它沦为可无限收缩项，被内容区挤到只剩一行。视口越矮越明显。**修法**：给这类「固定头部 / 提示条」加 `flex:0 0 auto`（或 `flex-shrink:0`），让它按内容自然高度占位，剩余空间与滚动交给 `flex:1 1 auto;min-height:0` 的内容区。**排查范式**：用户说「内容被裁 / 看不全」但 DOM 里元素都在 → 先量 `el.clientHeight` vs `el.scrollHeight`（`clientHeight < scrollHeight` 就是被裁），再看父容器是不是 flex、该项有没有被压。**测试教训**：首个 E2E 用 950px 高视口、只 mock 个人空间（无 `.tm-cols`），完全没触发；必须还原「有内容区 + 矮视口」的真实组合，并用几何断言（行/按钮的 `getBoundingClientRect` 是否落在条内）而非单纯的 `count()` 才能抓到。
 
 ---
 
