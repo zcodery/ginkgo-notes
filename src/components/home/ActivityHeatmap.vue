@@ -32,26 +32,37 @@ const weeks = computed(() => buildYearHeat(props.year, props.stats))
  * 右栏剩下的高度只能留成空白。拆成两段（每段约 27 列）后列宽翻倍、
  * 格子更大，网格也更高，能把 Hero 让出的空间吃干净而不留空洞。
  *
- * 但窄屏（卡片本身很窄）拆两段会把格子压到 9px、几乎看不清，
- * 所以窄屏仍保持一整年 53 列，靠横向滚动查看。
+ * 但两种情况下要退回一整年 53 列：
+ * ① 卡片本身很窄（宽度不足 450px）—— 拆两段会把格子压到 9px、几乎看不清，
+ *    改成整年一行 + 横向滚动；
+ * ② 视口窄到 1180px 以下 —— 此时右栏变成「独占一整行」的自适应高度区域，
+ *    卡片高度由内容决定，两段网格（各 7 行）会把卡片撑得过高、
+ *    把日期格子挤扁，不如一行来得紧凑。
  */
 const narrow = ref(false)
 const scrollEl = ref<HTMLElement | null>(null)
 let ro: ResizeObserver | null = null
+/** 断点：与首页布局的「两栏 → 上下堆叠」断点保持一致 */
+const narrowMq = window.matchMedia('(max-width: 1180px)')
+
+function applyNarrow() {
+  const w = scrollEl.value?.clientWidth ?? 999
+  // 450 是实测分界：27 列 × 13px + 星期标签列 + 间距 ≈ 440px，
+  // 再窄格子就小到看不清了。
+  narrow.value = narrowMq.matches || w < 450
+}
 
 onMounted(() => {
   if (!scrollEl.value) return
-  ro = new ResizeObserver((entries) => {
-    // 卡片内容宽度不足 450px 时视为窄屏：留一整年 53 列，靠横向滚动查看。
-    // 450 是实测分界：27 列 × 13px + 星期标签列 + 间距 ≈ 440px，
-    // 再窄格子就小到看不清了。
-    narrow.value = entries[0].contentRect.width < 450
-  })
+  ro = new ResizeObserver(() => applyNarrow())
   ro.observe(scrollEl.value)
+  narrowMq.addEventListener('change', applyNarrow)
+  applyNarrow()
 })
 onBeforeUnmount(() => {
   ro?.disconnect()
   ro = null
+  narrowMq.removeEventListener('change', applyNarrow)
 })
 
 const segments = computed(() => {
@@ -282,19 +293,18 @@ function cellTitle(ts: number, count: number) {
  */
 .ht-grid {
   display: grid;
-  /* 行高随格子高度自适应：格子宽度取满列宽（1fr），高度由 aspect-ratio 推出，
-     这样两段网格既铺满卡片宽度，行距又不会被拉散 */
-  grid-template-rows: auto repeat(7, auto);
+  /* 行高用 1fr 平分：卡片被拉高时格子跟着变大，被压矮时格子跟着变小，
+     7 行始终完整显示 —— 固定行高的话，卡片一矮下半段就被裁掉了 */
+  grid-template-rows: auto repeat(7, minmax(0, 1fr));
   flex: 1 1 0;
   min-height: 0;
-  align-content: space-evenly;
 }
 /* 单段（窄屏）：整年 53 列一行，格子按最小尺寸排布即可，
    给一个最小高度，保证 7 行格子完整可见 */
 .ht-grid:only-child {
   flex: 0 0 auto;
   min-height: 118px;
-  align-content: start;
+  grid-template-rows: auto repeat(7, auto);
 }
 .ht-month {
   /* 列宽由 1fr 均分，格子在列内居中（见 .ht-cell），
@@ -313,18 +323,29 @@ function cellTitle(ts: number, count: number) {
   color: var(--gn-text-muted);
 }
 /**
- * 格子宽度取满所在列（列宽由 1fr 均分），
- * 高度由 aspect-ratio 推出，保证始终是正方形；
- * max-width 兜住上限，避免在超宽屏上格子变得过大。
+ * 格子高度取所在行（1fr 平分出来的那一行），宽度由 aspect-ratio 推出，
+ * 所以无论卡片被拉高还是压矮，格子始终是正方形；
+ * max-height / max-width 兜住上限，避免在超宽屏上格子变得过大。
  */
 .ht-cell {
-  width: 100%;
+  height: 100%;
+  max-height: 20px;
+  width: auto;
   aspect-ratio: 1;
   max-width: 20px;
+  align-self: center;
   justify-self: center;
   border-radius: 2.5px;
   background: var(--gn-bg-soft);
   border: 1px solid var(--gn-border);
+}
+/* 单段（窄屏）：53 列挤在窄容器里，格子尺寸改由列宽决定，
+   行高也回到 auto，让 7 行紧凑排列 */
+.ht-grid:only-child .ht-cell {
+  height: auto;
+  max-height: none;
+  width: 100%;
+  max-width: none;
 }
 .ht-cell.lv0 {
   background: var(--gn-bg-soft);
@@ -362,5 +383,16 @@ function cellTitle(ts: number, count: number) {
   width: 9px;
   height: 9px;
   border-radius: 2px;
+}
+/**
+ * 窄屏断点（≤1180px）：右栏变成「独占一整行」的自适应高度区域，
+ * 容器高度由内容决定。此时 flex 的收缩会把卡片压到比内容还矮，
+ * 7 行格子就被裁掉半段 —— 所以改成不收缩，高度完全由内容决定。
+ * （此时热力图已是单段 53 列，一行放下，高度本来就够。）
+ */
+@media (max-width: 1180px) {
+  .ht-card {
+    flex: 0 0 auto;
+  }
 }
 </style>

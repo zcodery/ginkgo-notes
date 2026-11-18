@@ -106,8 +106,11 @@ const activeDays = computed(
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
-  /* 撑满中栏剩余高度 */
-  flex: 1 1 auto;
+  /* 高度锁定为中栏的 46%：右栏的 Hero 卡用的是同一个比例，
+     两栏等高 → 百分比等价 → 顶部这两张卡天然等高、底边对齐。
+     剩下的高度让给下面的统计卡。 */
+  flex: 0 0 auto;
+  height: 45%;
   min-height: 0;
 }
 .cal-head {
@@ -159,8 +162,13 @@ const activeDays = computed(
 .cal-grid {
   display: grid;
   grid-template-columns: 20px repeat(7, 1fr);
+  /* 第 1 行是「星期」表头（auto），下面 6 行按 1fr 平分卡片剩余高度：
+     卡片被拉高或压矮时，日期格跟着等比伸缩，不会留下底部空洞 */
+  grid-template-rows: auto repeat(6, minmax(0, 1fr));
   gap: 2px;
   align-items: center;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .cal-corner {
   height: 18px;
@@ -183,8 +191,14 @@ const activeDays = computed(
 }
 .cal-day {
   position: relative;
+  /* 高度取所在行（1fr 平分出来的那一行），宽度由 aspect-ratio 推出，
+     所以格子始终是正方形；宽度再被 max-width 兜住，不会顶到相邻列 */
+  height: 100%;
+  width: auto;
   aspect-ratio: 1;
-  min-height: 26px;
+  max-width: 100%;
+  justify-self: center;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -233,5 +247,25 @@ const activeDays = computed(
 .cal-foot {
   font-size: 11px;
   color: var(--gn-text-muted);
+}
+/**
+ * 窄屏断点（≤768px）：整页变成单栏堆叠，日历卡片所在容器是「自适应高度」，
+ * 此时 `height: 45%` 同样形成循环依赖，且日期格子会被压扁。
+ * 改成按内容自然展开：格子宽度取满列宽、高度由 aspect-ratio 推出，
+ * 每一行保持正方形。
+ */
+@media (max-width: 768px) {
+  .cal-card {
+    height: auto;
+    flex: 0 0 auto;
+  }
+  .cal-grid {
+    grid-template-rows: auto repeat(6, auto);
+  }
+  .cal-day {
+    height: auto;
+    width: 100%;
+    max-width: none;
+  }
 }
 </style>

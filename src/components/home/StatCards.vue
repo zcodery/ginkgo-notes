@@ -163,11 +163,17 @@ const monthClipId = `sc-clip-month-${uid}`
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* 吸收中栏剩余高度：日历卡锁定了 46% 的高度后，
+     剩下的空间由统计卡吃掉，内部各块跟着拉伸而不是留空洞 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .sc-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .sc-card {
   display: flex;
@@ -213,7 +219,10 @@ const monthClipId = `sc-clip-month-${uid}`
 }
 .sc-spark {
   width: 100%;
-  height: 30px;
+  /* 折线区跟着卡片一起长高（发布卡被拉伸时折线图也跟着变高） */
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 30px;
   display: block;
   overflow: visible;
 }
@@ -265,11 +274,16 @@ const monthClipId = `sc-clip-month-${uid}`
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .sm-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* 被拉伸时三块内容均匀分布（图标在顶、数字居中、说明在底），
+     比全部挤在中间留一大块空白好看 */
+  justify-content: space-between;
   padding: 11px 12px 10px;
   border: 1px solid var(--gn-border);
   border-radius: 12px;

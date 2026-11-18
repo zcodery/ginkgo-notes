@@ -84,11 +84,11 @@ const templates = computed(() =>
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
-  /* 撑满右栏剩余高度：这块是放背景图的主视觉区。
-     max-height 限制它别把整栏占光——超出的空间让给下面的年度热力图，
-     两张卡片的比例才是 1 : 1 左右，不会出现「一张巨图 + 一张小图」的失衡。 */
-  flex: 1 1 auto;
-  max-height: 46%;
+  /* 高度锁定为右栏的 46%：中栏的日历卡用的是同一个比例，
+     两栏等高 → 百分比等价 → 顶部这两张卡天然等高、底边对齐。
+     剩下的高度让给下面的年度热力图。 */
+  flex: 0 0 auto;
+  height: 45%;
   min-height: 168px;
   display: flex;
 }
@@ -201,5 +201,17 @@ const templates = computed(() =>
 .qs-btn:first-child:hover {
   background: color-mix(in srgb, var(--gn-accent) 86%, var(--gn-text));
   color: var(--gn-accent-ink);
+}
+/**
+ * 窄屏断点（≤1180px）：右栏变成「独占一整行」的自适应高度区域，
+ * 此时 `height: 45%` 会形成循环依赖（百分比参照的高度本身由内容决定），
+ * 浏览器只能猜一个值。改成固定高度，行为可预期。
+ */
+@media (max-width: 1180px) {
+  .qs-card {
+    height: auto;
+    min-height: 240px;
+    flex: 0 0 auto;
+  }
 }
 </style>
