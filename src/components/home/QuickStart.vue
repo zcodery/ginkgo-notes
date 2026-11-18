@@ -107,8 +107,12 @@ const templates = computed(() =>
   background-position: 55% 45%;
   pointer-events: none;
 }
-/* 暗色主题下背景图整体压暗，否则亮色照片会从深色底里「发亮」 */
-:global(html.dark) .qs-bg {
+/* 暗色主题下背景图整体压暗，否则亮色照片会从深色底里「发亮」。
+   注意：`:global()` 必须把**整条选择器**包进去。写成 `:global(html.dark) .qs-bg`
+   时，scoped 编译只把 `:global(html.dark)` 提成全局、后半段被丢掉，
+   最终产物会变成 `html.dark{opacity:.3;filter:...}` —— 直接把整个页面
+   压成 30% 透明（暗色主题下全站发黑看不清的元凶）。 */
+:global(html.dark .qs-bg) {
   opacity: 0.3;
   filter: saturate(0.7) brightness(0.72);
 }
