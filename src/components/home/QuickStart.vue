@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { BookOpen, Compass, Repeat, Zap } from 'lucide-vue-next'
 import { QUICK_TEMPLATES } from '@/home/templates'
 import { locale, t } from '@/i18n'
-import heroBg from '@/assets/home-hero.svg'
+// 想换成自己的图，替换 src/assets/home-hero.jpg（同时重新导出 .webp）即可
+// 静态资源不会被 Vite 内联成 data URI，走独立文件地址
+import heroBgWebp from '@/assets/home-hero.webp'
+import heroBgJpg from '@/assets/home-hero.jpg'
 
 defineProps<{
   /** 创建模板笔记 */
@@ -11,6 +14,15 @@ defineProps<{
 }>()
 
 const ICONS = { notebook: BookOpen, repeat: Repeat, compass: Compass, zap: Zap }
+
+/** WebP 体积约为 JPEG 的一半，浏览器不支持时回落到 JPEG */
+const heroBg = ref(heroBgJpg)
+onMounted(() => {
+  const probe = document.createElement('canvas')
+  if (probe.toDataURL('image/webp').startsWith('data:image/webp')) {
+    heroBg.value = heroBgWebp
+  }
+})
 
 const now = computed(() => new Date())
 const dateText = computed(() => {
@@ -36,16 +48,19 @@ const templates = computed(() =>
 <template>
   <section class="qs-card">
     <!--
-      背景图层：想换成自己的图，替换 src/assets/home-hero.svg 即可
+      背景图层：整张图全出血铺满卡片，人物落在画面偏右、不会压到左侧文字。
+      想换成自己的图，替换 src/assets/home-hero.jpg / home-hero.webp 即可
       （或者直接改下面 background-image 的值）。
     -->
     <div class="qs-bg" :style="{ backgroundImage: `url(${heroBg})` }"></div>
     <div class="qs-scrim"></div>
 
     <div class="qs-inner">
-      <div class="qs-eyebrow">{{ t('home.dashboardEyebrow') }}</div>
-      <h2 class="qs-title">{{ t('home.dashboardTitle') }}</h2>
-      <div class="qs-date">{{ dateText }}</div>
+      <div class="qs-head">
+        <div class="qs-eyebrow">{{ t('home.dashboardEyebrow') }}</div>
+        <h2 class="qs-title">{{ t('home.dashboardTitle') }}</h2>
+        <div class="qs-date">{{ dateText }}</div>
+      </div>
       <div class="qs-actions">
         <button
           v-for="tpl in templates"
@@ -78,28 +93,36 @@ const templates = computed(() =>
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center;
-  /* 背景图本身不抢文字，透明度压低一点 */
-  opacity: 0.9;
+  /* 卡片与原图比例接近（1.79 vs 1.78），基本整张都露出来；
+     稍微右移一点，让人物落在卡片中偏右，别压住左侧文字 */
+  background-position: 55% 45%;
   pointer-events: none;
 }
-/* 暗色主题下背景图整体压暗，否则浅色 SVG 会从深色底里「发亮」 */
+/* 暗色主题下背景图整体压暗，否则亮色照片会从深色底里「发亮」 */
 :global(html.dark) .qs-bg {
-  opacity: 0.42;
-  filter: saturate(0.85);
+  opacity: 0.3;
+  filter: saturate(0.7) brightness(0.72);
 }
 /* 文字下面的柔化层，保证前景文字在任何背景图上都读得清 */
 .qs-scrim {
   position: absolute;
   inset: 0;
   background:
+    /* 底部再压一层，四个按钮不会浮在花色背景上 */
+    linear-gradient(
+      to top,
+      color-mix(in srgb, var(--gn-bg) 66%, transparent) 0%,
+      color-mix(in srgb, var(--gn-bg) 12%, transparent) 22%,
+      transparent 40%
+    ),
+    /* 左侧渐隐：文字区还原成背景色，照片在右侧完整露出 */
     linear-gradient(
       100deg,
-      color-mix(in srgb, var(--gn-bg) 92%, transparent) 0%,
-      color-mix(in srgb, var(--gn-bg) 70%, transparent) 46%,
-      color-mix(in srgb, var(--gn-bg) 26%, transparent) 100%
-    ),
-    radial-gradient(120% 130% at 88% 0%, color-mix(in srgb, var(--gn-accent) 16%, transparent) 0%, transparent 58%);
+      color-mix(in srgb, var(--gn-bg) 80%, transparent) 0%,
+      color-mix(in srgb, var(--gn-bg) 48%, transparent) 38%,
+      color-mix(in srgb, var(--gn-bg) 10%, transparent) 70%,
+      transparent 100%
+    );
   pointer-events: none;
 }
 .qs-inner {
@@ -109,6 +132,14 @@ const templates = computed(() =>
   flex-direction: column;
   width: 100%;
   min-width: 0;
+  /* 标题组贴顶、按钮贴底，中间整块留给背景照片 */
+  height: 100%;
+  justify-content: space-between;
+  gap: 12px;
+}
+.qs-head {
+  display: flex;
+  flex-direction: column;
 }
 .qs-eyebrow {
   font-size: 10px;
@@ -134,26 +165,38 @@ const templates = computed(() =>
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 13px;
 }
 .qs-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid var(--gn-border);
+  height: 30px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--gn-accent) 30%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--gn-bg) 82%, transparent);
-  color: var(--gn-text-soft);
+  /* 按钮压在照片上，用半透明浅底 + 强调色描边保证任何背景下都读得清 */
+  background: color-mix(in srgb, var(--gn-bg) 72%, transparent);
+  color: var(--gn-text);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.14s ease, color 0.14s ease, transform 0.14s ease;
+  backdrop-filter: blur(3px);
+  transition: border-color 0.14s ease, background-color 0.14s ease, transform 0.14s ease;
 }
 .qs-btn:hover {
   border-color: var(--gn-accent);
+  background: color-mix(in srgb, var(--gn-accent) 18%, var(--gn-bg) 66%);
   color: var(--gn-accent);
   transform: translateY(-1px);
+}
+/* 第一个按钮做主操作，实心强调色 */
+.qs-btn:first-child {
+  border-color: transparent;
+  background: var(--gn-accent);
+  color: var(--gn-accent-ink);
+}
+.qs-btn:first-child:hover {
+  background: color-mix(in srgb, var(--gn-accent) 86%, var(--gn-text));
+  color: var(--gn-accent-ink);
 }
 </style>

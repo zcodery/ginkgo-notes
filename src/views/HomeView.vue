@@ -493,8 +493,20 @@ function timeAgo(ts: number) {
 }
 .dh-recent-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  /* 单行横向排布：条目变多时横向滚动，而不是换行把整页撑高、逼出滚动条。
+     auto-flow: column + auto-columns 的 1fr 会在条目放得下时平分宽度，放不下时按最小宽滚动。 */
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(150px, 1fr);
   gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.dh-recent-grid::-webkit-scrollbar {
+  height: 6px;
+}
+.dh-recent-grid::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--gn-border);
 }
 .dh-recent-card {
   display: flex;
