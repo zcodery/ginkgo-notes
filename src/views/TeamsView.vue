@@ -1282,12 +1282,12 @@ onBeforeUnmount(() => {
                       v-else-if="m.role"
                       class="tm-tag"
                     >{{ roleLabel(m.role) }}</span>
-                    <!-- 不在你的管辖范围内：只留占位，不暴露对方部门的权限设置 -->
+                    <!-- 不在你的管辖范围内：右侧留空，不暴露对方部门的权限设置 -->
                     <span
                       v-else
                       class="tm-tag tm-tag-masked"
                       v-tooltip="'该成员不在你的管辖范围内，权限信息不可见'"
-                    >—</span>
+                    ></span>
                     <!-- 任命 / 移出这类不可逆操作只在右键菜单里给，行内不放按钮，避免误点 -->
                   </div>
                 </section>
