@@ -1,10 +1,11 @@
 import type { LocaleCode } from '@/i18n/types'
 
 /**
- * 首页「今天从这里开始」的快捷模板。
+ * 首页「今天从这里开始」的快捷入口。
  *
- * 点击后直接创建一篇带结构的笔记并跳进去编辑，
- * 省掉「新建 → 再想标题和结构」这一步。
+ * 点击后只创建一篇带标题的空笔记并跳进去编辑：
+ * 正文完全留空，不预置任何标题层级或列表骨架，
+ * 结构由用户自己决定（用户明确要求「完全用户去编辑操作」）。
  */
 
 export interface QuickTemplate {
@@ -15,7 +16,7 @@ export interface QuickTemplate {
   label: Record<LocaleCode, string>
   /** 页面标题（会带上日期） */
   title: Record<LocaleCode, (date: string) => string>
-  /** 页面正文（Markdown） */
+  /** 页面正文：一律留空，用户要求不预置任何默认内容 */
   body: Record<LocaleCode, string>
 }
 
@@ -29,41 +30,7 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
       'zh-TW': (d) => `${d} 日記`,
       en: (d) => `${d} Log`,
     },
-    body: {
-      'zh-CN': `## 今天做了什么
-
-- 
-
-## 今天的灵感
-
-> 
-
-## 明天第一件事
-
-- `,
-      'zh-TW': `## 今天做了什麼
-
-- 
-
-## 今天的靈感
-
-> 
-
-## 明天第一件事
-
-- `,
-      en: `## What I did today
-
-- 
-
-## Ideas that came up
-
-> 
-
-## First thing tomorrow
-
-- `,
-    },
+    body: { 'zh-CN': '', 'zh-TW': '', en: '' },
   },
   {
     id: 'review',
@@ -74,41 +41,7 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
       'zh-TW': (d) => `${d} 覆盤`,
       en: (d) => `${d} Review`,
     },
-    body: {
-      'zh-CN': `## 完成了什么
-
-- 
-
-## 卡在哪里
-
-- 
-
-## 明天怎么改
-
-- `,
-      'zh-TW': `## 完成了什麼
-
-- 
-
-## 卡在哪裡
-
-- 
-
-## 明天怎麼改
-
-- `,
-      en: `## What got done
-
-- 
-
-## Where I got stuck
-
-- 
-
-## What to change tomorrow
-
-- `,
-    },
+    body: { 'zh-CN': '', 'zh-TW': '', en: '' },
   },
   {
     id: 'deep',
@@ -119,41 +52,7 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
       'zh-TW': () => '深度思考',
       en: () => 'Deep think',
     },
-    body: {
-      'zh-CN': `## 问题的背景
-
-## 我的判断
-
-## 支撑它的证据
-
-## 反面观点
-
-## 下一步要验证什么
-
-- `,
-      'zh-TW': `## 問題的背景
-
-## 我的判斷
-
-## 支撐它的證據
-
-## 反面觀點
-
-## 下一步要驗證什麼
-
-- `,
-      en: `## Background
-
-## My take
-
-## Evidence
-
-## The counter-argument
-
-## What to verify next
-
-- `,
-    },
+    body: { 'zh-CN': '', 'zh-TW': '', en: '' },
   },
   {
     id: 'quick',
@@ -164,11 +63,7 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
       'zh-TW': (d) => `${d} 速記`,
       en: (d) => `${d} Scratch`,
     },
-    body: {
-      'zh-CN': ``,
-      'zh-TW': ``,
-      en: ``,
-    },
+    body: { 'zh-CN': '', 'zh-TW': '', en: '' },
   },
 ]
 
