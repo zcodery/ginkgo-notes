@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Plus, Upload, Download, Sparkles, Clock, ArrowRight, Search } from 'lucide-vue-next'
+import { Plus, Upload, Download, Sparkles, Clock, ArrowRight, Search, X } from 'lucide-vue-next'
 import {
   store,
   recentPages,
@@ -235,14 +235,22 @@ function timeAgo(ts: number) {
             <QuickStart :create="createFromTemplate" />
             <ActivityHeatmap :stats="stats" v-model:year="heatYear" />
 
-            <!-- 选中日期当天写下的笔记 -->
-            <section v-if="selectedDay != null" class="dh-day">
+            <!-- 选中日期当天写下的笔记：没有笔记时整块不出现 -->
+            <section v-if="selectedDay != null && dayPages.length" class="dh-day">
               <header class="dh-day-head">
                 <Clock :size="13" :stroke-width="2" />
                 <span>{{ dayKey(selectedDay) }}</span>
                 <span class="dh-day-count">{{ dayPages.length }}</span>
+                <button
+                  class="dh-day-close"
+                  :title="t('home.dayClose')"
+                  :aria-label="t('home.dayClose')"
+                  @click="selectedDay = null"
+                >
+                  <X :size="13" :stroke-width="2.2" />
+                </button>
               </header>
-              <div v-if="dayPages.length" class="dh-day-list">
+              <div class="dh-day-list">
                 <button
                   v-for="p in dayPages"
                   :key="p.id"
@@ -255,7 +263,6 @@ function timeAgo(ts: number) {
                   <ArrowRight :size="12" class="dh-day-arrow" />
                 </button>
               </div>
-              <p v-else class="dh-day-empty">{{ t('home.dayEmpty') }}</p>
             </section>
           </div>
 
@@ -396,6 +403,30 @@ function timeAgo(ts: number) {
   font-size: 11px;
   font-weight: 500;
   color: var(--gn-text-muted);
+}
+/* 关闭按钮：鼠标移入整块时才显现，避免一直挂在标题栏上抢视线 */
+.dh-day-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.dh-day:hover .dh-day-close,
+.dh-day-close:focus-visible {
+  opacity: 1;
+}
+.dh-day-close:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text);
 }
 .dh-day-list {
   display: flex;

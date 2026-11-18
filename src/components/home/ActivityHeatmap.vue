@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { buildYearHeat, type DayStat } from '@/home/metrics'
 import { t } from '@/i18n'
@@ -26,15 +26,51 @@ const WEEK_HEAD = ['一', '二', '三', '四', '五', '六', '日']
 const weeks = computed(() => buildYearHeat(props.year, props.stats))
 
 /**
- * 每个月第一列所在的列下标，用于月份标签。
+ * 全年周列按上下半年切成两段。
+ *
+ * 一整年 53 列挤在一行里，列宽被压到 15px 左右，网格只有 140px 高，
+ * 右栏剩下的高度只能留成空白。拆成两段（每段约 27 列）后列宽翻倍、
+ * 格子更大，网格也更高，能把 Hero 让出的空间吃干净而不留空洞。
+ *
+ * 但窄屏（卡片本身很窄）拆两段会把格子压到 9px、几乎看不清，
+ * 所以窄屏仍保持一整年 53 列，靠横向滚动查看。
+ */
+const narrow = ref(false)
+const scrollEl = ref<HTMLElement | null>(null)
+let ro: ResizeObserver | null = null
+
+onMounted(() => {
+  if (!scrollEl.value) return
+  ro = new ResizeObserver((entries) => {
+    // 卡片内容宽度不足 480px 时视为窄屏：留一整年 53 列，靠横向滚动查看。
+    // 480 是实测分界：27 列 × 17px + 星期标签列 + 间距 ≈ 470px，
+    // 再窄格子就小到看不清了。
+    narrow.value = entries[0].contentRect.width < 480
+  })
+  ro.observe(scrollEl.value)
+})
+onBeforeUnmount(() => {
+  ro?.disconnect()
+  ro = null
+})
+
+const segments = computed(() => {
+  const w = weeks.value
+  if (narrow.value) return [w]
+  const cut = Math.ceil(w.length / 2)
+  return [w.slice(0, cut), w.slice(cut)].filter((s) => s.length > 0)
+})
+
+/**
+ * 每段里每个月第一列所在的列下标，用于月份标签。
  *
  * 首列可能落在上一年年末（2026-01-01 所在周从 2025-12-29 开始），
  * 那种列不标月份，否则会误显示成「12月」。
  */
-const monthMarks = computed(() => {
+function marksOf(list: typeof weeks.value) {
   const out: { index: number; label: number }[] = []
   let last = -1
-  weeks.value.forEach((w, i) => {
+  list.forEach((w, i) => {
     const d = new Date(w.cells[0]!.ts)
     if (d.getFullYear() !== props.year) return
     if (d.getMonth() !== last) {
@@ -43,7 +79,10 @@ const monthMarks = computed(() => {
     }
   })
   return out
-})
+}
+
+/** 每一段各自的月份标签 */
+const segMarks = computed(() => segments.value.map(marksOf))
 
 /** 全年活跃天数与总活跃次数 */
 const summary = computed(() => {
@@ -89,17 +128,23 @@ function cellTitle(ts: number, count: number) {
       </div>
     </header>
 
-    <div class="ht-scroll gn-scroll">
+    <div ref="scrollEl" class="ht-scroll gn-scroll">
+      <!--
+        全年拆成上下半年两段渲染：
+        53 列挤在一行时列宽只有 15px、网格高 140px，右栏多出来的高度只能留成空白；
+        拆成两段后列宽翻倍，格子更大，网格高度也跟着涨，正好把空间吃满。
+      -->
       <div
+        v-for="(seg, si) in segments"
+        :key="si"
         class="ht-grid"
         :style="{
-          gridTemplateColumns: `${WEEK_COL}px repeat(${weeks.length}, minmax(${CELL_MIN}px, 1fr))`,
+          gridTemplateColumns: `${WEEK_COL}px repeat(${seg.length}, minmax(${CELL_MIN}px, 1fr))`,
           gap: `${GAP}px`,
         }"
-      >
-        <!-- 月份标签直接落在对应周列上，列宽变化时自动对齐 -->
+      >        <!-- 月份标签直接落在对应周列上，列宽变化时自动对齐 -->
         <span
-          v-for="m in monthMarks"
+          v-for="m in segMarks[si]"
           :key="m.index"
           class="ht-month"
           :style="{ gridColumn: `${m.index + 2}`, gridRow: '1' }"
@@ -116,7 +161,7 @@ function cellTitle(ts: number, count: number) {
           {{ i % 2 === 0 ? w : '' }}
         </span>
 
-        <template v-for="(w, wi) in weeks" :key="wi">
+        <template v-for="(w, wi) in seg" :key="wi">
           <span
             v-for="(c, ci) in w.cells"
             :key="c.ts"
@@ -153,8 +198,9 @@ function cellTitle(ts: number, count: number) {
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
-  /* 自然高度：右栏剩余空间交给上方的 Hero 区（背景图区域） */
-  flex: 0 0 auto;
+  /* 吃掉右栏剩余高度：上半年的 Hero 让出多少，这里就填多少 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .ht-head {
   display: flex;
@@ -209,23 +255,51 @@ function cellTitle(ts: number, count: number) {
   font-variant-numeric: tabular-nums;
 }
 .ht-scroll {
+  /* 两段网格纵向平分剩余高度，段与段之间留一点间隔，
+     免得下一段的月份标签紧贴上一段最后一行 */
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+/* 窄屏只有一段（整年 53 列），不需要段间距 */
+.ht-scroll:has(> .ht-grid:only-child) {
+  gap: 0;
 }
 /**
- * 整张热力图是一个二维网格：
+ * 每一段是一张独立的二维网格：
  * 第 1 列是星期标签列，其后是 N 个等宽的周列。
- * 格子用 aspect-ratio 保持正方形，列宽由容器宽度等分得到（minmax 下限 9px），
+ * 格子宽度取满所在列（列宽由容器宽度 1fr 均分得到，minmax 下限 9px），
+ * 高度用 aspect-ratio 推出，保证始终是正方形；
  * 因此容器一放宽，格子与整张图就跟着撑满；容器不够宽时保持最小尺寸并横向滚动。
  * 第 1 行留给月份标签，标签直接落在对应周列上，列宽变化时自动对齐。
+ * 行高用 auto 跟随格子，段内剩余高度由 align-content 均匀分配，
+ * 这样段被拉高时格子不会变形、行距也不会散开。
  */
 .ht-grid {
   display: grid;
+  /* 行高随格子高度自适应：格子宽度取满列宽（1fr），高度由 aspect-ratio 推出，
+     这样两段网格既铺满卡片宽度，行距又不会被拉散 */
   grid-template-rows: auto repeat(7, auto);
+  flex: 1 1 0;
+  min-height: 0;
+  align-content: space-evenly;
+}
+/* 单段（窄屏）：整年 53 列一行，格子按最小尺寸排布即可，
+   给一个最小高度，保证 7 行格子完整可见 */
+.ht-grid:only-child {
+  flex: 0 0 auto;
+  min-height: 118px;
+  align-content: start;
 }
 .ht-month {
-  justify-self: start;
+  /* 列宽由 1fr 均分，格子在列内居中（见 .ht-cell），
+     月份标签同样居中，才能和它标注的那个格子对齐 */
+  justify-self: center;
   align-self: end;
   font-size: 10px;
   line-height: 13px;
@@ -238,11 +312,15 @@ function cellTitle(ts: number, count: number) {
   line-height: 11px;
   color: var(--gn-text-muted);
 }
+/**
+ * 格子宽度取满所在列（列宽由 1fr 均分），
+ * 高度由 aspect-ratio 推出，保证始终是正方形；
+ * max-width 兜住上限，避免在超宽屏上格子变得过大。
+ */
 .ht-cell {
   width: 100%;
-  max-width: 18px;
   aspect-ratio: 1;
-  align-self: start;
+  max-width: 20px;
   justify-self: center;
   border-radius: 2.5px;
   background: var(--gn-bg-soft);

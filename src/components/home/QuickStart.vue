@@ -84,8 +84,11 @@ const templates = computed(() =>
   border: 1px solid var(--gn-border);
   border-radius: 12px;
   background: var(--gn-bg);
-  /* 撑满右栏剩余高度：这块是放背景图的主视觉区 */
+  /* 撑满右栏剩余高度：这块是放背景图的主视觉区。
+     max-height 限制它别把整栏占光——超出的空间让给下面的年度热力图，
+     两张卡片的比例才是 1 : 1 左右，不会出现「一张巨图 + 一张小图」的失衡。 */
   flex: 1 1 auto;
+  max-height: 46%;
   min-height: 168px;
   display: flex;
 }
