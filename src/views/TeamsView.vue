@@ -1841,13 +1841,20 @@ onBeforeUnmount(() => {
   padding-top: 8px;
 }
 .tm-count {
+  /* 数字徽标要真正水平垂直居中：普通 inline 元素按基线排布会让数字偏下，
+     必须用 inline-flex + 双向居中 + line-height:1（与 .tm-inbox-count 一致） */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 18px;
+  height: 18px;
   padding: 0 5px;
   border-radius: 99px;
   background: var(--gn-accent-soft);
   color: var(--gn-accent);
   font-size: 11px;
   font-weight: 500;
+  line-height: 1;
 }
 .tm-subtitle {
   display: flex;
