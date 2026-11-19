@@ -405,6 +405,33 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
           sid = data.sid
           touchSession(sid)
           row = findUserById(data.sub)
+        } else if (!s) {
+          // 会话记录不存在：典型场景是重新发布时用本地 server/data 快照覆盖线上库，
+          // 会话表被整体换掉，线上刚创建的会话随之中落。令牌签名有效且未过期，
+          // 说明是本系统签发且没被主动撤销 —— 降级放行并补建会话，避免每次发布
+          // 都把用户踢回登录页。
+          // 注意：若记录存在但 revoked=1（主动退出 / 改密码踢设备），不会走到这里，
+          // row 保持 null → 401，安全语义不变。
+          const user = findUserById(data.sub)
+          if (user) {
+            row = user
+            sid = data.sid
+            const now = Date.now()
+            try {
+              db.prepare(
+                'INSERT OR IGNORE INTO sessions (id, user_id, created_at, last_seen, ip, ua) VALUES (?, ?, ?, ?, ?, ?)',
+              ).run(
+                data.sid,
+                data.sub,
+                now,
+                now,
+                req.ip ?? null,
+                ((req.headers['user-agent'] as string) ?? '').slice(0, 300) || null,
+              )
+            } catch {
+              /* 补建失败不影响本次放行：下次请求仍会走这个降级分支 */
+            }
+          }
         }
       } else {
         row = findUserById(data.sub)
