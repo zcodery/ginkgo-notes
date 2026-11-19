@@ -2,11 +2,13 @@
  * 把本地开发库里的所有账号导成一份 Excel（含明文密码），方便切换账号测试逻辑。
  *
  * 密码在库里是 scrypt 单向哈希，不可反解。本脚本用候选口令逐个校验来恢复——
- * 本项目的账号密码有明确规律：
- *   1) 种子脚本创建的演示账号统一密码（demo1234 等，见 scripts/seed-demo-friends.mjs）
+ * 本地开发库的账号密码有明确规律：
+ *   1) 种子脚本创建的演示账号使用固定口令（见 scripts/seed-demo-friends.mjs）
  *   2) 团队「批量建号」的账号遵循「账号 = 初始密码 = 手机号」（见 server/routes.ts 注册逻辑）
- *   3) 管理员用环境变量 ADMIN_PASSWORD 或默认 admin123
- * 候选表全部落空时，可用 --reset 统一重置为 ginkgo1234（会改库）。
+ *   3) 管理员用初始化时的 ADMIN_PASSWORD 环境变量
+ * 候选表全部落空时，可用 --reset 统一重置（会改库）。
+ *
+ * 注意：本脚本仅用于本地开发库，依赖上述开发期口令规律；切勿对生产库使用。
  *
  * 用法：
  *   node scripts/export-accounts.mjs                    # 导出到 server/data/账号清单.xlsx

@@ -1,12 +1,13 @@
 /**
  * 探测本地开发库里每个账号的真实密码。
  *
- * 密码在库里是 scrypt 单向哈希，不可反解；但本项目的账号有明显的密码规律
+ * 密码在库里是 scrypt 单向哈希，不可反解；但本地开发库的账号有明显的密码规律
  * （种子脚本固定密码、批量建号「账号=初始密码=手机号」），所以用候选表逐个校验。
+ * 仅用于本地开发库，切勿对生产库使用。
  *
  * 用法：node scripts/probe-passwords.mjs [--reset]
  *   不带 --reset：只读探测，报告命中情况
- *   带 --reset：把没命中候选的账号统一重置为 ginkgo1234（会改库！）
+ *   带 --reset：把没命中候选的账号统一重置（会改库！）
  */
 import { scryptSync, timingSafeEqual, randomBytes } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'

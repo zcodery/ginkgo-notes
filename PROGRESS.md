@@ -625,7 +625,7 @@ ginkgoNotes/
 | 132 | `708dca2` | fix(team) | 待接受邀请的角色改用 `roleLabel` 显示中文，并按成员行结构补头像 / `@用户名` / 「待接受」胶囊、浅底与虚线头像区分「还没加入」；隔离 mock E2E 11/11 |
 | 133 | `a4f6877` | fix(theme) | 修正 `:global` 用法：`QuickStart` 的暗色背景图规则不再编译成 `html.dark{opacity:.3}`，暗色主题整页压暗问题修复；隔离 mock E2E 7/7 |
 | 134 | `6258cf0` | feat(editor) | 斜杠菜单里 分栏（2/3/4 栏）从「基础块」独立为「布局」分组；新增 `e2e-slash-groups.mjs` 6/6 |
-| 135 | `0bf00b4` | fix(server) | `start` / `dev:server` 显式加 `--experimental-strip-types --experimental-sqlite`（发布沙箱 Node 22.13.1 必需），新增 `serve:prod`；线上发布至 `ginkgo-notes.app.workbuddy.host`，版本 0.4.0 |
+| 135 | `0bf00b4` | fix(server) | `start` / `dev:server` 显式加 `--experimental-strip-types --experimental-sqlite`（低版本 Node 沙箱必需），新增 `serve:prod`；发布至私有托管域名（地址已脱敏），版本 0.4.0 |
 | 136 | `1b13fb5` | fix(auth) | JWT 密钥改为「env → `app_meta` 表 → 文件」取值（跨进程/重启一致）；`PRAGMA busy_timeout` 避免多进程同时建表崩在启动；`ensureAdmin` 吞掉 username 唯一冲突 |
 | 137 | `dc002d7` | fix(auth) | 应用令牌除 `Authorization` 外再走 `X-Ginkgo-Token`，服务端优先读自定义头——分享域名反代会用网关自己的 JWT 覆盖 `Authorization`，这是线上「登录成功、下个请求 401」的真因 |
 
@@ -818,8 +818,9 @@ node scripts/backfill-public-templates.mjs --apply
 
 ### 线上发布（sites）
 
-线上地址：`https://ginkgo-notes.app.workbuddy.host`（分享链接带 `?sharecode=` 参数；应用可在
-**设置—数据管理—应用**里下线/重发）。发布走 `workbuddy_sites_deploy`，本项目的正确参数：
+线上地址：私有托管域名（已脱敏，原为 WorkBuddy sites 分配的 `*.app.workbuddy.host` 子域）。
+分享链接带 `?sharecode=` 参数；应用可在**设置—数据管理—应用**里下线/重发。
+发布走 `workbuddy_sites_deploy`，本项目的正确参数：
 
 - `installCmd`：`pnpm install --frozen-lockfile && npx vite build`
   —— **构建必须放在安装阶段**：上传时会排除 `dist`，而启动阶段的健康检查只给 60s，
@@ -968,7 +969,7 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 78. **搜索框的语义要跟页面主对象对齐**：顶部搜索框紧贴着「我的好友」列表，用户预期是筛这个列表；把它接去全平台用户搜索既不符合预期，又让「加好友」这条主路径被挤到搜索框里。正确拆法是：搜索框只做本地过滤（对已有数据 computed 即可，无需防抖和请求序号），全平台搜索挪进独立的「加好友」面板。
 79. **非空断言只是编译期的**：`target!.id` 在 `target` 运行时为 null 时照样抛 `TypeError`。迁移到「未分组」的分支里目标组本来就不存在，必须写 `target ? target.id : NONE_GROUP`，别用 `!` 掩盖。写完这类分支后一定要用真实请求打一遍——前端「看起来成功」但接口 500 的情况，事务已提交、数据已改，只有看服务端日志才能发现。
 80. **flex 里的块级包装元素会带一条匿名行盒**：`.tm-format` 是 `<div>`（块级）却只为了给按钮加一个定位上下文，它自身那条行盒把里面的按钮整体往下顶，与同行兄弟按钮错位。改成 `display:inline-flex; align-items:center` 即可去掉多余行盒；凡是「只为了定位/包裹而存在」的 div，都要确认它不是块级。
-81. **密码是单向哈希，导不出明文也别试图反解**：`users.password_hash` 存的是 `scrypt$salt$hash`，不可逆。`scripts/export-accounts.mjs` 的做法不是破解，而是**用候选口令逐个校验**——本项目的账号密码有确定规律（种子账号固定口令、团队批量建号「账号=初始密码=手机号」、管理员默认 `admin123`），一张候选表就能 100% 命中。写这类导出脚本时：① 只读打开库，不要用 `node:sqlite` 的写模式去跑探测；② 候选表要覆盖「通用弱口令 + 账号本身 + 手机号 + 昵称」四类派生；③ 命中不了时**不要静默写一个假密码**，要么留空、要么显式 `--reset` 让用户知情后重置。
+81. **密码是单向哈希，导不出明文也别试图反解**：`users.password_hash` 存的是 `scrypt$salt$hash`，不可逆。`scripts/export-accounts.mjs` 的做法不是破解，而是**用候选口令逐个校验**——本项目的开发库账号密码有确定规律（种子账号固定口令、团队批量建号「账号=初始密码=手机号」、管理员用初始化环境变量），一张候选表就能 100% 命中。写这类导出脚本时：① 只读打开库，不要用 `node:sqlite` 的写模式去跑探测；② 候选表要覆盖「通用弱口令 + 账号本身 + 手机号 + 昵称」四类派生；③ 命中不了时**不要静默写一个假密码**，要么留空、要么显式 `--reset` 让用户知情后重置。⚠️ 这类脚本只对**本地开发库**有意义，切勿对生产库使用。
 82. **笔记归属有两种，统计时不能混**：`pages.owner` 在个人空间里是**用户 id**，在团队空间里是**空间 id**，公共原稿是字面量 `'public'`。写「某人有多少笔记」时若直接 `WHERE owner = ?`，团队空间里那些页面就既不算任何人的、也不算任何空间的。正确做法是分三份统计：个人页按 `owner = 用户 id` 归个人，团队页按 `pages JOIN spaces ON spaces.id = pages.owner AND spaces.type='team'` 归团队，公共原稿单列。另外回收站标记不在列上，而是页面 JSON 里的 `$.trashed`，用 `json_extract(data, '$.trashed')` 判断（`node:sqlite` 自带 JSON1，不用自己解 JSON）。
 83. **好友关系是双向的，计数要两端各加一次**：`friendships` 用 `user_low / user_high` 归一化避免重复存，但「张三有几个好友」得把每条 accepted 关系给两端各计 1，不能只查 `user_low`。同理「最后活跃时间」取 `sessions` 里 `revoked = 0` 的 `MAX(last_seen)`，撤销的设备不该算活跃。
 84. **前端路由守卫要等身份回来再判**：`parseRoute()` 只看 URL，不知道用户是不是管理员；而 `restoreSession()` 是异步的，首次加载时 `syncRoute()` 早于它执行，此刻 `store.user` 还是 null，守卫条件 `role !== 'admin'` 会因为 role 为空而放行，普通用户能停在 `/admin` 上。修法是**同时监听 `store.user?.role` 和 `store.route.view`**（`watch` 配 `immediate: true`），身份到位后重新判定并 `goHome()` 送回首页；服务端仍要有 `requireAdmin` 兜底，前端守卫只是体验层。
@@ -1122,4 +1123,4 @@ node scripts/export-accounts.mjs
 
 ⚠️ 该文件含**明文密码**，仅限本地开发库使用，不要提交进 Git（`server/data/` 已在忽略列表内），也不要外发。
 
-密码规律备忘：管理员 `admin123`；种子演示账号 `demo1234`；团队批量建号的账号密码与手机号相同。
+密码规律：开发库的种子/演示账号与团队批量建号各有固定口令规律，具体见对应建号脚本与候选表；管理员口令由初始化时的 `ADMIN_PASSWORD` 环境变量决定。**这些规律只适用于本地开发库，生产部署务必在 `.env` 里设置强密码。**
