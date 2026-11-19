@@ -51,7 +51,13 @@ export function onUnauthorized(handler: () => void): void {
 function headers(extra: Record<string, string> = {}): Record<string, string> {
   const h: Record<string, string> = { ...extra }
   const token = getToken()
-  if (token) h.Authorization = `Bearer ${token}`
+  if (token) {
+    h.Authorization = `Bearer ${token}`
+    // 发布环境（workbuddy sites 的分享域名）前面挂着一层鉴权反代，它会把进来的
+    // Authorization 换成网关自己的 JWT —— 应用令牌走这个头就永远验不过，表现为
+    // 「登录成功、下一个请求就 401」。所以再带一份到自定义头，后端优先读它。
+    h['X-Ginkgo-Token'] = token
+  }
   // me 表示个人空间（不传头，后端按用户 id 归属）；其余为 public 或团队空间 id
   if (currentSpace !== 'me') h['X-Space'] = currentSpace
   return h

@@ -378,7 +378,12 @@ export function clearFailures(key: string): void {
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   const header = req.headers.authorization ?? ''
-  const token = header.startsWith('Bearer ') ? header.slice(7) : ''
+  const bearer = header.startsWith('Bearer ') ? header.slice(7) : ''
+  // 部署环境的鉴权反代会用网关自己的 JWT 覆盖 Authorization（打开分享链接后，
+  // 哪怕客户端不发也会收到一个），所以应用令牌同时支持自定义头，且优先它。
+  // 本地开发 / MCP 脚本继续走标准 Bearer。
+  const custom = req.headers['x-ginkgo-token']
+  const token = typeof custom === 'string' && custom ? custom : bearer
   let row: UserRow | null = null
   let sid: string | null = null
   let apiToken: AuthLocals['apiToken'] = null
