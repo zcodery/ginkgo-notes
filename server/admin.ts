@@ -512,3 +512,35 @@ adminRouter.get('/admin/users/:id', requireAdmin, (req, res) => {
     })),
   })
 })
+
+/**
+ * 管理端：全库快照导出。
+ *
+ * 用途：发布工具会把整个项目目录（含 server/data/ginkgo.db）压缩上传，覆盖线上库，
+ * 导致用户在线上写的内容在下次发布时丢失。发布前先用本接口把线上库导出，回流合并
+ * 回本地库，再发布，即可保住线上数据。仅管理员可调用；响应含账号与凭据哈希，
+ * 调用方不得打印正文、不得让响应落到日志或公开仓库。
+ * BLOB（如图片）以 { __blob_b64__ } 包装成 base64，便于 JSON 传输。
+ */
+adminRouter.get('/admin/snapshot', requireAdmin, (_req, res) => {
+  const tables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+    .all() as { name: string }[]
+  const snapshot: Record<string, Record<string, unknown>[]> = {}
+  for (const { name } of tables) {
+    // 表名来自 sqlite_master，仍做白名单校验，杜绝拼接注入
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) continue
+    const rows = db.prepare(`SELECT * FROM "${name}"`).all() as Record<string, unknown>[]
+    snapshot[name] = rows.map((row) => {
+      const out: Record<string, unknown> = {}
+      for (const [col, value] of Object.entries(row)) {
+        out[col] =
+          value instanceof Uint8Array
+            ? { __blob_b64__: Buffer.from(value).toString('base64') }
+            : value
+      }
+      return out
+    })
+  }
+  res.json({ ok: true, generatedAt: Date.now(), tables: snapshot })
+})

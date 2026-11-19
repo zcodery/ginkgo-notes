@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.4.5 | 更新于 2026-11-19
+> 版本 0.4.6 | 更新于 2026-11-19
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 >
@@ -334,6 +334,7 @@ ginkgoNotes/
 | 148 | 暗色主题整页发黑看不清（`:global` 用错位置） | ✅ | 用户截图：切到暗色后团队页几乎全黑、文字和背景糊在一起。排查关键：`getComputedStyle(html).opacity` 返回 **0.3**、`filter: saturate(.7) brightness(.72)`，即整个 `<html>` 被压成 30% 不透明——所有后代不论自身颜色多亮都会跟着变暗，所以看起来像「文字是深色」其实是被整页透明化。用 CDP `CSS.getMatchedStylesForNode` 定位到唯一来源：`html.dark{opacity:.3;filter:...}`，来自 `QuickStart.vue` 里 `:global(html.dark) .qs-bg { opacity:.3; filter:... }`——**scoped 编译只把 `:global(...)` 里的选择器提成全局，后面的 `.qs-bg` 被丢掉**，于是「只压暗首屏背景图」的规则变成了「压暗整个页面」。修复：把整条选择器包进 `:global()` → `:global(html.dark .qs-bg)`，产物变为 `html.dark .qs-bg{opacity:.3;filter:...}`，背景图仍按预期压暗、页面恢复正常。新增隔离 mock E2E `e2e-dark-theme.mjs` 7/7：亮/暗两种主题下 `html` 的 opacity 均为 1、暗色下 html 无滤镜、`.qs-bg` 仍为 0.3 且带 saturate、正文亮度差 >150、无 JS 异常（陷阱 120） |
 | 149 | 分栏在斜杠菜单里独立成「布局」分组 | ✅ | 用户截图反馈：斜杠菜单里 分栏（2 栏）/（3 栏）/（4 栏）三条挤在「基础块」末尾、紧贴分割线，应该单独一个模块。改动只在 `slashItems.ts`：三条的 `group` 由 `'基础块'` 改为 `'布局'`。**不需要注册新分组**——`SlashMenu.vue` 的 `groups` 是对 `props.items` 按顺序用 `Map` 聚合（组的位置 = 该组第一条在数组中的位置，组内按数组顺序），所以只改字符串就多出一节，且 `.slash-group + .slash-group` 的顶部分隔线自动生效。三条本来相邻，展示顺序与 `activeIndex` 键盘导航（走过滤后的扁平数组序）一致，不会出现"高亮跳着走"。最终组序：基础块 → 布局 → 媒体 → 高级块 → AI。新增 E2E `e2e-slash-groups.mjs` 6/6（直接 import Vite 转换后的模块复算分组，断言 布局组独立且正好 3 条、基础块无残留、组序、搜 `fenlan` 三条均落在布局组）（陷阱 121） |
 | 150 | 产品官网（静态站 / docs/） | ✅ | 用户要求「构建一个官网」，选产品介绍官网 + 现代简约风。新增 `docs/index.html`（单文件静态站，CSS/JS 内联，无构建步骤，可直接作 GitHub Pages / 任意静态托管）；含导航 / Hero(渐变) / 截图窗口 / 六张功能卡 / 四张真实截图展示区 / 三步快速开始 / 底部 CTA / 页脚，响应式（820px 断点切单列）。截图取线上真实实例：登录 admin 后抓首页 / 编辑器(Markdown 语法速查，含表格与行内代码) / 团队(组织架构 18 节点) / 好友页，存 `docs/assets/`。验证：`python -m http.server 3421` + Playwright 桌面 1440/移动 390 全页截图，四图 naturalWidth 均为 1280、无 JS 异常、移动 scrollWidth==clientWidth(390) 无横向溢出。注：官网静态站无法承载需要后端的完整应用（Pages 只托管静态文件），线上完整应用仍走 WorkBuddy sites |
+| 151 | 发布不再丢线上数据（数据回流机制） | ✅ | 用户反馈「每次发布后我写的内容就没了」。根因：发布工具压缩上传整个项目目录，`server/data/ginkgo.db` 被本地快照整库覆盖线上，用户两次发布间在线上写的内容全丢；掉登录（v0.4.5）只是同一根因的症状。根治：① 管理端 `GET /api/admin/snapshot`（admin 鉴权，遍历 sqlite_master 全表导出，BLOB 以 `__blob_b64__` 包装）；② `scripts/pull-prod-data.mjs` 用本地 jwt_secret 签 admin 令牌拉线上快照，逐表 `INSERT OR REPLACE` 回本地（线上优先、保留本地独有行，`app_meta` 保留本地以保住 jwt_secret），不打印正文；③ 发布流程第 1 步强制先回流。隔离真实 HTTP E2E `e2e-snapshot-pull.mjs` 6/6：线上新页回流、本地种子保留、密钥不覆盖。本次发布前线上=本地（各 13 篇），无历史内容可找回，但机制已根治后续不再丢 |
 
 ### P1 — 部分完成 / 待完善
 
@@ -770,6 +771,7 @@ ginkgoNotes/
 
 | 版本 | 日期 | 内容摘要 |
 |---|---|---|
+| **0.4.6** | 2026-11-19 | 根治「每次发布后线上写的内容就没了」：发布工具整目录上传覆盖 `server/data`，本地快照冲掉线上库。新增管理端全库快照接口 `GET /api/admin/snapshot`（admin 鉴权，BLOB base64），新增 `scripts/pull-prod-data.mjs` 发布前把线上全表数据回流合并进本地库（线上优先 REPLACE、保留本地独有行、`app_meta` 以本地为准保住 jwt_secret）。发布流程第 1 步强制先回流。隔离真实 HTTP E2E 6/6：线上新页回流、本地种子保留、密钥不覆盖 |
 | **0.4.5** | 2026-11-19 | 修复「每次重新发布就把用户踢回登录页」：发布时本地 `server/data` 快照会覆盖线上库的 `sessions` 表，导致线上令牌带的 sid 查不到 → 401。`requireAuth` 新增降级容错——会话记录**完全不存在**时（签名有效、用户存在）放行并补建会话；会话存在但 `revoked=1`（主动退出/改密码踢设备）仍 401，安全语义不变。隔离库 + 独立端口真实 HTTP 验证 8/8 |
 | **0.4.4** | 2026-11-19 | 接入 WorkBuddy 云服务免密钥 LLM：AI 助手开箱即用，无需用户自填 DeepSeek API Key；`streamChat` 优先走云 SDK 流式、失败回退自建后端，设置页展示云状态。另：后端监听地址支持 `HOST` 环境变量（默认仍 0.0.0.0，本地预览可只绑回环）。云服务按发布域名校验 Origin，发布复用同一 applicationId 与 `ginkgo-notes` 域名不变 |
 | **0.4.3** | 2026-11-19 | AI 助手「测试连接」在线上一直报「登录已失效，请重新登录」：`streamChat` 是唯一没走 `authHeaders()` 的裸 `fetch`，只发了 `Authorization`（被分享域名网关覆盖成自己的 JWT），导致 `/api/ai/chat` 401。改用 `authHeaders()` 带上 `X-Ginkgo-Token` 后修复，AI 润色 / 写作 / 测试连接在线上恢复可用 |
@@ -860,11 +862,20 @@ SQLite 库会跟着上去——线上是**本地数据的快照副本**，线上
 
 #### 发布（版本号）流程
 
-1. 改 `package.json` 的 `version`（前端构建注入 `__APP_VERSION__`，服务端启动读同一份 → 前后端一致）；
-2. 更新本文件的「版本发布记录」；
-3. `git commit` + `git tag -a vX.Y.Z -m "…"` + `git push origin main --tags`；
-4. 用上面的参数调 `workbuddy_sites_deploy` 重新发布；
-5. 冒烟：`.dev/pwrun/smoke-live.mjs`（首页 + `/api/version` 对版本号）与
+> ⚠️ **第 1 步绝不能省**：发布工具压缩上传整个项目目录，`server/data/ginkgo.db` 会被本地库
+> **整库覆盖线上**。不先回流，用户在线上两次发布之间写的内容全部丢失（掉登录只是同一根因的
+> 一个症状，见 v0.4.5/v0.4.6）。回流脚本用本地 jwt_secret 签 admin 令牌调线上
+> `GET /api/admin/snapshot` 拉全表快照，逐表 `INSERT OR REPLACE` 回本地；`app_meta` 保留本地
+> （jwt_secret 必须与本地一致）。线上第一次发布带快照接口时注意时序：首次发布线上=本地、
+> 无数据可丢，发布后快照接口才可用；此后每次发布都必须先回流。
+
+1. **先回流线上数据到本地**：`node scripts/pull-prod-data.mjs`（只读线上 + 合并进本地库，
+   不打印正文）。确认输出「回流完成」再继续；
+2. 改 `package.json` 的 `version`（前端构建注入 `__APP_VERSION__`，服务端启动读同一份 → 前后端一致）；
+3. 更新本文件的「版本发布记录」；
+4. `git commit` + `git tag -a vX.Y.Z -m "…"` + `git push origin main --tags`；
+5. 用上面的参数调 `workbuddy_sites_deploy` 重新发布；
+6. 冒烟：`.dev/pwrun/smoke-live.mjs`（首页 + `/api/version` 对版本号）与
    `.dev/pwrun/smoke-live-login.mjs`（登录 → 读自己的笔记），两个脚本都是只读。
 
 ---
