@@ -29,7 +29,8 @@ export default defineConfig({
   },
   server: {
     port: 3100,
-    host: true,
+    // 本地开发预览只暴露回环地址；发布走 server/index.ts，不受此项影响。
+    host: '127.0.0.1',
     proxy: {
       '/api': `http://localhost:${process.env.GINKGO_API_PORT ?? 3101}`,
     },

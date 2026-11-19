@@ -1,7 +1,23 @@
 {
   "name": "ginkgo-notes",
-  "private": true,
   "version": "0.4.2",
+  "private": true,
+  "description": "自托管的 Markdown 笔记应用：写作、组织、协作与分享",
+  "license": "MIT",
+  "author": "zcodery",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zcodery/ginkgo-notes.git"
+  },
+  "homepage": "https://github.com/zcodery/ginkgo-notes#readme",
+  "keywords": [
+    "notes",
+    "markdown",
+    "self-hosted",
+    "tiptap",
+    "vue",
+    "sqlite"
+  ],
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,green \"pnpm dev:server\" \"pnpm dev:web\"",
