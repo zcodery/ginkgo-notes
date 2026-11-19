@@ -1,4 +1,4 @@
-import { api, authHeaders, getToken } from './client'
+import { api, authHeaders } from './client'
 
 /* ---------------- 账号安全 ---------------- */
 
@@ -236,10 +236,12 @@ export async function streamChat(
   onDelta: (text: string, full: string) => void,
   signal?: AbortSignal,
 ): Promise<string> {
-  const token = getToken()
   const res = await fetch('/api/ai/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    // 走 authHeaders() 以携带 X-Ginkgo-Token：发布环境的鉴权网关会覆盖
+    // Authorization，只靠 Bearer 会被换成网关 JWT 而验不过（表现为 401
+    // 「登录已失效，请重新登录」）。AI 流式接口此前是唯一漏掉的裸 fetch。
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ messages, stream: true }),
     signal,
   })
