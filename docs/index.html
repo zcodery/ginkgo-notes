@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>银杏笔记 · 自托管的 Markdown 笔记应用</title>
+<meta name="description" content="银杏笔记是一款自托管的 Markdown 笔记应用，支持团队协作、公开分享、AI 助手与 MCP 接入。数据存在自己的服务器上，正文是纯 Markdown。" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍃</text></svg>" />
+<style>
+  :root {
+    --ink: #1a1d24;
+    --muted: #6b7280;
+    --line: #e8e6e1;
+    --bg: #fbfaf7;
+    --card: #ffffff;
+    --green: #1f7a5c;
+    --green-soft: #eaf5ef;
+    --gold: #d9a441;
+    --radius: 16px;
+    --shadow: 0 8px 30px rgba(31, 41, 55, .06);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 50; background: rgba(251, 250, 247, .88);
+    backdrop-filter: saturate(180%) blur(14px); border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 17px; letter-spacing: -.3px; }
+  .brand .leaf { font-size: 22px; }
+  .nav-links { display: flex; align-items: center; gap: 30px; font-size: 14px; }
+  .nav-links a:not(.btn) { color: var(--muted); transition: color .2s; }
+  .nav-links a:not(.btn):hover { color: var(--ink); }
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    padding: 9px 17px; border-radius: 10px; font-size: 14px; font-weight: 600;
+    transition: transform .15s, box-shadow .2s, background .2s;
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn-primary { background: var(--ink); color: #fff; }
+  .btn-primary:hover { box-shadow: 0 6px 18px rgba(26,29,36,.22); }
+  .btn-ghost { background: var(--card); border: 1px solid var(--line); }
+  .btn-ghost:hover { border-color: #cfcac0; }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 88px 0 56px; text-align: center; position: relative; overflow: hidden; }
+  .hero::before {
+    content: ""; position: absolute; top: -160px; left: 50%; transform: translateX(-50%);
+    width: 720px; height: 420px; border-radius: 50%;
+    background: radial-gradient(ellipse, rgba(217,164,65,.13), rgba(31,122,92,.07) 45%, transparent 70%);
+    pointer-events: none;
+  }
+  .tag {
+    display: inline-block; padding: 5px 14px; border-radius: 999px; font-size: 13px;
+    color: var(--green); background: var(--green-soft); font-weight: 600; margin-bottom: 22px;
+  }
+  .hero h1 {
+    font-size: clamp(38px, 6vw, 62px); line-height: 1.18; letter-spacing: -1.6px;
+    font-weight: 800; position: relative;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(100deg, var(--green), #2f9c74);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.sub {
+    max-width: 660px; margin: 22px auto 32px; font-size: 17px; color: var(--muted);
+  }
+  .hero .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero .cta .btn { padding: 12px 22px; font-size: 15px; }
+  .note { margin-top: 18px; font-size: 13px; color: #9a978f; }
+
+  /* ---------- Showcase ---------- */
+  .showcase { padding: 20px 0 70px; }
+  .window {
+    border-radius: 18px; box-shadow: 0 24px 70px rgba(31,41,55,.13);
+    border: 1px solid var(--line); overflow: hidden; background: #fff;
+  }
+  .window-bar {
+    height: 40px; background: #f7f6f3; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; padding: 0 15px; gap: 6px;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot.r { background: #e06c5a; } .dot.y { background: #e5b94e; } .dot.g { background: #5fae7f; }
+  .window-bar .addr {
+    margin-left: 14px; font-size: 11px; color: #a3a099; background: #fff;
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 12px;
+  }
+  .window img { display: block; width: 100%; height: auto; }
+
+  /* ---------- Features ---------- */
+  section { padding: 64px 0; }
+  .sec-head { text-align: center; margin-bottom: 44px; }
+  .sec-head .kicker { font-size: 13px; font-weight: 700; color: var(--gold); letter-spacing: 1.6px; text-transform: uppercase; }
+  .sec-head h2 { font-size: clamp(28px, 4vw, 38px); letter-spacing: -1px; margin: 8px 0 12px; }
+  .sec-head p { color: var(--muted); font-size: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 26px 24px 28px; box-shadow: var(--shadow); transition: transform .2s, box-shadow .2s;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 14px 36px rgba(31,41,55,.09); }
+  .card .ico {
+    width: 42px; height: 42px; border-radius: 11px; display: flex; align-items: center;
+    justify-content: center; font-size: 21px; background: var(--green-soft); margin-bottom: 16px;
+  }
+  .card h3 { font-size: 17px; margin-bottom: 8px; letter-spacing: -.2px; }
+  .card p { font-size: 14px; color: var(--muted); }
+
+  /* ---------- Showcase tabs ---------- */
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+  .shot {
+    border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #fff;
+    box-shadow: var(--shadow);
+  }
+  .shot img { width: 100%; display: block; border-bottom: 1px solid var(--line); }
+  .shot .cap { padding: 14px 18px; font-size: 14px; }
+  .shot .cap b { display: block; font-size: 15px; margin-bottom: 2px; }
+  .shot .cap span { color: var(--muted); font-size: 13px; }
+
+  /* ---------- Steps ---------- */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: step; }
+  .step { position: relative; padding: 24px 22px 22px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    position: absolute; top: -14px; left: 22px; width: 30px; height: 30px; border-radius: 50%;
+    background: var(--ink); color: #fff; font-size: 14px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .step h3 { font-size: 16px; margin: 6px 0 8px; }
+  .step p { font-size: 14px; color: var(--muted); }
+  .step code {
+    display: block; margin-top: 12px; padding: 11px 14px; border-radius: 8px;
+    background: #f5f4f1; font-size: 12.5px; color: #374151; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    overflow-x: auto; white-space: nowrap;
+  }
+
+  /* ---------- CTA ---------- */
+  .final {
+    margin: 40px 0 0; text-align: center; padding: 64px 24px; border-radius: 22px;
+    background: linear-gradient(135deg, #1f7a5c, #2f9c74);
+    color: #fff;
+  }
+  .final h2 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -.6px; }
+  .final p { margin: 12px 0 26px; color: rgba(255,255,255,.86); }
+  .final .btn-light { background: #fff; color: var(--green); }
+  .final .btn-outline { background: transparent; border: 1px solid rgba(255,255,255,.5); color: #fff; }
+
+  /* ---------- Footer ---------- */
+  footer { padding: 40px 0 34px; text-align: center; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--green); }
+  footer .sep { margin: 0 8px; color: #ccc; }
+
+  @media (max-width: 820px) {
+    .grid, .steps { grid-template-columns: 1fr; }
+    .shots { grid-template-columns: 1fr; }
+    .nav-links a:not(.btn) { display: none; }
+    .hero { padding-top: 60px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#top"><span class="leaf">🍃</span> 银杏笔记</a>
+    <div class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#screens">预览</a>
+      <a href="#start">开始使用</a>
+      <a class="btn btn-primary" href="https://github.com/zcodery/ginkgo-notes" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="tag">MIT 开源 · 自托管</span>
+    <h1>你的笔记，<span class="accent">你做主。</span></h1>
+    <p class="sub">一款自托管的 Markdown 笔记应用。写作、组织、协作与分享都在自己的服务器上，正文是纯 Markdown，任何工具都能打开。</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#start">快速开始 ↓</a>
+      <a class="btn btn-ghost" href="https://github.com/zcodery/ginkgo-notes" target="_blank" rel="noopener">查看源码 ↗</a>
+    </div>
+    <p class="note">Vue 3 · TipTap · Express · SQLite — 无需外部数据库</p>
+  </div>
+</header>
+
+<div class="showcase wrap">
+  <div class="window">
+    <div class="window-bar">
+      <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+      <span class="addr">写作仪表盘 · 银杏笔记</span>
+    </div>
+    <img src="assets/screenshot-home.png" alt="银杏笔记写作仪表盘" />
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Why Ginkgo</div>
+      <h2>不只是一个编辑器</h2>
+      <p>从一个人写笔记，到一群人协作，功能都在你自己的服务器上。</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="ico">✍️</div>
+        <h3>Markdown 优先</h3>
+        <p>正文以纯 Markdown 存储，TipTap 只在编辑时存在。GitHub / Obsidian / Typora 直接渲染，不被私有格式锁住。</p>
+      </div>
+      <div class="card">
+        <div class="ico">📊</div>
+        <h3>富文本与高级块</h3>
+        <p>任务列表、表格、代码高亮、Mermaid 图表、折叠列表；多维表格作为独立实体，可跨页复用与同步。</p>
+      </div>
+      <div class="card">
+        <div class="ico">👥</div>
+        <h3>团队协作</h3>
+        <p>团队空间、好友关系、组织架构树、成员权限继承。统一 ACL：拒绝优先、资源授权、组织继承、空间基线。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🔗</div>
+        <h3>灵活分享</h3>
+        <p>公开链接可设密码与有效期，只读页不加载编辑器；也可把笔记分享给成员，细分查看与编辑权限。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🤖</div>
+        <h3>AI 与开放生态</h3>
+        <p>OpenAI 兼容的 AI 助手（SSE 流式）、Webhook（HMAC 签名）、MCP 服务、SMTP 邮件通知与 GitHub OAuth。</p>
+      </div>
+      <div class="card">
+        <div class="ico">🌏</div>
+        <h3>细节体验</h3>
+        <p>简体中文 / 繁體中文 / English 三语界面，亮暗主题，实时在线状态，管理员统计后台。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="screens" style="background:#f5f3ee; border-top:1px solid var(--line); border-bottom:1px solid var(--line);">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Screenshots</div>
+      <h2>看一眼真实界面</h2>
+      <p>以下截图来自实际运行的实例，未经美化处理。</p>
+    </div>
+    <div class="shots">
+      <div class="shot">
+        <img src="assets/screenshot-editor.png" alt="Markdown 编辑器" loading="lazy" />
+        <div class="cap"><b>Markdown 编辑器</b><span>表格、行内代码、标题渲染，斜杠命令唤出更多块。</span></div>
+      </div>
+      <div class="shot">
+        <img src="assets/screenshot-teams.png" alt="团队空间与组织架构" loading="lazy" />
+        <div class="cap"><b>团队与组织架构</b><span>空间隔离、成员管理、组织树权限继承。</span></div>
+      </div>
+      <div class="shot">
+        <img src="assets/screenshot-friends.png" alt="好友与分组" loading="lazy" />
+        <div class="cap"><b>好友与分组</b><span>申请、同意、自定义分组，好友关系单边视图。</span></div>
+      </div>
+      <div class="shot">
+        <img src="assets/screenshot-home.png" alt="写作仪表盘与统计" loading="lazy" />
+        <div class="cap"><b>写作仪表盘</b><span>月历、写作统计、热力图与最近编辑，一眼掌握进度。</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="kicker">Get Started</div>
+      <h2>三步跑起来</h2>
+      <p>需要 Node.js ≥ 22.6 与 pnpm。后端直接用内置 <code style="font-size:.9em;background:#f0efe9;padding:2px 6px;border-radius:5px;">node:sqlite</code>，无需安装数据库。</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>获取代码</h3>
+        <p>克隆仓库，装上依赖，复制环境变量模板。</p>
+        <code>git clone github.com/zcodery/ginkgo-notes<br>cd ginkgo-notes && pnpm install<br>cp .env.example .env</code>
+      </div>
+      <div class="step">
+        <h3>改成自己的密码</h3>
+        <p>首次启动会创建管理员，务必在 .env 里设强密码。</p>
+        <code>ADMIN_USERNAME=admin<br>ADMIN_PASSWORD=你的强密码</code>
+      </div>
+      <div class="step">
+        <h3>启动</h3>
+        <p>一条命令同时起前后端，打开 http://localhost:3100。</p>
+        <code>pnpm dev</code>
+      </div>
+    </div>
+    <p style="text-align:center;color:var(--muted);font-size:14px;margin-top:24px;">
+      生产部署用 <code style="background:#f0efe9;padding:2px 7px;border-radius:5px;">pnpm build && pnpm start</code>，由 Express 同时托管前端与 API。详见仓库 README。
+    </p>
+  </div>
+</section>
+
+<div class="wrap">
+  <div class="final">
+    <h2>把笔记，放回自己手里。</h2>
+    <p>开源、自托管、Markdown 优先。欢迎 Star，也欢迎来提 Issue 和 PR。</p>
+    <div class="cta" style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <a class="btn btn-light" href="https://github.com/zcodery/ginkgo-notes" target="_blank" rel="noopener">★ Star on GitHub</a>
+      <a class="btn btn-outline" href="https://github.com/zcodery/ginkgo-notes#readme" target="_blank" rel="noopener">阅读文档</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    🍃 银杏笔记 · MIT © 2026 zcodery
+    <span class="sep">|</span><a href="https://github.com/zcodery/ginkgo-notes" target="_blank" rel="noopener">GitHub</a>
+    <span class="sep">|</span><a href="#top">回到顶部 ↑</a>
+  </div>
+</footer>
+
+</body>
+</html>
