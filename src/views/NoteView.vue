@@ -34,6 +34,7 @@ import {
   ListChecks,
   Bug,
   GripVertical,
+  Pencil,
 } from 'lucide-vue-next'
 import type { Editor } from '@tiptap/core'
 import BlockEditor from '@/editor/BlockEditor.vue'
@@ -56,6 +57,7 @@ import {
   pageUrl,
   reloadPages,
   store,
+  displayName,
   NOTE_WIDTH_RATIOS,
   NOTE_FONT_SIZES,
   NOTE_FONT_STYLES,
@@ -548,11 +550,21 @@ const commentDraft = ref('')
 const commentRef = ref<HTMLTextAreaElement | null>(null)
 const comments = computed<PageComment[]>(() => page.value?.comments ?? [])
 const showComments = computed(() => commentOpen.value || comments.value.length > 0)
+const editingCommentId = ref<string | null>(null)
+const editingDraft = ref('')
+
+/** 评论作者显示名：优先昵称；老评论只存了登录名时，当前用户自己的换算成昵称 */
+function commentAuthor(c: PageComment): string {
+  if (c.authorName) return c.authorName
+  if (c.author === store.user?.username && displayName.value) return displayName.value
+  return c.author
+}
 
 function openComment() {
   if (!canEdit.value) return
-  commentOpen.value = true
-  void nextTick(() => commentRef.value?.focus())
+  editingCommentId.value = null
+  commentOpen.value = !commentOpen.value
+  if (commentOpen.value) void nextTick(() => commentRef.value?.focus())
 }
 
 async function submitComment() {
@@ -562,11 +574,58 @@ async function submitComment() {
   if (!p || !text) return
   const next: PageComment[] = [
     ...comments.value,
-    { id: uid(), author: store.user?.username ?? '我', text, createdAt: Date.now() },
+    {
+      id: uid(),
+      author: store.user?.username ?? '我',
+      authorName: displayName.value || store.user?.username || '我',
+      text,
+      createdAt: Date.now(),
+    },
   ]
   p.comments = next
   commentDraft.value = ''
   await savePage(p.id, { comments: next })
+}
+
+function startEditComment(c: PageComment) {
+  if (!canEdit.value) return
+  editingCommentId.value = c.id
+  editingDraft.value = c.text
+}
+
+function cancelEditComment() {
+  editingCommentId.value = null
+  editingDraft.value = ''
+}
+
+async function saveEditComment(id: string) {
+  if (!canEdit.value) return
+  const p = page.value
+  const text = editingDraft.value.trim()
+  if (!p || !text) return
+  const next = comments.value.map((c) =>
+    c.id === id
+      ? {
+          ...c,
+          text,
+          authorName: displayName.value || c.authorName || c.author,
+          editedAt: Date.now(),
+        }
+      : c,
+  )
+  p.comments = next
+  cancelEditComment()
+  await savePage(p.id, { comments: next })
+}
+
+function onCommentEditKeydown(e: KeyboardEvent, id: string) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault()
+    void saveEditComment(id)
+  } else if (e.key === 'Escape') {
+    e.preventDefault()
+    cancelEditComment()
+  }
 }
 
 async function removeComment(id: string) {
@@ -575,6 +634,7 @@ async function removeComment(id: string) {
   if (!p) return
   const next = comments.value.filter((c) => c.id !== id)
   p.comments = next
+  if (editingCommentId.value === id) cancelEditComment()
   if (!next.length) commentOpen.value = false
   await savePage(p.id, { comments: next })
 }
@@ -1153,11 +1213,7 @@ onBeforeUnmount(() => {
               </button>
             </div>
 
-            <div
-              v-if="canEdit && (!page?.icon || !page?.cover || !showComments)"
-              class="nv-head-actions"
-              :class="{ pinned: emojiOpen }"
-            >
+            <div v-if="canEdit" class="nv-head-actions" :class="{ pinned: emojiOpen }">
               <button
                 v-if="!page?.icon"
                 class="nv-head-btn nv-add-icon"
@@ -1168,7 +1224,7 @@ onBeforeUnmount(() => {
               <button v-if="!page?.cover" class="nv-head-btn" @click="addCover">
                 <ImageIcon :size="15" :stroke-width="1.8" /><span>{{ tr('添加封面') }}</span>
               </button>
-              <button v-if="!showComments" class="nv-head-btn" @click="openComment">
+              <button class="nv-head-btn" @click="openComment">
                 <MessageSquare :size="15" :stroke-width="1.8" /><span>{{ tr('添加评论') }}</span>
               </button>
             </div>
@@ -1206,26 +1262,52 @@ onBeforeUnmount(() => {
           <CollapseTransition>
           <section v-if="showComments" class="nv-comments">
             <div v-for="c in comments" :key="c.id" class="nv-comment">
-              <span class="nv-comment-avatar">{{ c.author.slice(0, 1).toUpperCase() }}</span>
+              <span class="nv-comment-avatar">{{ commentAuthor(c).slice(0, 1).toUpperCase() }}</span>
               <div class="nv-comment-body">
                 <div class="nv-comment-head">
-                  <span class="nv-comment-author">{{ c.author }}</span>
+                  <span class="nv-comment-author">{{ commentAuthor(c) }}</span>
                   <span class="nv-comment-time">{{ formatCommentTime(c.createdAt) }}</span>
+                  <span v-if="c.editedAt" class="nv-comment-time">· {{ tr('已编辑') }}</span>
                   <button
-                    v-if="canEdit"
-                    class="nv-comment-del"
+                    v-if="canEdit && editingCommentId !== c.id"
+                    class="nv-comment-act"
+                    v-tooltip="tr('编辑评论')"
+                    @click="startEditComment(c)"
+                  >
+                    <Pencil :size="13" :stroke-width="2" />
+                  </button>
+                  <button
+                    v-if="canEdit && editingCommentId !== c.id"
+                    class="nv-comment-act"
                     v-tooltip="tr('删除评论')"
                     @click="removeComment(c.id)"
                   >
                     <X :size="13" :stroke-width="2" />
                   </button>
                 </div>
-                <div class="nv-comment-text">{{ c.text }}</div>
+                <template v-if="editingCommentId === c.id">
+                  <textarea
+                    v-model="editingDraft"
+                    class="nv-comment-input nv-comment-edit-input"
+                    rows="2"
+                    :placeholder="tr('编辑评论…')"
+                    @keydown="onCommentEditKeydown($event, c.id)"
+                  ></textarea>
+                  <div class="nv-comment-edit-actions">
+                    <button class="nv-comment-cancel" @click="cancelEditComment">{{ tr('取消') }}</button>
+                    <button
+                      class="nv-comment-send"
+                      :disabled="!editingDraft.trim()"
+                      @click="saveEditComment(c.id)"
+                    >{{ tr('保存') }}</button>
+                  </div>
+                </template>
+                <div v-else class="nv-comment-text">{{ c.text }}</div>
               </div>
             </div>
-            <div v-if="canEdit" class="nv-comment-compose">
+            <div v-if="canEdit && commentOpen" class="nv-comment-compose">
               <span class="nv-comment-avatar">
-                {{ (store.user?.username ?? '我').slice(0, 1).toUpperCase() }}
+                {{ ((displayName || store.user?.username) ?? '我').slice(0, 1).toUpperCase() }}
               </span>
               <textarea
                 ref="commentRef"
@@ -1339,7 +1421,7 @@ onBeforeUnmount(() => {
 .note-view.is-exporting .nv-icon-picker,
 .note-view.is-exporting .cover-pop,
 .note-view.is-exporting .nv-comment-compose,
-.note-view.is-exporting .nv-comment-del {
+.note-view.is-exporting .nv-comment-act {
   display: none !important;
 }
 .note-view.is-exporting :deep(.note-editor .ProseMirror) {
@@ -1858,8 +1940,7 @@ onBeforeUnmount(() => {
   color: var(--gn-text-muted);
   font-size: 11.5px;
 }
-.nv-comment-del {
-  margin-left: auto;
+.nv-comment-act {
   display: flex;
   padding: 2px;
   border: none;
@@ -1869,11 +1950,17 @@ onBeforeUnmount(() => {
   cursor: pointer;
   opacity: 0;
 }
-.nv-comment:hover .nv-comment-del {
+.nv-comment-act:first-of-type {
+  margin-left: auto;
+}
+.nv-comment:hover .nv-comment-act {
   opacity: 1;
 }
-.nv-comment-del:hover {
+.nv-comment-act:hover {
   background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
+}
+.nv-comment-act:last-child:hover {
   color: var(--gn-danger);
 }
 .nv-comment-text {
@@ -1917,6 +2004,37 @@ onBeforeUnmount(() => {
 .nv-comment-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.nv-comment-edit-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--gn-border);
+  border-radius: 6px;
+  background: var(--gn-bg-hover);
+  box-sizing: border-box;
+}
+.nv-comment-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.nv-comment-cancel {
+  height: 26px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.nv-comment-cancel:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
 }
 .nv-title {
   display: block;

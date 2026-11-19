@@ -25,9 +25,14 @@ export interface Page {
 
 export interface PageComment {
   id: string
+  /** 登录名（身份标识，老数据即有） */
   author: string
+  /** 显示名（昵称），缺省时回退 author */
+  authorName?: string
   text: string
   createdAt: number
+  /** 最后编辑时间，有值则展示"已编辑" */
+  editedAt?: number
 }
 
 export interface Asset {

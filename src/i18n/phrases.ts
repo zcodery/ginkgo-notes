@@ -99,6 +99,11 @@ const PHRASES: Record<string, { tw: string; en: string }> = {
   '今天 {time}': { tw: '今天 {time}', en: 'Today {time}' },
   '{m} 月 {d} 日 {time}': { tw: '{m} 月 {d} 日 {time}', en: '{m}/{d} {time}' },
   删除评论: { tw: '刪除評論', en: 'Delete comment' },
+  编辑评论: { tw: '編輯評論', en: 'Edit comment' },
+  '编辑评论…': { tw: '編輯評論…', en: 'Edit comment…' },
+  已编辑: { tw: '已編輯', en: 'edited' },
+  取消: { tw: '取消', en: 'Cancel' },
+  保存: { tw: '儲存', en: 'Save' },
   '添加评论…  Enter 发送，Shift+Enter 换行': {
     tw: '新增評論…  Enter 送出，Shift+Enter 換行',
     en: 'Add a comment…  Enter to send, Shift+Enter for newline',
