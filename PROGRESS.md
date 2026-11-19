@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.4.0 | 更新于 2026-11-19
+> 版本 0.4.2 | 更新于 2026-11-19
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 >
@@ -626,11 +626,13 @@ ginkgoNotes/
 | 133 | `a4f6877` | fix(theme) | 修正 `:global` 用法：`QuickStart` 的暗色背景图规则不再编译成 `html.dark{opacity:.3}`，暗色主题整页压暗问题修复；隔离 mock E2E 7/7 |
 | 134 | `6258cf0` | feat(editor) | 斜杠菜单里 分栏（2/3/4 栏）从「基础块」独立为「布局」分组；新增 `e2e-slash-groups.mjs` 6/6 |
 | 135 | `0bf00b4` | fix(server) | `start` / `dev:server` 显式加 `--experimental-strip-types --experimental-sqlite`（发布沙箱 Node 22.13.1 必需），新增 `serve:prod`；线上发布至 `ginkgo-notes.app.workbuddy.host`，版本 0.4.0 |
+| 136 | `1b13fb5` | fix(auth) | JWT 密钥改为「env → `app_meta` 表 → 文件」取值（跨进程/重启一致）；`PRAGMA busy_timeout` 避免多进程同时建表崩在启动；`ensureAdmin` 吞掉 username 唯一冲突 |
+| 137 | `dc002d7` | fix(auth) | 应用令牌除 `Authorization` 外再走 `X-Ginkgo-Token`，服务端优先读自定义头——分享域名反代会用网关自己的 JWT 覆盖 `Authorization`，这是线上「登录成功、下个请求 401」的真因 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `0bf00b4` — fix(server): 启动脚本显式带上 `--experimental-strip-types` / `--experimental-sqlite`
-> 最新**功能**提交：`0bf00b4` — 同上（发布兼容修复，已推送 origin/main 并打了 `v0.4.0` 标签）
+**HEAD**: `dc002d7` — fix(auth): 应用令牌同时走自定义头，绕过分享域名反代覆盖 `Authorization`
+> 最新**功能**提交：`dc002d7` — 同上（已推送 origin/main，拆成 `v0.4.1` / `v0.4.2` 两个标签，线上跑 0.4.2）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -755,6 +757,8 @@ ginkgoNotes/
 
 | 版本 | 日期 | 内容摘要 |
 |---|---|---|
+| **0.4.2** | 2026-11-19 | 线上可用版（当前线上）：0.4.1 的 JWT 密钥落库 + 多进程启动加固，加上「令牌改走 `X-Ginkgo-Token`」——分享域名的鉴权反代会覆盖 `Authorization`，登录后所有请求都会 401，此版本修掉。实测线上：登录 → 仪表盘 → 13 篇笔记正常 |
+| 0.4.1 | 2026-11-19 | JWT 密钥落库（`app_meta`）、`busy_timeout`、`ensureAdmin` 竞态加固；发布环境 Node 22.13.1 的启动参数适配 |
 | **0.4.0** | 2026-11-19 | 阶段收尾版：首页三栏写作仪表盘（个人卡 / 月历 / 发布统计 / 模板横幅 / 全年热力图 + 月度分布）；团队与好友体系（待处理邀请入口、同意时原子新建分组、待接受邀请中文角色与行样式、成员权限位留空）；编辑器体验（分栏独立「布局」分组、模板标题带日期、透明 PNG 头像保 alpha）；观感修复（暗色主题整页压暗、邀请条矮视口裁切、数字徽标居中、下拉撑满）。版本号同时写进 `package.json` / `/api/version` / 设置页"关于"，线上老标签页会收到"发现新版本"提示 |
 | 0.3.0 | 2026-11-12 | 混合列表中的 `[ ]` 不再被吞掉；首次引入版本号机制 |
 
@@ -828,7 +832,23 @@ node scripts/backfill-public-templates.mjs --apply
 - `language: node`、`appName: 银杏笔记`、`domainPrefix: ginkgo-notes`、`userAskedToPublish: true`。
 
 注意：上传的是目录快照（只排除 `node_modules` / `.git` / `dist`），因此 `server/data/` 里的
-SQLite 库会跟着上去——线上是**本地数据的快照副本**，线上改动不会回流到本地库。
+SQLite 库会跟着上去——线上是**本地数据的快照副本**，线上改动不会回流到本地库；反过来
+**每次重新发布都会用本地库快照覆盖线上库**，线上期间产生的笔记会丢失（要保留就先从线上导出）。
+
+#### ⚠️ 这个域名会改写 `Authorization`
+
+分享域名前面挂着一层鉴权反代，它会把请求里的 `Authorization` 换成**网关自己的 JWT**（不发也会
+被塞一个）。所以应用自己的令牌不能只走这个头，本项目同时带 `X-Ginkgo-Token`，服务端优先读它
+（细节与验证方法见陷阱 123）。**新增任何"自己发鉴权头"的地方，记得走这条私有通道。**
+
+#### 发布（版本号）流程
+
+1. 改 `package.json` 的 `version`（前端构建注入 `__APP_VERSION__`，服务端启动读同一份 → 前后端一致）；
+2. 更新本文件的「版本发布记录」；
+3. `git commit` + `git tag -a vX.Y.Z -m "…"` + `git push origin main --tags`；
+4. 用上面的参数调 `workbuddy_sites_deploy` 重新发布；
+5. 冒烟：`.dev/pwrun/smoke-live.mjs`（首页 + `/api/version` 对版本号）与
+   `.dev/pwrun/smoke-live-login.mjs`（登录 → 读自己的笔记），两个脚本都是只读。
 
 ---
 
@@ -1074,6 +1094,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 121. **斜杠菜单的分组不是一个注册表，而是「按 items 顺序用 Map 聚合」，组的显示位置与键盘导航顺序可能不同步**。`SlashMenu.vue` 里 `groups` 遍历 `props.items` 把 `item.group` 塞进 `Map`——组标题的位置 = 该组**第一条**在数组里的位置，组内按数组顺序。所以新增一节只要把 `group` 字符串改掉即可，无需任何注册/排序配置（改 `slashItems.ts` 是一行的事）。代价是两个顺序可能分叉：键盘上下移动走的是 `filterSlashItems()` 返回的**扁平数组序**，渲染却是**分组后的视觉序**；一旦同一组的条目在数组里不连续（中间夹了别的组），视觉上会被提前/挪后，而高亮跟着数组走，就会出现"按下键高亮往回跳"。**规避办法**：同组的条目在 `slashItems` 数组里保持连续，且组的首次出现顺序与数组顺序一致。**验证技巧**：这类纯数据分组不必起浏览器点菜单，直接在页面里 `await import('/src/editor/slashItems.ts')`（Vite 会转好 TS）拿真数组、按组件的同一套 Map 逻辑复算一遍，断言组名/组内条目/组序即可——`e2e-slash-groups.mjs` 就是这么做的（6/6）。
 
 122. **「本地能跑」不等于「线上能跑」：Node 版本决定 `.ts` 直跑和 `node:sqlite` 要不要显式实验标志**。本项目服务端用 `node server/index.ts` 直跑（不编译），数据库用内置 `node:sqlite`。本机 Node 是 **22.22.2**——类型剥离（22.18+）和 `node:sqlite`（22.13+ 解除标志）都已默认开启，所以 `pnpm start` 一路顺畅；但发布沙箱是 **22.13.1**，同一个命令直接 `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"`，加上标志后还会卡在 `--experimental-sqlite`。**修法**：`node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning server/index.ts`（两个标志在新版 Node 上仍被接受，写进 `package.json` 的 `start` / `dev:server` 即可两端通用）。发布时还有两个坑：① 上传会排除 `dist`，但启动健康检查只给 **60s**，把 `vite build` 放进 `startCmd` 会因构建耗时被判成"服务未响应"——构建要放到 `installCmd`（`pnpm install --frozen-lockfile && npx vite build`）；② 别指望 `PORT` 一定被注入，`startCmd` 里写成 `PORT=${PORT:-3000}` 兜底，否则服务会退回默认 3101，健康检查永远打不到 3000。**判据**：发布失败时先看 `detail` 里 `port 3000 NOT listening` 同时进程列表里**有**你那条 node 命令 —— 这说明服务起来了但端口不对（或缺标志直接崩），而不是构建没跑完。
+
+123. **部署环境的鉴权反代会用网关自己的 JWT 覆盖 `Authorization`，应用自己的 Bearer 令牌根本到不了后端**。线上症状极具迷惑性：`POST /api/auth/login` 返回 200 并给出 token，但带上这个 token 的任何请求都 401「登录已失效」，接口与浏览器里一模一样；本地直连完全正常。**排除法走过三条死路**：以为多进程密钥不一致（改成密钥落库 `app_meta`，无效）→ 以为会话行没共享（实测注册后连续 5 次登录都 200，说明 DB 是共享的）→ 以为反代丢了 header（早期探针显示 `authorization: "Bearer eyJhbGciOiJIUzI1N..."`，看着"收到"了）。**真正的验证方法**：发一个**明显是假的** `Authorization: Bearer ABC.DEF.GHI`，甚至在**完全不发**这个头时，服务端打印出来的仍然是 `Bearer eyJhbGciOiJIUzI1N…` —— 因为所有 JWT 的 header 段 base64 都长一样，光看前 24 个字符会误判成"我们的令牌被透传了"。改成对比**完整值/长度**、或干脆发假值，才能一眼看出 header 被网关替换。**修法**：应用令牌同时带一份到自定义头（本项目 `X-Ginkgo-Token`），服务端 `requireAuth` 优先读它、没有再回落标准 `Bearer`（这样本地开发、MCP/脚本、API Token 都不受影响）。前端只需改 `client.ts` 的 `headers()` 一处，SSE 走的是同一个 `authHeaders()` 自动覆盖。**通用教训**：把应用发布到带登录态的托管域名上时，"标准头能不能透传"必须用假值实测，不能靠"看起来收到了"；凡是与网关鉴权可能冲突的头（`Authorization`、`Cookie`），都要准备一条私有通道。
 
 ---
 
