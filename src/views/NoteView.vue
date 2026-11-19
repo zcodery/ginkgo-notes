@@ -73,7 +73,7 @@ import {
   type NoteLayout,
   type NoteWidthRatio,
 } from '@/store'
-import { createPage, saveContent, savePage, trashPage, toPlainText, uid, VersionConflictError } from '@/db/repo'
+import { createPage, saveContent, savePage, trashPage, toPlainText, uid } from '@/db/repo'
 import { ASSET_PREFIX, hydrateAssets, inflateAssetsForExport } from '@/editor/assets'
 import { expandDatabases } from '@/blocks/exportDatabases'
 import { downloadBlob, exportNoteAsPdf, safeFileName } from '@/utils/exportPage'
@@ -430,6 +430,23 @@ function onTitleEnter(e: KeyboardEvent) {
   })
 }
 
+/** 租约冲突导致只读后，对方离开时用户主动重新拉取最新内容并恢复可编辑 */
+async function reloadFromRemote() {
+  const pid = props.pageId
+  remoteEditing.value = false
+  remoteEditorName.value = ''
+  hasEditLease.value = false
+  try {
+    await reloadPages()
+    title.value = page.value?.title ?? ''
+    editorHtml.value = await hydrateAssets(page.value?.content ?? '')
+    syncToc(page.value?.content)
+    store.saveState = 'saved'
+  } catch {
+    store.saveState = 'error'
+  }
+}
+
 async function onContentChange(markdown: string, pageId: string) {
   if (!canEdit.value) return
   if (!(await ensureEditLease())) {
@@ -447,11 +464,10 @@ async function onContentChange(markdown: string, pageId: string) {
       pageId === props.pageId ? title.value || undefined : undefined,
     )
   } catch (e) {
+    // 版本冲突已被 putPage 内部自动重试消化；走到这里说明极端并发下仍失败。
+    // 不再把编辑器锁成只读（那样 onContentChange 直接 return，形成「提示会重试却永不重试」的死锁）。
+    // 保留 error 状态，用户下一次输入会再次触发保存并重试。
     store.saveState = 'error'
-    if (e instanceof VersionConflictError) {
-      remoteEditing.value = true
-      remoteEditorName.value = remoteEditorName.value || '其他成员'
-    }
     return
   }
   const p = store.pages.find((x) => x.id === pageId)
@@ -1098,6 +1114,11 @@ onBeforeUnmount(() => {
     <div class="nv-body" :class="{ 'has-toc': store.tocVisible }">
       <div ref="scrollRef" class="nv-scroll gn-scroll">
         <div ref="exportRoot" class="nv-export-root">
+        <div v-if="remoteEditing" class="nv-remote-banner">
+          <Lock :size="14" :stroke-width="2.2" />
+          <span>{{ tr('「{n}」正在编辑此页，当前为只读；对方离开后点重新加载即可继续', { n: remoteEditorName }) }}</span>
+          <button class="nv-remote-reload" @click="reloadFromRemote">{{ tr('重新加载') }}</button>
+        </div>
         <div v-if="page?.cover" class="nv-cover" :style="{ background: coverBg ?? 'var(--gn-bg-hover)' }">
           <div v-if="canEdit" class="nv-cover-actions">
             <button class="nv-cover-btn nv-cover-change" @click="coverMenuOpen = !coverMenuOpen">
@@ -1271,6 +1292,39 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 3px;
   color: var(--gn-accent);
+}
+.nv-remote-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--gn-border);
+  border-radius: 10px;
+  background: var(--gn-accent-soft);
+  color: var(--gn-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.nv-remote-banner svg {
+  color: var(--gn-accent);
+  flex: 0 0 auto;
+}
+.nv-remote-reload {
+  margin-left: auto;
+  flex: 0 0 auto;
+  border: 1px solid var(--gn-accent);
+  background: transparent;
+  color: var(--gn-accent);
+  border-radius: 7px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.nv-remote-reload:hover {
+  background: var(--gn-accent);
+  color: var(--gn-bg);
 }
 .note-view.locked .nv-title {
   cursor: default;

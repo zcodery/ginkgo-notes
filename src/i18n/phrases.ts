@@ -12,6 +12,11 @@ const PHRASES: Record<string, { tw: string; en: string }> = {
   保存中: { tw: '儲存中', en: 'Saving' },
   已保存: { tw: '已儲存', en: 'Saved' },
   '保存失败，继续编辑会自动重试': { tw: '儲存失敗，繼續編輯會自動重試', en: 'Save failed — will retry as you edit' },
+  '「{n}」正在编辑此页，当前为只读；对方离开后点重新加载即可继续': {
+    tw: '「{n}」正在編輯此頁，目前為唯讀；對方離開後點重新載入即可繼續',
+    en: '{n} is editing this page (read-only). Reload to continue once they leave',
+  },
+  重新加载: { tw: '重新載入', en: 'Reload' },
   分享: { tw: '分享', en: 'Share' },
   '公开分享 / 邀请成员': { tw: '公開分享 / 邀請成員', en: 'Publish / invite members' },
   收藏: { tw: '收藏', en: 'Favorite' },

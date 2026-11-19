@@ -97,15 +97,26 @@ export async function getPage(id: string): Promise<Page | undefined> {
 }
 
 async function putPage(page: Page, baseVersion?: number): Promise<void> {
-  const body = baseVersion !== undefined ? { ...page, baseVersion } : page
-  try {
-    await api('PUT', `/pages/${encodeURIComponent(page.id)}`, body)
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 409) {
-      const data = err.data as { currentVersion?: number; current?: Page } | null
-      throw new VersionConflictError(data?.currentVersion ?? null, data?.current ?? null)
+  const body: Record<string, unknown> = { ...page }
+  if (baseVersion !== undefined) body.baseVersion = baseVersion
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await api('PUT', `/pages/${encodeURIComponent(page.id)}`, body)
+      return
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 409)) throw err
+      // 409 = 写入竞态：多标签页 / 多设备同时编辑时，服务端 version 已被推进。
+      // 拉取最新版本作为新 baseVersion 重试，保留本地正在编辑的内容，避免把
+      // 用户自己另一个标签页的保存误判成「他人修改」而卡死。最多重试 3 次。
+      const conflict = () => {
+        const data = err.data as { currentVersion?: number; current?: Page } | null
+        return new VersionConflictError(data?.currentVersion ?? null, data?.current ?? null)
+      }
+      if (attempt === 2 || baseVersion === undefined) throw conflict()
+      const latest = await getPage(page.id)
+      if (!latest) throw conflict()
+      body.baseVersion = latest.version
     }
-    throw err
   }
 }
 
