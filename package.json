@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "concurrently -k -n api,web -c cyan,green \"pnpm dev:server\" \"pnpm dev:web\"",
     "dev:web": "vite",
-    "dev:server": "node --disable-warning=ExperimentalWarning --watch server/index.ts",
-    "start": "node --disable-warning=ExperimentalWarning server/index.ts",
+    "dev:server": "node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning --watch server/index.ts",
+    "start": "node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning server/index.ts",
     "build": "vue-tsc --noEmit && vite build",
+    "build:web": "vite build",
+    "serve:prod": "vite build && node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning server/index.ts",
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit && tsc -p server --noEmit"
   },
