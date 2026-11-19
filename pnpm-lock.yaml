@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@tencent-ai/workbuddy-cloud-sdk':
+        specifier: 0.1.4-dev.71e5d1e.202611161655
+        version: 0.1.4-dev.71e5d1e.202611161655
       '@tiptap/core':
         specifier: ^3.33.0
         version: 3.33.0(@tiptap/pm@3.33.0)
@@ -394,6 +397,10 @@ packages:
     resolution: {integrity: sha512-BCNiY0a1ZjdOHVqw7kyb7U72BwfMF3dfUuN+tQsLWky/J5JOI/r7abibglXfygrZhVO/3u3V+E25kkKTeMkXaQ==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@tencent-ai/workbuddy-cloud-sdk@0.1.4-dev.71e5d1e.202611161655':
+    resolution: {integrity: sha512-HYIlwOKVxkZlqUDnBAqWVpCkUZJCYXxnb2bfUn9I2JfH90SHHKcosRZJKskj05zNPz4+f1t1zdeCEIWEiPAJYw==}
+    engines: {node: '>=18'}
 
   '@tiptap/core@3.33.0':
     resolution: {integrity: sha512-sZjBCwK9+h0kbc/CZvkepX6RTJ2jOfeWY1aId9O3YnG0CAiOs/4DbqFmpcmv5BQAGPA6gC96gqdafa/9Dpg0tw==}
@@ -2012,6 +2019,8 @@ snapshots:
       '@tailwindcss/oxide': 4.3.5
       tailwindcss: 4.3.5
       vite: 8.3.7(@types/node@26.6.6)(jiti@2.7.0)
+
+  '@tencent-ai/workbuddy-cloud-sdk@0.1.4-dev.71e5d1e.202611161655': {}
 
   '@tiptap/core@3.33.0(@tiptap/pm@3.33.0)':
     dependencies:

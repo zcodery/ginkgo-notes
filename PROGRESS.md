@@ -630,6 +630,7 @@ ginkgoNotes/
 | 136 | `1b13fb5` | fix(auth) | JWT 密钥改为「env → `app_meta` 表 → 文件」取值（跨进程/重启一致）；`PRAGMA busy_timeout` 避免多进程同时建表崩在启动；`ensureAdmin` 吞掉 username 唯一冲突 |
 | 137 | `dc002d7` | fix(auth) | 应用令牌除 `Authorization` 外再走 `X-Ginkgo-Token`，服务端优先读自定义头——分享域名反代会用网关自己的 JWT 覆盖 `Authorization`，这是线上「登录成功、下个请求 401」的真因 |
 | 138 | `6801bdb` | feat(site) | 新增 GitHub Pages 可用的产品官网 `docs/index.html` + 4 张真实截图；本地桌面/移动渲染验证通过 |
+| 139 | 待提交 | feat(cloud) | 接入 WorkBuddy 云服务免密钥 LLM：新增 `src/cloud.ts`（publicConfig 初始化 + 模型选择），`streamChat` 优先云 SDK、失败回退自建后端；设置页展示云状态。云是应用级能力，不替换现有自建登录/数据库/文件后端 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
@@ -754,6 +755,15 @@ ginkgoNotes/
 | 1 | `6258cf0` | feat(editor) | `slashItems.ts` 三条分栏 `group` → `'布局'`，斜杠菜单多出独立一节；新增 `e2e-slash-groups.mjs` 6/6 |
 
 > 验证：`vue-tsc --noEmit` 通过；E2E `e2e-slash-groups.mjs` 6/6（布局组独立、正好 3 条、基础块无残留、组序 基础块→布局→媒体→高级块→AI、搜 `fenlan` 仍命中三条）。纯前端菜单数据改动，无接口/DB 变更，不影响已发布环境的行为，但线上需重新构建发布才可见。
+
+### ☁️ 云服务接入（2026-11-19）
+
+- **应用**：银杏笔记，`applicationId = wbapp_uJT61yaFOVaT1Hy69NvxF7`（与 sites 发布共用同一 id，保证域名/Origin 不变）。`workbuddy_cloud_service` 激活成功：`billingStatus=normal`、`provisionStatus=assigned`。
+- **接入模块**：仅 **LLM（免密钥大模型）**。现有自建后端（登录 / SQLite / 文件 / 邮件）工作正常，不做破坏性迁移；云是「应用级」能力，一个环境四模块共享，不要按模块重复激活。
+- **公开配置**（可随前端发布）：`endpoint` / `oauthRelayBaseUrl` / `publishableKey` 集中写在 `src/cloud.ts`，来自激活返回的 `publicConfig`；敏感的 `resourceId` 之外的环境 id 与供应商密钥不下发。服务端按**发布域名精确匹配 Origin**，所以重新发布必须复用同一 `applicationId`，换域名会导致云鉴权失败。
+- **调用链**：`streamChat()`（`src/api/features.ts`）优先 `import('@/cloud')` → `pickCloudModel()`（拉模型列表、优先 `auto`、缓存，空列表抛错不硬编码）→ `cloud.llm.chat.completions.create({stream:true, signal})` 收集 `choices[0].delta.content`；任何异常（未授权/配额/网络）回退到原自建后端 `/api/ai/chat`，用户主动 abort 不回退。所有路径 `messages[0]` 都是 system（调用方缺则兜底补）。
+- **UI**：设置页 `AiSection` 用 `cloudAvailable()` 探测，云可用时显示「正在使用云服务提供的模型（免密钥）」，自定义模型区降级为「可选/回退」。
+- **验证**：`.dev/verify-cloud.mjs` Node 侧 `models.list()` 返回 14 个模型、真实流式调用返回正常；`.dev/pwrun/e2e-cloud-ai.mjs`（真实 Chrome）7/7 通过。`vue-tsc --noEmit` + `vite build` 通过。SDK 用 pnpm 解析出的具体 dev 版本并锁进 lockfile，`pnpm install --frozen-lockfile` 通过。
 
 ### 🏷 版本发布记录
 

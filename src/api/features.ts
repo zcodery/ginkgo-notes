@@ -230,8 +230,50 @@ export interface ChatMessage {
   content: string
 }
 
-/** 流式调用：每收到一段文本回调一次，返回完整结果；可用 signal 中止 */
+/**
+ * 流式调用：每收到一段文本回调一次，返回完整结果；可用 signal 中止。
+ *
+ * 优先走 WorkBuddy 云服务的免密钥 LLM（用户无需自填 API Key）；
+ * 云不可用（未授权 / 配额 / 网络）时自动回退到自建后端的用户配置。
+ * 两段路径都保证 messages[0] 是 system，且都透传 signal。
+ */
 export async function streamChat(
+  messages: ChatMessage[],
+  onDelta: (text: string, full: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  // 云 SDK 要求首条消息是应用自带的 system；调用方绝大多数已带，这里兜底。
+  const withSystem: ChatMessage[] =
+    messages[0]?.role === 'system'
+      ? messages
+      : [{ role: 'system', content: '你是「银杏笔记」里的写作助手。只输出结果正文，保持与原文相同的语言。' }, ...messages]
+  try {
+    const { pickCloudModel, cloud } = await import('@/cloud')
+    const model = await pickCloudModel()
+    let full = ''
+    for await (const chunk of cloud.llm.chat.completions.create({
+      model,
+      messages: withSystem,
+      stream: true,
+      signal,
+    })) {
+      const delta = chunk.choices?.[0]?.delta?.content
+      if (delta) {
+        full += delta
+        onDelta(delta, full)
+      }
+    }
+    return full
+  } catch (err) {
+    // 用户主动中止不回退，直接把 AbortError 交给调用方
+    if (signal?.aborted) throw err
+    // 云路径失败，回退到自建后端（用户自填 API Key 的旧链路）
+    return streamChatSelfHosted(messages, onDelta, signal)
+  }
+}
+
+/** 自建后端转发（回退链路）：前端 -> /api/ai/chat -> OpenAI 兼容上游 */
+async function streamChatSelfHosted(
   messages: ChatMessage[],
   onDelta: (text: string, full: string) => void,
   signal?: AbortSignal,
