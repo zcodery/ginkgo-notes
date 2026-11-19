@@ -333,6 +333,7 @@ ginkgoNotes/
 | 147 | 待接受邀请显示中文角色并优化行样式 | ✅ | 用户两处反馈：① 团队页「待接受邀请」列表里角色显示成后端原始值 `editor` / `viewer`；② 这些行样式太素。**①角色 label**：模板直接输出了 `{{ p.role }}`，而本文件早有 `roleLabel()`（`owner/admin/editor/viewer/guest` → 所有者/管理员/可编辑/可查看/访客）只用在正式成员行——改为 `roleLabel(p.role)`。全仓已无裸角色输出（顶部邀请收件箱本来就用 roleLabel）。**②行样式**：原来只有一行裸文字，没有头像、左侧比正式成员行少 17px 缩进、也没有「还没加入」的状态感。改为与成员行同一套结构（头像 + 姓名 + `@用户名` + 角色），并加三处区分：整行浅底 `--gn-bg-hover`、头像改纸白底 + 虚线描边 + 字色压暗、名字后加「待接受」白底绿字小胶囊（hover 说明「等对方接受后才算加入团队」）。左侧对齐用 `span.tm-grip-ghost` 补成员行拖拽手柄的 10px 占位（待接受行不可拖拽，不能也不该真渲染手柄）。新增隔离 mock E2E `e2e-pending-invites.mjs` 11/11：三条邀请角色分别渲染为「可编辑/可查看/管理员」且不出现英文原值、每行均有头像与「待接受」标签、姓名与 `@用户名` 正常、头像左边缘与成员行对齐（≤6px 组内缩进）、无 JS 异常（陷阱 119） |
 | 148 | 暗色主题整页发黑看不清（`:global` 用错位置） | ✅ | 用户截图：切到暗色后团队页几乎全黑、文字和背景糊在一起。排查关键：`getComputedStyle(html).opacity` 返回 **0.3**、`filter: saturate(.7) brightness(.72)`，即整个 `<html>` 被压成 30% 不透明——所有后代不论自身颜色多亮都会跟着变暗，所以看起来像「文字是深色」其实是被整页透明化。用 CDP `CSS.getMatchedStylesForNode` 定位到唯一来源：`html.dark{opacity:.3;filter:...}`，来自 `QuickStart.vue` 里 `:global(html.dark) .qs-bg { opacity:.3; filter:... }`——**scoped 编译只把 `:global(...)` 里的选择器提成全局，后面的 `.qs-bg` 被丢掉**，于是「只压暗首屏背景图」的规则变成了「压暗整个页面」。修复：把整条选择器包进 `:global()` → `:global(html.dark .qs-bg)`，产物变为 `html.dark .qs-bg{opacity:.3;filter:...}`，背景图仍按预期压暗、页面恢复正常。新增隔离 mock E2E `e2e-dark-theme.mjs` 7/7：亮/暗两种主题下 `html` 的 opacity 均为 1、暗色下 html 无滤镜、`.qs-bg` 仍为 0.3 且带 saturate、正文亮度差 >150、无 JS 异常（陷阱 120） |
 | 149 | 分栏在斜杠菜单里独立成「布局」分组 | ✅ | 用户截图反馈：斜杠菜单里 分栏（2 栏）/（3 栏）/（4 栏）三条挤在「基础块」末尾、紧贴分割线，应该单独一个模块。改动只在 `slashItems.ts`：三条的 `group` 由 `'基础块'` 改为 `'布局'`。**不需要注册新分组**——`SlashMenu.vue` 的 `groups` 是对 `props.items` 按顺序用 `Map` 聚合（组的位置 = 该组第一条在数组中的位置，组内按数组顺序），所以只改字符串就多出一节，且 `.slash-group + .slash-group` 的顶部分隔线自动生效。三条本来相邻，展示顺序与 `activeIndex` 键盘导航（走过滤后的扁平数组序）一致，不会出现"高亮跳着走"。最终组序：基础块 → 布局 → 媒体 → 高级块 → AI。新增 E2E `e2e-slash-groups.mjs` 6/6（直接 import Vite 转换后的模块复算分组，断言 布局组独立且正好 3 条、基础块无残留、组序、搜 `fenlan` 三条均落在布局组）（陷阱 121） |
+| 150 | 产品官网（静态站 / docs/） | ✅ | 用户要求「构建一个官网」，选产品介绍官网 + 现代简约风。新增 `docs/index.html`（单文件静态站，CSS/JS 内联，无构建步骤，可直接作 GitHub Pages / 任意静态托管）；含导航 / Hero(渐变) / 截图窗口 / 六张功能卡 / 四张真实截图展示区 / 三步快速开始 / 底部 CTA / 页脚，响应式（820px 断点切单列）。截图取线上真实实例：登录 admin 后抓首页 / 编辑器(Markdown 语法速查，含表格与行内代码) / 团队(组织架构 18 节点) / 好友页，存 `docs/assets/`。验证：`python -m http.server 3421` + Playwright 桌面 1440/移动 390 全页截图，四图 naturalWidth 均为 1280、无 JS 异常、移动 scrollWidth==clientWidth(390) 无横向溢出。注：官网静态站无法承载需要后端的完整应用（Pages 只托管静态文件），线上完整应用仍走 WorkBuddy sites |
 
 ### P1 — 部分完成 / 待完善
 
@@ -628,10 +629,11 @@ ginkgoNotes/
 | 135 | `0bf00b4` | fix(server) | `start` / `dev:server` 显式加 `--experimental-strip-types --experimental-sqlite`（低版本 Node 沙箱必需），新增 `serve:prod`；发布至私有托管域名（地址已脱敏），版本 0.4.0 |
 | 136 | `1b13fb5` | fix(auth) | JWT 密钥改为「env → `app_meta` 表 → 文件」取值（跨进程/重启一致）；`PRAGMA busy_timeout` 避免多进程同时建表崩在启动；`ensureAdmin` 吞掉 username 唯一冲突 |
 | 137 | `dc002d7` | fix(auth) | 应用令牌除 `Authorization` 外再走 `X-Ginkgo-Token`，服务端优先读自定义头——分享域名反代会用网关自己的 JWT 覆盖 `Authorization`，这是线上「登录成功、下个请求 401」的真因 |
+| 138 | `6801bdb` | feat(site) | 新增 GitHub Pages 可用的产品官网 `docs/index.html` + 4 张真实截图；本地桌面/移动渲染验证通过 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `dc002d7` — fix(auth): 应用令牌同时走自定义头，绕过分享域名反代覆盖 `Authorization`
+**HEAD**: `6801bdb` — feat(site): 新增产品官网静态站 docs/index.html
 > 最新**功能**提交：`dc002d7` — 同上（已推送 origin/main，拆成 `v0.4.1` / `v0.4.2` 两个标签，线上跑 0.4.2）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
