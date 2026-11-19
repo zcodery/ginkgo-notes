@@ -764,6 +764,7 @@ ginkgoNotes/
 - **调用链**：`streamChat()`（`src/api/features.ts`）优先 `import('@/cloud')` → `pickCloudModel()`（拉模型列表、优先 `auto`、缓存，空列表抛错不硬编码）→ `cloud.llm.chat.completions.create({stream:true, signal})` 收集 `choices[0].delta.content`；任何异常（未授权/配额/网络）回退到原自建后端 `/api/ai/chat`，用户主动 abort 不回退。所有路径 `messages[0]` 都是 system（调用方缺则兜底补）。
 - **UI**：设置页 `AiSection` 用 `cloudAvailable()` 探测，云可用时显示「正在使用云服务提供的模型（免密钥）」，自定义模型区降级为「可选/回退」。
 - **验证**：`.dev/verify-cloud.mjs` Node 侧 `models.list()` 返回 14 个模型、真实流式调用返回正常；`.dev/pwrun/e2e-cloud-ai.mjs`（真实 Chrome）7/7 通过。`vue-tsc --noEmit` + `vite build` 通过。SDK 用 pnpm 解析出的具体 dev 版本并锁进 lockfile，`pnpm install --frozen-lockfile` 通过。
+- **上线（v0.4.4）**：复用 `applicationId` + `domainPrefix=ginkgo-notes` 发布，域名/分享码不变；线上 `/api/version` 返回 `0.4.4`、首页 200；重新发布后再跑 `.dev/verify-cloud.mjs` 云端鉴权仍正常（14 模型 + chat 通过），证明域名绑定未失效。
 
 ### 🏷 版本发布记录
 
