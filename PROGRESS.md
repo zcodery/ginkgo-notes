@@ -625,11 +625,12 @@ ginkgoNotes/
 | 132 | `708dca2` | fix(team) | 待接受邀请的角色改用 `roleLabel` 显示中文，并按成员行结构补头像 / `@用户名` / 「待接受」胶囊、浅底与虚线头像区分「还没加入」；隔离 mock E2E 11/11 |
 | 133 | `a4f6877` | fix(theme) | 修正 `:global` 用法：`QuickStart` 的暗色背景图规则不再编译成 `html.dark{opacity:.3}`，暗色主题整页压暗问题修复；隔离 mock E2E 7/7 |
 | 134 | `6258cf0` | feat(editor) | 斜杠菜单里 分栏（2/3/4 栏）从「基础块」独立为「布局」分组；新增 `e2e-slash-groups.mjs` 6/6 |
+| 135 | `0bf00b4` | fix(server) | `start` / `dev:server` 显式加 `--experimental-strip-types --experimental-sqlite`（发布沙箱 Node 22.13.1 必需），新增 `serve:prod`；线上发布至 `ginkgo-notes.app.workbuddy.host`，版本 0.4.0 |
 
 > 表格按时间正序只记录**功能提交**；纯文档维护提交（docs-only）与脚本类 chore 不列入本表，因此 HEAD 行指向最新的功能提交。若 `git log -1` 为 docs 提交，请以该提交为准。
 
-**HEAD**: `21bc5e0` — fix(home): 快捷模板生成的笔记正文留空，完全交给用户编辑
-> 最新**功能**提交：`21bc5e0` — fix(home): 快捷模板生成的笔记正文留空，完全交给用户编辑（已推送 origin/main）
+**HEAD**: `0bf00b4` — fix(server): 启动脚本显式带上 `--experimental-strip-types` / `--experimental-sqlite`
+> 最新**功能**提交：`0bf00b4` — 同上（发布兼容修复，已推送 origin/main 并打了 `v0.4.0` 标签）
 
 ### ✅ 本轮提交构成（2026-11-17，10 个分层提交）
 
@@ -785,6 +786,7 @@ run.bat               # 同上 + 自动开浏览器
 # 生产
 pnpm build            # vue-tsc --noEmit + vite build
 pnpm start            # node server/index.ts  (Express 同时托管 dist)
+pnpm serve:prod       # 上面两步合一：vite build 后直接起服务（发布环境用这个）
 
 # 类型检查
 pnpm typecheck        # vue-tsc + tsc -p server
@@ -809,6 +811,24 @@ node scripts/backfill-public-templates.mjs --apply
 - `ADMIN_USERNAME` / `ADMIN_PASSWORD` 默认 admin / admin123
 - `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL` 服务端 AI 默认值
 - `SMTP_URL` / `SMTP_FROM` 邮件通知
+
+### 线上发布（sites）
+
+线上地址：`https://ginkgo-notes.app.workbuddy.host`（分享链接带 `?sharecode=` 参数；应用可在
+**设置—数据管理—应用**里下线/重发）。发布走 `workbuddy_sites_deploy`，本项目的正确参数：
+
+- `installCmd`：`pnpm install --frozen-lockfile && npx vite build`
+  —— **构建必须放在安装阶段**：上传时会排除 `dist`，而启动阶段的健康检查只给 60s，
+  把 `vite build` 塞进 `startCmd` 会因构建耗时被判"服务未响应"。
+- `startCmd`：`PORT=${PORT:-3000} node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning server/index.ts`
+  —— 沙箱 Node 是 **22.13.1**，原生 `.ts` 与 `node:sqlite` 都要显式给实验标志才能用
+  （本地 Node 22.18+ 已默认开启，所以本地 `pnpm start` 从来不需要它，接线时才暴露）。
+  这两个标志在新版 Node 上仍被接受，因此 `package.json` 的 `start` / `dev:server` 直接写死它们，
+  避免"本地能跑、线上一启动就 `ERR_UNKNOWN_FILE_EXTENSION`"。
+- `language: node`、`appName: 银杏笔记`、`domainPrefix: ginkgo-notes`、`userAskedToPublish: true`。
+
+注意：上传的是目录快照（只排除 `node_modules` / `.git` / `dist`），因此 `server/data/` 里的
+SQLite 库会跟着上去——线上是**本地数据的快照副本**，线上改动不会回流到本地库。
 
 ---
 
@@ -1052,6 +1072,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 120. **scoped 样式里的 `:global(...)` 必须包住「整条选择器」，写成 `:global(a) b` 会丢掉后半段，把局部规则变成全局规则**。用户切到暗色主题后整站近乎全黑、文字和背景糊成一片。第一直觉会去查暗色变量（`html.dark` 的 `--gn-text` / `--gn-bg` 都正常）、查有没有遮罩层（`elementFromPoint` 命中的全是正常元素）、查祖先 opacity（遍历祖先也没找到）——真正的元凶是 `getComputedStyle(document.documentElement).opacity === '0.3'` 且带 `filter: saturate(.7) brightness(.72)`：**整个 `<html>` 被压成 30% 透明**，后代自身颜色再亮也会一起变暗，所以看着像「文字是深色的」。定位手段：`CSS.getMatchedStylesForNode`（CDP）比遍历 `document.styleSheets` 靠谱——它能直接给出命中该节点的规则与来源样式表，本项目的规则在 scoped 注入的独立 sheet 里，手工遍历容易漏。根因：`QuickStart.vue` 里想只压暗首屏背景图，写了 `:global(html.dark) .qs-bg { opacity:.3; filter:... }`，scoped 编译器只把括号里的 `html.dark` 提成全局、后面的 `.qs-bg` 被扔掉，产物成了 `html.dark{opacity:.3;filter:...}`。**修法**：`:global(html.dark .qs-bg)`——整条选择器写进括号里。**验证要落到构建产物**：`vite build` 后 `grep -o "html\.dark{[^}]*}" dist/assets/*.css`，确认没有意外的裸 `html.dark` 规则，再在浏览器里断言 `getComputedStyle(html).opacity === '1'`（这条断言能直接抓住同类回归）。**通用教训**：改「局部」样式的规则一旦跑到 `html` / `body` 上，伤害是全局的；凡是想写给根元素或跨 scoped 的规则，构建后必须检查产物里的选择器长什么样。
 
 121. **斜杠菜单的分组不是一个注册表，而是「按 items 顺序用 Map 聚合」，组的显示位置与键盘导航顺序可能不同步**。`SlashMenu.vue` 里 `groups` 遍历 `props.items` 把 `item.group` 塞进 `Map`——组标题的位置 = 该组**第一条**在数组里的位置，组内按数组顺序。所以新增一节只要把 `group` 字符串改掉即可，无需任何注册/排序配置（改 `slashItems.ts` 是一行的事）。代价是两个顺序可能分叉：键盘上下移动走的是 `filterSlashItems()` 返回的**扁平数组序**，渲染却是**分组后的视觉序**；一旦同一组的条目在数组里不连续（中间夹了别的组），视觉上会被提前/挪后，而高亮跟着数组走，就会出现"按下键高亮往回跳"。**规避办法**：同组的条目在 `slashItems` 数组里保持连续，且组的首次出现顺序与数组顺序一致。**验证技巧**：这类纯数据分组不必起浏览器点菜单，直接在页面里 `await import('/src/editor/slashItems.ts')`（Vite 会转好 TS）拿真数组、按组件的同一套 Map 逻辑复算一遍，断言组名/组内条目/组序即可——`e2e-slash-groups.mjs` 就是这么做的（6/6）。
+
+122. **「本地能跑」不等于「线上能跑」：Node 版本决定 `.ts` 直跑和 `node:sqlite` 要不要显式实验标志**。本项目服务端用 `node server/index.ts` 直跑（不编译），数据库用内置 `node:sqlite`。本机 Node 是 **22.22.2**——类型剥离（22.18+）和 `node:sqlite`（22.13+ 解除标志）都已默认开启，所以 `pnpm start` 一路顺畅；但发布沙箱是 **22.13.1**，同一个命令直接 `ERR_UNKNOWN_FILE_EXTENSION: Unknown file extension ".ts"`，加上标志后还会卡在 `--experimental-sqlite`。**修法**：`node --experimental-strip-types --experimental-sqlite --disable-warning=ExperimentalWarning server/index.ts`（两个标志在新版 Node 上仍被接受，写进 `package.json` 的 `start` / `dev:server` 即可两端通用）。发布时还有两个坑：① 上传会排除 `dist`，但启动健康检查只给 **60s**，把 `vite build` 放进 `startCmd` 会因构建耗时被判成"服务未响应"——构建要放到 `installCmd`（`pnpm install --frozen-lockfile && npx vite build`）；② 别指望 `PORT` 一定被注入，`startCmd` 里写成 `PORT=${PORT:-3000}` 兜底，否则服务会退回默认 3101，健康检查永远打不到 3000。**判据**：发布失败时先看 `detail` 里 `port 3000 NOT listening` 同时进程列表里**有**你那条 node 命令 —— 这说明服务起来了但端口不对（或缺标志直接崩），而不是构建没跑完。
 
 ---
 
