@@ -44,3 +44,6 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 发布应用标记（sites 发布生成的内部 marker，不进版本库）
+.wbapp_*.genie
