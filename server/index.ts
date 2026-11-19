@@ -9,6 +9,9 @@ import { copyTemplatesToUser, seedPublicTemplates } from './templates.ts'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT ?? 3101)
+// 监听地址可通过 HOST 指定：本地开发预览设 127.0.0.1 只暴露回环；
+// 发布环境不设该变量、保持 0.0.0.0，否则反代无法从容器外访问。
+const HOST = process.env.HOST ?? '0.0.0.0'
 
 function ensureAdmin(): void {
   const hasAdmin = db.prepare("SELECT 1 FROM users WHERE role = 'admin' LIMIT 1").get()
@@ -51,6 +54,6 @@ if (existsSync(resolve(dist, 'index.html'))) {
   app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')))
 }
 
-app.listen(PORT, () => {
-  console.log(`[ginkgo] 后端已启动：http://localhost:${PORT}`)
+app.listen(PORT, HOST, () => {
+  console.log(`[ginkgo] 后端已启动：http://localhost:${PORT}（监听 ${HOST}）`)
 })
