@@ -58,12 +58,44 @@ export interface AuthLocals {
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
 
 function loadSecret(): string {
-  if (process.env.JWT_SECRET) return process.env.JWT_SECRET
+  const env = process.env.JWT_SECRET?.trim()
+  if (env) return env
+
   const file = resolve(DATA_DIR, '.jwt-secret')
-  if (existsSync(file)) return readFileSync(file, 'utf8').trim()
-  const secret = randomBytes(48).toString('hex')
-  writeFileSync(file, secret, { mode: 0o600 })
-  return secret
+
+  // 容器化部署时 data 目录里的点文件常常不会被带上去（本地开发有、线上没有），
+  // 一旦进程不止一个，每个进程都会自己 randomBytes 一份 —— 结果是「登录成功，
+  // 下一个请求就 401」，因为 token 是 A 签的、验的是 B。所以密钥优先落进
+  // SQLite：库文件随项目一起持久，INSERT OR IGNORE + 回读保证多进程并发启动
+  // 时也只会定下一个值。
+  const stored = db.prepare("SELECT value FROM app_meta WHERE key = 'jwt_secret'").get() as
+    | { value: string }
+    | undefined
+  if (stored?.value) {
+    // 文件与库里不一致时以库为准（库是跨进程共享的那份），顺手把文件纠正过来
+    try {
+      writeFileSync(file, stored.value, { mode: 0o600 })
+    } catch {
+      /* 只读盘忽略 */
+    }
+    return stored.value
+  }
+
+  const fromFile = existsSync(file) ? readFileSync(file, 'utf8').trim() : ''
+  const secret = fromFile || randomBytes(48).toString('hex')
+  db.prepare("INSERT OR IGNORE INTO app_meta (key, value) VALUES ('jwt_secret', ?)").run(secret)
+  const settled = db.prepare("SELECT value FROM app_meta WHERE key = 'jwt_secret'").get() as
+    | { value: string }
+    | undefined
+  const final = settled?.value ?? secret
+  if (!fromFile) {
+    try {
+      writeFileSync(file, final, { mode: 0o600 })
+    } catch {
+      /* 只读盘忽略：库里有就够了 */
+    }
+  }
+  return final
 }
 
 const SECRET = loadSecret()

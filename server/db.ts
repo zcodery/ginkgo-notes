@@ -13,6 +13,9 @@ export const PUBLIC_OWNER = 'public'
 export const db = new DatabaseSync(resolve(DATA_DIR, 'ginkgo.db'))
 
 db.exec(`
+  -- 多进程/多副本同时启动时，先到者建表会把库锁住，后来者默认立刻抛
+  -- "database is locked" 直接崩在启动阶段；给足等待时间让它排队。
+  PRAGMA busy_timeout = 8000;
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
 
@@ -61,6 +64,13 @@ db.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- 全局元数据（如 JWT 密钥）：不放 settings 是因为它按用户隔离，
+  -- 这里存的是进程级、跨重启/多进程必须一致的东西
+  CREATE TABLE IF NOT EXISTS app_meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );

@@ -20,11 +20,22 @@ function ensureAdmin(): void {
     console.log(`[ginkgo] 已把已有用户 ${username} 设为管理员`)
     return
   }
-  const admin = createUser(username, password, 'admin')
-  copyTemplatesToUser(admin.id)
-  console.log(`[ginkgo] 已创建管理员账号 ${username}，初始密码 ${password}，请登录后尽快修改`)
+  // 多进程/容器化部署时可能两个进程同时判定"还没有管理员"并各自建号，
+  // 后到的那个会撞 username 唯一约束直接崩在启动阶段 —— 这里吞掉即可，
+  // 另一个进程已经建好了，没必要因为抢输一次就起不来。
+  const admin = (() => {
+    try {
+      return createUser(username, password, 'admin')
+    } catch (err) {
+      if (String(err).includes('UNIQUE')) return null
+      throw err
+    }
+  })()
+  if (admin) {
+    copyTemplatesToUser(admin.id)
+    console.log(`[ginkgo] 已创建管理员账号 ${username}，初始密码 ${password}，请登录后尽快修改`)
+  }
 }
-
 seedPublicTemplates()
 ensureAdmin()
 
