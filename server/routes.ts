@@ -254,6 +254,16 @@ api.get('/pages/:id', (req, res) => {
 })
 
 api.put('/pages/:id', (req, res) => {
+  // 整页覆盖语义：缺 content/title 说明调用方只发了补丁（比如只改 cover），
+  // 直接落库会把正文清空。这里挡掉，要求先 GET 合并成完整对象再 PUT。
+  const raw = req.body as Record<string, unknown> | undefined
+  if (!raw || typeof raw.content !== 'string' || typeof raw.title !== 'string') {
+    res.status(400).json({
+      error: '整页更新需要完整的页面对象（title/content 不能缺）',
+      code: 'partial_page_body',
+    })
+    return
+  }
   const auth = authOf(res)
   const { owner } = auth
   const page = asDoc(req.body, param(req, 'id'))
