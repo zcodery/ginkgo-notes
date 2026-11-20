@@ -144,9 +144,13 @@ body.gn-standalone #app {
   background: color-mix(in srgb, var(--gn-accent) 22%, transparent);
 }
 
-button {
-  font-family: inherit;
-  color: inherit;
+/* 放进 base 层：否则无 layer 的 button 规则优先级高于 Tailwind utilities，
+   会把组件上的 text-white / text-gn-* 等文字类吃掉（主色按钮变深字）。 */
+@layer base {
+  button {
+    font-family: inherit;
+    color: inherit;
+  }
 }
 
 /* 查找 / 替换高亮 */
@@ -285,8 +289,8 @@ html.dark .note-editor .ProseMirror .gn-search-current {
   /* 浮动手柄列：相对 .note-editor 左缘，不挤正文 */
   --gn-handle-left: calc(-1 * var(--gn-gutter-compact));
   /* 折叠动画常量与 chevron 已提到 :root（分享页也要用） */
-  /* 首行行盒内锚点比例（0=顶 1=底）：⠿ 略上、Hn 略下，减轻图标/大写字形错位 */
-  --gn-handle-body-y-ratio: 0.46;
+  /* 首行行盒内锚点比例（0=顶 1=底）：正文 ⠿ 与首行文字居中对齐，Hn 略下减轻大写字形错位 */
+  --gn-handle-body-y-ratio: 0.5;
   --gn-handle-heading-y-ratio: 0.55;
   --gn-handle-list-y-ratio: 0.5;
   /* 列表每嵌套一级，符号+正文整块右移一格；装订区仍对齐顶层纵列 */

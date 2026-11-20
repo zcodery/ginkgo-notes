@@ -287,7 +287,7 @@ function handleYRatio(pm: HTMLElement | null, kind: "body" | "heading" | "list")
   const style = getComputedStyle(pm ?? document.documentElement)
   const key =
     kind === "heading" ? "--gn-handle-heading-y-ratio" : kind === "list" ? "--gn-handle-list-y-ratio" : "--gn-handle-body-y-ratio"
-  const fallback = kind === "heading" ? 0.55 : kind === "list" ? 0.5 : 0.46
+  const fallback = kind === "heading" ? 0.55 : kind === "list" ? 0.5 : 0.5
   const n = parseFloat(style.getPropertyValue(key).trim())
   return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : fallback
 }
