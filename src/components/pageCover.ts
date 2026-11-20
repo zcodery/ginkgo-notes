@@ -111,127 +111,74 @@ export type UnsplashCover = {
   id: string
   label: string
   tags: string[]
-  /** 缩略图 */
+  /** 缩略图（本地文件，见 public/covers/unsplash） */
   thumb: string
-  /** 封面用大图 */
+  /** 封面用大图（本地文件） */
   full: string
+  /** 原始 Unsplash 图号，仅用于把历史数据里的外链迁到本地 */
+  photo: string
 }
 
-/** 精选 Unsplash 封面（直链，无需 API Key） */
+/**
+ * 精选 Unsplash 封面。
+ *
+ * 图片已本地化到 `public/covers/unsplash/`：Unsplash 直连在国内经常 4–12 秒甚至超时，
+ * 造成「封面网格偶尔空白」「换封面要等很久」。改为随应用一起分发后即开即用，
+ * 也不再有外链失效（原「薰衣草田」那张已经 404）。
+ */
+const COVER_DIR = '/covers/unsplash'
+
+function cover(
+  id: string,
+  label: string,
+  tags: string[],
+  photo: string,
+): UnsplashCover {
+  return { id, label, tags, photo, thumb: `${COVER_DIR}/${id}-t.webp`, full: `${COVER_DIR}/${id}.webp` }
+}
+
 export const UNSPLASH_COVERS: UnsplashCover[] = [
-  {
-    id: 'u1',
-    label: '雪山',
-    tags: ['mountain', 'snow', 'nature', '山', '雪'],
-    thumb: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u2',
-    label: '海岸',
-    tags: ['ocean', 'beach', 'blue', '海', '海岸'],
-    thumb: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u3',
-    label: '森林晨雾',
-    tags: ['forest', 'fog', 'green', '林', '雾'],
-    thumb: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u4',
-    label: '沙漠',
-    tags: ['desert', 'sand', 'warm', '沙', '沙漠'],
-    thumb: 'https://images.unsplash.com/photo-1509316785289-025f5b846b35?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1509316785289-025f5b846b35?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u5',
-    label: '城市夜景',
-    tags: ['city', 'night', 'lights', '城', '夜'],
-    thumb: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1514565131-fce0801e5785?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u6',
-    label: '樱花',
-    tags: ['cherry', 'blossom', 'pink', '樱', '花'],
-    thumb: 'https://images.unsplash.com/photo-1522383225653-ed111181a951?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1522383225653-ed111181a951?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u7',
-    label: '极光',
-    tags: ['aurora', 'north', 'sky', '极光', '天空'],
-    thumb: 'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1531366936337-7c912a4589a7?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u8',
-    label: '咖啡桌',
-    tags: ['coffee', 'desk', 'warm', '咖啡', '桌'],
-    thumb: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u9',
-    label: '抽象几何',
-    tags: ['abstract', 'geometry', 'color', '抽象', '几何'],
-    thumb: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1557683316-973673baf926?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u10',
-    label: '湖面倒影',
-    tags: ['lake', 'reflection', 'calm', '湖', '倒影'],
-    thumb: 'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1439066615861-d1af74d74000?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u11',
-    label: '薰衣草田',
-    tags: ['lavender', 'field', 'purple', '薰衣草', '田'],
-    thumb: 'https://images.unsplash.com/photo-1499002238440-d647abb67575?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1499002238440-d647abb67575?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u12',
-    label: '书房',
-    tags: ['books', 'library', 'study', '书', '书房'],
-    thumb: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1481627834876-b7833e8f5570?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u13',
-    label: '星空',
-    tags: ['stars', 'milky', 'night', '星', '夜空'],
-    thumb: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1419242902214-272b3f66ee7a?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u14',
-    label: '秋叶',
-    tags: ['autumn', 'leaves', 'fall', '秋', '叶'],
-    thumb: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u15',
-    label: '工作室建筑',
-    tags: ['architecture', 'minimal', 'white', '建筑', '极简'],
-    thumb: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1487958449943-2429e8be8625?w=1600&q=80&auto=format',
-  },
-  {
-    id: 'u16',
-    label: '雨窗',
-    tags: ['rain', 'window', 'mood', '雨', '窗'],
-    thumb: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=320&q=60&auto=format',
-    full: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=1600&q=80&auto=format',
-  },
+  cover('u1', '雪山', ['mountain', 'snow', 'nature', '山', '雪'], 'photo-1506905925346-21bda4d32df4'),
+  cover('u2', '海岸', ['ocean', 'beach', 'blue', '海', '海岸'], 'photo-1507525428034-b723cf961d3e'),
+  cover('u3', '森林晨雾', ['forest', 'fog', 'green', '林', '雾'], 'photo-1441974231531-c6227db76b6e'),
+  cover('u4', '沙漠', ['desert', 'sand', 'warm', '沙', '沙漠'], 'photo-1509316785289-025f5b846b35'),
+  cover('u5', '城市夜景', ['city', 'night', 'lights', '城', '夜'], 'photo-1514565131-fce0801e5785'),
+  cover('u6', '樱花', ['cherry', 'blossom', 'pink', '樱', '花'], 'photo-1522383225653-ed111181a951'),
+  cover('u7', '极光', ['aurora', 'north', 'sky', '极光', '天空'], 'photo-1531366936337-7c912a4589a7'),
+  cover('u8', '咖啡桌', ['coffee', 'desk', 'warm', '咖啡', '桌'], 'photo-1495474472287-4d71bcdd2085'),
+  cover('u9', '抽象几何', ['abstract', 'geometry', 'color', '抽象', '几何'], 'photo-1557683316-973673baf926'),
+  cover('u10', '湖面倒影', ['lake', 'reflection', 'calm', '湖', '倒影'], 'photo-1439066615861-d1af74d74000'),
+  cover('u11', '向日葵', ['sunflower', 'flower', 'yellow', '花', '向日葵'], 'photo-1470509037663-253afd7f0f51'),
+  cover('u12', '书房', ['books', 'library', 'study', '书', '书房'], 'photo-1481627834876-b7833e8f5570'),
+  cover('u13', '星空', ['stars', 'milky', 'night', '星', '夜空'], 'photo-1419242902214-272b3f66ee7a'),
+  cover('u14', '人像', ['portrait', 'person', 'face', '人', '肖像'], 'photo-1507003211169-0a1dd7228f2d'),
+  cover('u15', '现代建筑', ['architecture', 'minimal', 'white', '建筑', '极简'], 'photo-1487958449943-2429e8be8625'),
+  cover('u16', '雨窗', ['rain', 'window', 'mood', '雨', '窗'], 'photo-1515694346937-94d85e41e6f0'),
 ]
+
+/** 图号 → 本地封面（含已失效图号的历史映射） */
+const LOCAL_BY_PHOTO = new Map<string, string>([
+  ...UNSPLASH_COVERS.map((c) => [c.photo, c.full] as [string, string]),
+  // 原「薰衣草田」图片已 404，历史封面统一迁到向日葵
+  ['photo-1499002238440-d647abb67575', `${COVER_DIR}/u11.webp`],
+])
+
+/** 把历史数据里的 Unsplash 外链换成随包分发的本地文件 */
+export function localizeCoverUrl(url: string): string {
+  if (!url.includes('images.unsplash.com/')) return url
+  const m = /images\.unsplash\.com\/(photo-[A-Za-z0-9-]+)/.exec(url)
+  const local = m ? LOCAL_BY_PHOTO.get(m[1]!) : undefined
+  return local ?? url
+}
+
+/** 比较封面是否同一张（历史外链与本地文件视为同一张） */
+export function normalizeCoverValue(cover: string | null | undefined): string {
+  if (!cover) return ''
+  if (cover.startsWith(URL_PREFIX)) {
+    return `${URL_PREFIX}${localizeCoverUrl(cover.slice(URL_PREFIX.length))}`
+  }
+  return localizeCoverUrl(cover)
+}
 
 export function gradientCover(id: string): string {
   return `${GRADIENT_PREFIX}${id}`
@@ -273,11 +220,12 @@ function resolveCssCover(cover: string): string | null {
     return COLOR_PRESETS.find((p) => p.id === id)?.css ?? COLOR_PRESETS[0].css
   }
   if (cover.startsWith(URL_PREFIX)) {
-    const url = cover.slice(URL_PREFIX.length)
+    const url = localizeCoverUrl(cover.slice(URL_PREFIX.length))
     return url ? `center / cover no-repeat url("${url.replace(/"/g, '\\"')}")` : null
   }
   if (/^https?:\/\//i.test(cover)) {
-    return `center / cover no-repeat url("${cover.replace(/"/g, '\\"')}")`
+    const url = localizeCoverUrl(cover)
+    return `center / cover no-repeat url("${url.replace(/"/g, '\\"')}")`
   }
   return null
 }

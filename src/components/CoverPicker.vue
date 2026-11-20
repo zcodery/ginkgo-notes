@@ -13,6 +13,7 @@ import {
   colorCover,
   galleryCover,
   gradientCover,
+  normalizeCoverValue,
   urlCover,
 } from './pageCover'
 
@@ -159,7 +160,14 @@ function applyAiPreview() {
 }
 
 function isOn(value: string) {
-  return props.current === value
+  // 历史页面存的是 Unsplash 外链，本地化后仍要能高亮同一张
+  return normalizeCoverValue(props.current) === normalizeCoverValue(value)
+}
+
+/** 缩略图加载失败时留空底色，避免 alt 文字盖在格子上 */
+const brokenThumbs = ref<Record<string, true>>({})
+function onThumbError(id: string) {
+  brokenThumbs.value = { ...brokenThumbs.value, [id]: true }
 }
 </script>
 
@@ -242,7 +250,7 @@ function isOn(value: string) {
       <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onFile" />
       <button
         type="button"
-        class="flex h-[200px] w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-gn-border bg-gn-hover/40 font-gn text-gn-soft cursor-pointer transition-colors hover:border-gn-accent hover:bg-gn-hover hover:text-gn-text data-[drag=true]:border-[var(--gn-accent)] data-[drag=true]:bg-gn-accent-soft"
+        class="flex h-[112px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-gn-border bg-gn-hover/40 font-gn text-gn-soft cursor-pointer transition-colors hover:border-gn-accent hover:bg-gn-hover hover:text-gn-text data-[drag=true]:border-[var(--gn-accent)] data-[drag=true]:bg-gn-accent-soft"
         :data-drag="dragOver"
         :disabled="uploading"
         @click="fileInput?.click()"
@@ -251,9 +259,9 @@ function isOn(value: string) {
         @dragleave.prevent="dragOver = false"
         @drop.prevent="onDrop"
       >
-        <Loader2 v-if="uploading" :size="22" :stroke-width="1.8" class="animate-spin" />
-        <Upload v-else :size="22" :stroke-width="1.8" />
-        <span class="text-[13px]">{{ uploading ? tr('上传中…') : tr('点击或拖拽图片到此处') }}</span>
+        <Loader2 v-if="uploading" :size="18" :stroke-width="1.8" class="animate-spin" />
+        <Upload v-else :size="18" :stroke-width="1.8" />
+        <span class="text-[12.5px]">{{ uploading ? tr('上传中…') : tr('点击或拖拽图片到此处') }}</span>
         <span class="text-[11px] text-gn-muted">JPG / PNG / WebP / GIF</span>
       </button>
     </div>
@@ -273,7 +281,7 @@ function isOn(value: string) {
       <p v-if="linkError" class="mt-1.5 px-0.5 text-[12px] text-[var(--gn-danger)]">{{ linkError }}</p>
       <button
         type="button"
-        class="mt-2.5 h-8 w-full rounded-lg border-0 bg-gn-accent font-gn text-[13px] font-medium text-white cursor-pointer hover:opacity-90"
+        class="mt-2.5 h-8 w-full rounded-lg border-0 bg-gn-accent font-gn text-[13px] font-medium text-[var(--gn-accent-ink)] cursor-pointer hover:opacity-90"
         @click="submitLink"
       >
         {{ tr('应用') }}
@@ -302,7 +310,16 @@ function isOn(value: string) {
             :title="u.label"
             @click="pickUnsplash(u.full)"
           >
-            <img :src="u.thumb" :alt="u.label" class="h-full w-full object-cover" loading="lazy" />
+            <img
+              v-if="!brokenThumbs[u.id]"
+              :src="u.thumb"
+              alt=""
+              class="h-full w-full object-cover"
+              loading="eager"
+              decoding="async"
+              draggable="false"
+              @error="onThumbError(u.id)"
+            />
           </button>
         </div>
         <div v-else class="py-10 text-center text-[12px] text-gn-muted">{{ tr('没有匹配的图片') }}</div>
@@ -327,7 +344,7 @@ function isOn(value: string) {
       <div class="mt-2.5 flex gap-2">
         <button
           type="button"
-          class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border-0 bg-gn-accent font-gn text-[13px] font-medium text-white cursor-pointer hover:opacity-90 disabled:opacity-60"
+          class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-lg border-0 bg-gn-accent font-gn text-[13px] font-medium text-[var(--gn-accent-ink)] cursor-pointer hover:opacity-90 disabled:opacity-60"
           :disabled="aiBusy"
           @click="generateAi"
         >
