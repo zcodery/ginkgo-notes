@@ -109,15 +109,42 @@ function onKeydown(e: KeyboardEvent) {
 
 const newVersion = ref('')
 let versionTimer: number | null = null
+/** 用户点 × 关闭后记住该版本，避免缓存导致同一提示反复弹 */
+const DISMISSED_KEY = 'ginkgo-dismissed-version'
+
+function dismissedVersion(): string {
+  try {
+    return localStorage.getItem(DISMISSED_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
 
 function reloadApp() {
-  window.location.reload()
+  // 换一个唯一 URL 强制绕过 HTML/资源缓存，避免普通刷新仍命中旧 HTML
+  // （旧 HTML 引用旧 bundle → __APP_VERSION__ 仍是旧值 → 提示反复出现）。
+  const u = new URL(window.location.href)
+  u.searchParams.set('_v', String(Date.now()))
+  window.location.replace(u.toString())
+}
+
+function dismissUpdate() {
+  if (newVersion.value) {
+    try {
+      localStorage.setItem(DISMISSED_KEY, newVersion.value)
+    } catch {
+      /* 隐私模式写不进去就只在本次会话有效 */
+    }
+  }
+  newVersion.value = ''
 }
 
 async function checkVersion() {
   try {
     const v = await fetchServerVersion()
-    if (v && v !== __APP_VERSION__) newVersion.value = v
+    // 版本一致或用户已忽略该版本时，主动清掉可能残留的提示
+    if (v && v !== __APP_VERSION__ && v !== dismissedVersion()) newVersion.value = v
+    else newVersion.value = ''
   } catch {
     /* 离线 */
   }
@@ -267,7 +294,7 @@ onBeforeUnmount(() => {
         <RefreshCw :size="13" :stroke-width="2" />
         <span>{{ tr('发现新版本 {v}，刷新后即可使用', { v: newVersion }) }}</span>
         <button type="button" class="app-update-btn" @click="reloadApp">{{ tr('刷新') }}</button>
-        <button type="button" class="gn-icon-btn danger" @click="newVersion = ''"><X :size="13" /></button>
+        <button type="button" class="gn-icon-btn danger" @click="dismissUpdate"><X :size="13" /></button>
       </div>
     </Transition>
   </div>

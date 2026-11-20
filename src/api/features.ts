@@ -339,7 +339,9 @@ export const listAllFeedback = () => api<FeedbackInfo[]>('GET', '/admin/feedback
 export const replyFeedback = (id: string, reply: string) => api<FeedbackInfo>('POST', `/admin/feedback/${id}/reply`, { reply })
 
 export async function fetchServerInfo(): Promise<{ version: string; mail: boolean }> {
-  const res = await fetch('/api/version', { cache: 'no-store' })
+  // 带鉴权头：发布环境的分享码网关对裸请求可能返回 403 HTML，加上令牌头与
+  // X-Ginkgo-Token 后稳定拿到 JSON，避免版本检测拿到非 JSON 而误判。
+  const res = await fetch('/api/version', { cache: 'no-store', headers: authHeaders() })
   const data = await res.json()
   return { version: String(data.version ?? ''), mail: !!data.mail }
 }
