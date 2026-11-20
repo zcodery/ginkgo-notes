@@ -1,90 +1,30 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import {
-  Star,
-  MoreHorizontal,
-  PanelLeftOpen,
-  ChevronRight,
-  Download,
-  Link2,
-  Trash2,
-  Copy,
-  Smile,
-  Home,
-  ListTree,
-  Check,
-  ChevronDown,
-  Image as ImageIcon,
-  MessageSquare,
-  X,
-  Undo2,
-  Redo2,
-  Scaling,
-  Type,
-  CaseSensitive,
-  Rows3,
-  FileType,
-  ImageDown,
-  Replace,
-  Lock,
-  Unlock,
-  Share2,
-  Sparkles,
-  Languages,
-  ListChecks,
-  Bug,
-  GripVertical,
-  Pencil,
-} from 'lucide-vue-next'
-import type { Editor } from '@tiptap/core'
-import BlockEditor from '@/editor/BlockEditor.vue'
-import ShareDialog from '@/components/ShareDialog.vue'
-import { tr } from '@/i18n/phrases'
-import PageToc, { type TocItem } from '@/components/PageToc.vue'
-import FindReplaceBar from '@/components/FindReplaceBar.vue'
-import ImageExportModal from '@/components/ImageExportModal.vue'
-import CollapseTransition from '@/components/CollapseTransition.vue'
-import ChildPages from '@/components/ChildPages.vue'
-import PresenceAvatars from '@/components/PresenceAvatars.vue'
-import { ApiError } from '@/api/client'
-import { claimEdit, releaseEdit } from '@/api/features'
-import { copyText } from '@/utils/clipboard'
-import {
-  activePage,
-  ancestorsOf,
-  goToPage,
-  goHome,
-  pageUrl,
-  reloadPages,
-  store,
-  displayName,
-  NOTE_WIDTH_RATIOS,
-  NOTE_FONT_SIZES,
-  NOTE_FONT_STYLES,
-  NOTE_LAYOUTS,
-  setNoteWidthMode,
-  setNoteWidthRatio,
-  setNoteFontSize,
-  setNoteFontStyle,
-  setNoteLayout,
-  toggleTocVisible,
-  isAdmin,
-  setGutterTuning,
-  type NoteFontSize,
-  type NoteFontStyle,
-  type NoteLayout,
-  type NoteWidthRatio,
-} from '@/store'
-import { createPage, saveContent, savePage, trashPage, toPlainText, uid } from '@/db/repo'
-import { ASSET_PREFIX, hydrateAssets, inflateAssetsForExport } from '@/editor/assets'
-import { expandDatabases } from '@/blocks/exportDatabases'
-import { downloadBlob, exportNoteAsPdf, safeFileName } from '@/utils/exportPage'
-import { randomGradientCover, resolveCoverBackground } from '@/components/pageCover'
-import CoverPicker from '@/components/CoverPicker.vue'
-import IconPicker from '@/components/IconPicker.vue'
-import PageIcon from '@/components/PageIcon.vue'
-import { formatCombo, matchShortcut, shortcuts } from '@/shortcuts'
-import type { PageComment } from '@/types'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { Star, MoreHorizontal, PanelLeftOpen, ChevronRight, Download, Link2, Trash2, Copy, Smile, Home, ListTree, Check, ChevronDown, Image as ImageIcon, MessageSquare, X, Undo2, Redo2, Scaling, Type, CaseSensitive, Rows3, FileType, ImageDown, Replace, Lock, Unlock, Share2, Sparkles, Languages, ListChecks, Bug, GripVertical, Pencil } from "lucide-vue-next"
+import type { Editor } from "@tiptap/core"
+import BlockEditor from "@/editor/BlockEditor.vue"
+import ShareDialog from "@/components/ShareDialog.vue"
+import { tr } from "@/i18n/phrases"
+import PageToc, { type TocItem } from "@/components/PageToc.vue"
+import FindReplaceBar from "@/components/FindReplaceBar.vue"
+import ImageExportModal from "@/components/ImageExportModal.vue"
+import CollapseTransition from "@/components/CollapseTransition.vue"
+import ChildPages from "@/components/ChildPages.vue"
+import PresenceAvatars from "@/components/PresenceAvatars.vue"
+import { ApiError } from "@/api/client"
+import { claimEdit, releaseEdit } from "@/api/features"
+import { copyText } from "@/utils/clipboard"
+import { activePage, ancestorsOf, goToPage, goHome, pageUrl, reloadPages, store, displayName, NOTE_WIDTH_RATIOS, NOTE_FONT_SIZES, NOTE_FONT_STYLES, NOTE_LAYOUTS, setNoteWidthMode, setNoteWidthRatio, setNoteFontSize, setNoteFontStyle, setNoteLayout, toggleTocVisible, isAdmin, setGutterTuning, type NoteFontSize, type NoteFontStyle, type NoteLayout, type NoteWidthRatio } from "@/store"
+import { createPage, saveContent, savePage, trashPage, toPlainText, uid } from "@/db/repo"
+import { ASSET_PREFIX, hydrateAssets, inflateAssetsForExport } from "@/editor/assets"
+import { expandDatabases } from "@/blocks/exportDatabases"
+import { downloadBlob, exportNoteAsPdf, safeFileName } from "@/utils/exportPage"
+import { randomGradientCover, resolveCoverBackground } from "@/components/pageCover"
+import CoverPicker from "@/components/CoverPicker.vue"
+import IconPicker from "@/components/IconPicker.vue"
+import PageIcon from "@/components/PageIcon.vue"
+import { formatCombo, matchShortcut, shortcuts } from "@/shortcuts"
+import type { PageComment } from "@/types"
 
 const props = defineProps<{ pageId: string }>()
 
@@ -93,7 +33,7 @@ const titleRef = ref<HTMLTextAreaElement | null>(null)
 const scrollRef = ref<HTMLElement | null>(null)
 const exportRoot = ref<HTMLElement | null>(null)
 const exporting = ref(false)
-const title = ref('')
+const title = ref("")
 const editorHtml = ref<string | null>(null)
 const menuOpen = ref(false)
 const emojiOpen = ref(false)
@@ -114,22 +54,19 @@ const tipTapEditor = computed<Editor | null>(() => {
   return ed ?? null
 })
 
-type PrefMenu = 'width' | 'fontSize' | 'fontStyle' | 'layout'
+type PrefMenu = "width" | "fontSize" | "fontStyle" | "layout"
 
-const WIDTH_OPTIONS = computed<{ value: string; label: string }[]>(() => [
-  { value: 'auto', label: tr('自动调节') },
-  ...NOTE_WIDTH_RATIOS.map((r) => ({ value: String(r), label: `${r}%` })),
-])
+const WIDTH_OPTIONS = computed<{ value: string; label: string }[]>(() => [{ value: "auto", label: tr("自动调节") }, ...NOTE_WIDTH_RATIOS.map(r => ({ value: String(r), label: `${r}%` }))])
 
 /** 「今天 10:20」/「3 月 5 日 10:20」 */
 function dayTimeLabel(ts: number): string {
   const d = new Date(ts)
-  const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  if (d.toDateString() === new Date().toDateString()) return tr('今天 {time}', { time })
-  return tr('{m} 月 {d} 日 {time}', { m: d.getMonth() + 1, d: d.getDate(), time })
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  if (d.toDateString() === new Date().toDateString()) return tr("今天 {time}", { time })
+  return tr("{m} 月 {d} 日 {time}", { m: d.getMonth() + 1, d: d.getDate(), time })
 }
 
-const FONT_SIZE_OPTIONS = NOTE_FONT_SIZES.map((s) => ({
+const FONT_SIZE_OPTIONS = NOTE_FONT_SIZES.map(s => ({
   value: s,
   label: `${s}px`,
 }))
@@ -140,7 +77,7 @@ const isLocked = computed(() => !!page.value?.locked)
 
 /** 有人抢先占用编辑权时，本页转为只读并给出提示 */
 const remoteEditing = ref(false)
-const remoteEditorName = ref('')
+const remoteEditorName = ref("")
 const hasEditLease = ref(false)
 const canEdit = computed(() => !isLocked.value && !remoteEditing.value)
 
@@ -155,7 +92,7 @@ async function ensureEditLease(): Promise<boolean> {
   } catch (e) {
     if (e instanceof ApiError && e.status === 409) {
       const data = e.data as { holder?: { name?: string } } | null
-      remoteEditorName.value = data?.holder?.name ?? '其他成员'
+      remoteEditorName.value = data?.holder?.name ?? "其他成员"
       remoteEditing.value = true
       return false
     }
@@ -165,16 +102,16 @@ async function ensureEditLease(): Promise<boolean> {
 }
 
 const innerStyle = computed(() => {
-  if (store.noteWidthMode === 'auto') {
-    return { maxWidth: '100%', width: '100%' }
+  if (store.noteWidthMode === "auto") {
+    return { maxWidth: "100%", width: "100%" }
   }
-  return { maxWidth: `${store.noteWidthRatio}%`, width: '100%' }
+  return { maxWidth: `${store.noteWidthRatio}%`, width: "100%" }
 })
 
 function extractTocFromMarkdown(md: string): TocItem[] {
   const items: TocItem[] = []
   let inFence = false
-  for (const raw of md.split('\n')) {
+  for (const raw of md.split("\n")) {
     const line = raw.trimEnd()
     if (/^```/.test(line)) {
       inFence = !inFence
@@ -183,7 +120,7 @@ function extractTocFromMarkdown(md: string): TocItem[] {
     if (inFence) continue
     const m = line.match(/^(#{1,3})\s+(.+?)\s*$/)
     if (!m) continue
-    const text = m[2].replace(/[*_`~]/g, '').trim()
+    const text = m[2].replace(/[*_`~]/g, "").trim()
     if (!text) continue
     items.push({ level: m[1].length, text, index: items.length })
   }
@@ -191,27 +128,19 @@ function extractTocFromMarkdown(md: string): TocItem[] {
 }
 
 function syncToc(markdown?: string) {
-  const md = markdown ?? page.value?.content ?? ''
+  const md = markdown ?? page.value?.content ?? ""
   tocItems.value = extractTocFromMarkdown(md)
 }
 
-const widthSelectValue = computed(() =>
-  store.noteWidthMode === 'auto' ? 'auto' : String(store.noteWidthRatio),
-)
+const widthSelectValue = computed(() => (store.noteWidthMode === "auto" ? "auto" : String(store.noteWidthRatio)))
 
-const widthSelectLabel = computed(
-  () => WIDTH_OPTIONS.value.find((o) => o.value === widthSelectValue.value)?.label ?? tr('自动调节'),
-)
+const widthSelectLabel = computed(() => WIDTH_OPTIONS.value.find(o => o.value === widthSelectValue.value)?.label ?? tr("自动调节"))
 
 const fontSizeSelectLabel = computed(() => `${store.noteFontSize}px`)
 
-const fontStyleSelectLabel = computed(
-  () => tr(NOTE_FONT_STYLES.find((s) => s.id === store.noteFontStyle)?.label ?? '默认'),
-)
+const fontStyleSelectLabel = computed(() => tr(NOTE_FONT_STYLES.find(s => s.id === store.noteFontStyle)?.label ?? "默认"))
 
-const layoutSelectLabel = computed(
-  () => tr(NOTE_LAYOUTS.find((l) => l.id === store.noteLayout)?.label ?? '默认'),
-)
+const layoutSelectLabel = computed(() => tr(NOTE_LAYOUTS.find(l => l.id === store.noteLayout)?.label ?? "默认"))
 
 const prefMenus: Record<PrefMenu, typeof widthMenuOpen> = {
   width: widthMenuOpen,
@@ -286,7 +215,7 @@ function closeFindReplace() {
 }
 
 function pickWidth(value: string) {
-  if (value === 'auto') setNoteWidthMode('auto')
+  if (value === "auto") setNoteWidthMode("auto")
   else setNoteWidthRatio(Number(value) as NoteWidthRatio)
   closePrefMenus()
 }
@@ -307,21 +236,21 @@ function pickLayout(layout: NoteLayout) {
 }
 
 const wordCount = computed(() => {
-  const text = page.value?.content ?? ''
+  const text = page.value?.content ?? ""
   const plain = toPlainText(text, 100000)
-  return plain.replace(/\s/g, '').length
+  return plain.replace(/\s/g, "").length
 })
 
 const updatedLabel = computed(() => {
   const ts = page.value?.updatedAt
-  return ts ? dayTimeLabel(ts) : ''
+  return ts ? dayTimeLabel(ts) : ""
 })
 
 function autosize() {
   const el = titleRef.value
   if (!el) return
-  el.style.height = 'auto'
-  el.style.height = el.scrollHeight + 'px'
+  el.style.height = "auto"
+  el.style.height = el.scrollHeight + "px"
 }
 
 function shortcutLabel(action: keyof typeof shortcuts): string {
@@ -332,40 +261,40 @@ function onNoteKeydown(e: KeyboardEvent) {
   const action = matchShortcut(e)
   if (!action) return
   switch (action) {
-    case 'find':
+    case "find":
       e.preventDefault()
       openFindReplace(e.shiftKey)
       break
-    case 'copyLink':
+    case "copyLink":
       e.preventDefault()
       void copyLink()
       break
-    case 'duplicate':
+    case "duplicate":
       e.preventDefault()
       void duplicatePage()
       break
-    case 'share':
+    case "share":
       e.preventDefault()
       openShare()
       break
-    case 'favorite':
+    case "favorite":
       e.preventDefault()
       void toggleFavorite()
       break
-    case 'toggleToc':
+    case "toggleToc":
       e.preventDefault()
       toggleTocVisible()
       break
-    case 'lockPage':
+    case "lockPage":
       e.preventDefault()
       void toggleLock()
       break
-    case 'aiSummary':
+    case "aiSummary":
       if (!canEdit.value) return
       e.preventDefault()
-      pageAi('summary')
+      pageAi("summary")
       break
-    case 'askAi':
+    case "askAi":
       if (!canEdit.value) return
       e.preventDefault()
       pageAi()
@@ -376,24 +305,24 @@ function onNoteKeydown(e: KeyboardEvent) {
 }
 
 onMounted(async () => {
-  title.value = page.value?.title ?? ''
+  title.value = page.value?.title ?? ""
   syncToc(page.value?.content)
   await nextTick()
   autosize()
   if (!page.value?.title) titleRef.value?.focus()
-  document.addEventListener('mousedown', onGlobalDown)
-  document.addEventListener('keydown', onNoteKeydown)
+  document.addEventListener("mousedown", onGlobalDown)
+  document.addEventListener("keydown", onNoteKeydown)
   // 先把 asset: 引用换成 blob URL 再交给编辑器，避免首屏出现无效图片请求
   try {
-    editorHtml.value = await hydrateAssets(page.value?.content ?? '')
+    editorHtml.value = await hydrateAssets(page.value?.content ?? "")
   } catch {
-    editorHtml.value = page.value?.content ?? ''
+    editorHtml.value = page.value?.content ?? ""
   }
 })
 
 watch(
   () => page.value?.title,
-  (t) => {
+  t => {
     if (t !== undefined && t !== title.value) {
       title.value = t
       void nextTick(autosize)
@@ -420,7 +349,7 @@ function scheduleTitleSave() {
     try {
       await savePage(p.id, { title: title.value })
     } catch {
-      store.saveState = 'error'
+      store.saveState = "error"
     }
   }, 400)
 }
@@ -436,57 +365,53 @@ function onTitleEnter(e: KeyboardEvent) {
 async function reloadFromRemote() {
   const pid = props.pageId
   remoteEditing.value = false
-  remoteEditorName.value = ''
+  remoteEditorName.value = ""
   hasEditLease.value = false
   try {
     await reloadPages()
-    title.value = page.value?.title ?? ''
-    editorHtml.value = await hydrateAssets(page.value?.content ?? '')
+    title.value = page.value?.title ?? ""
+    editorHtml.value = await hydrateAssets(page.value?.content ?? "")
     syncToc(page.value?.content)
-    store.saveState = 'saved'
+    store.saveState = "saved"
   } catch {
-    store.saveState = 'error'
+    store.saveState = "error"
   }
 }
 
 async function onContentChange(markdown: string, pageId: string) {
   if (!canEdit.value) return
   if (!(await ensureEditLease())) {
-    store.saveState = 'error'
+    store.saveState = "error"
     return
   }
 
-  store.saveState = 'saving'
+  store.saveState = "saving"
   if (pageId === props.pageId) syncToc(markdown)
   let excerpt: string
   try {
-    excerpt = await saveContent(
-      pageId,
-      markdown,
-      pageId === props.pageId ? title.value || undefined : undefined,
-    )
+    excerpt = await saveContent(pageId, markdown, pageId === props.pageId ? title.value || undefined : undefined)
   } catch (e) {
     // 版本冲突已被 putPage 内部自动重试消化；走到这里说明极端并发下仍失败。
     // 不再把编辑器锁成只读（那样 onContentChange 直接 return，形成「提示会重试却永不重试」的死锁）。
     // 保留 error 状态，用户下一次输入会再次触发保存并重试。
-    store.saveState = 'error'
+    store.saveState = "error"
     return
   }
-  const p = store.pages.find((x) => x.id === pageId)
+  const p = store.pages.find(x => x.id === pageId)
   if (p) {
     p.content = markdown
     p.excerpt = excerpt || toPlainText(markdown)
     p.updatedAt = Date.now()
     if (pageId === props.pageId && !p.title && markdown) {
-      const firstLine = markdown.split('\n').find((l) => l.trim())
+      const firstLine = markdown.split("\n").find(l => l.trim())
       if (firstLine) {
-        p.title = firstLine.replace(/^#{1,6}\s+/, '').slice(0, 60)
+        p.title = firstLine.replace(/^#{1,6}\s+/, "").slice(0, 60)
         title.value = p.title
       }
     }
   }
-  await new Promise((r) => setTimeout(r, 220))
-  if (store.saveState === 'saving') store.saveState = 'saved'
+  await new Promise(r => setTimeout(r, 220))
+  if (store.saveState === "saving") store.saveState = "saved"
 }
 
 async function pickIcon(icon: string) {
@@ -503,8 +428,8 @@ async function removeIcon() {
   emojiOpen.value = false
   const p = page.value
   if (!p) return
-  p.icon = ''
-  await savePage(p.id, { icon: '' })
+  p.icon = ""
+  await savePage(p.id, { icon: "" })
 }
 
 /* ---------------- 封面 ---------------- */
@@ -514,7 +439,7 @@ const coverMenuOpen = ref(false)
 
 watch(
   () => page.value?.cover,
-  async (cover) => {
+  async cover => {
     coverBg.value = await resolveCoverBackground(cover)
   },
   { immediate: true },
@@ -546,12 +471,12 @@ function removeCover() {
 /* ---------------- 评论 ---------------- */
 
 const commentOpen = ref(false)
-const commentDraft = ref('')
+const commentDraft = ref("")
 const commentRef = ref<HTMLTextAreaElement | null>(null)
 const comments = computed<PageComment[]>(() => page.value?.comments ?? [])
 const showComments = computed(() => commentOpen.value || comments.value.length > 0)
 const editingCommentId = ref<string | null>(null)
-const editingDraft = ref('')
+const editingDraft = ref("")
 
 /** 评论作者显示名：优先昵称；老评论只存了登录名时，当前用户自己的换算成昵称 */
 function commentAuthor(c: PageComment): string {
@@ -576,15 +501,16 @@ async function submitComment() {
     ...comments.value,
     {
       id: uid(),
-      author: store.user?.username ?? '我',
-      authorName: displayName.value || store.user?.username || '我',
+      author: store.user?.username ?? "我",
+      authorName: displayName.value || store.user?.username || "我",
       text,
       createdAt: Date.now(),
     },
   ]
   p.comments = next
-  commentDraft.value = ''
+  commentDraft.value = ""
   await savePage(p.id, { comments: next })
+  commentOpen.value = false
 }
 
 function startEditComment(c: PageComment) {
@@ -595,7 +521,7 @@ function startEditComment(c: PageComment) {
 
 function cancelEditComment() {
   editingCommentId.value = null
-  editingDraft.value = ''
+  editingDraft.value = ""
 }
 
 async function saveEditComment(id: string) {
@@ -603,7 +529,7 @@ async function saveEditComment(id: string) {
   const p = page.value
   const text = editingDraft.value.trim()
   if (!p || !text) return
-  const next = comments.value.map((c) =>
+  const next = comments.value.map(c =>
     c.id === id
       ? {
           ...c,
@@ -619,10 +545,10 @@ async function saveEditComment(id: string) {
 }
 
 function onCommentEditKeydown(e: KeyboardEvent, id: string) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     void saveEditComment(id)
-  } else if (e.key === 'Escape') {
+  } else if (e.key === "Escape") {
     e.preventDefault()
     cancelEditComment()
   }
@@ -632,7 +558,7 @@ async function removeComment(id: string) {
   if (!canEdit.value) return
   const p = page.value
   if (!p) return
-  const next = comments.value.filter((c) => c.id !== id)
+  const next = comments.value.filter(c => c.id !== id)
   p.comments = next
   if (editingCommentId.value === id) cancelEditComment()
   if (!next.length) commentOpen.value = false
@@ -640,13 +566,34 @@ async function removeComment(id: string) {
 }
 
 function onCommentKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
     e.preventDefault()
     void submitComment()
-  } else if (e.key === 'Escape' && !commentDraft.value.trim() && !comments.value.length) {
+  } else if (e.key === "Escape" && !commentDraft.value.trim()) {
+    // 空草稿时 Esc 直接收起输入框；有内容时保留，避免误删
     commentOpen.value = false
   }
 }
+
+function onCommentBlur(e: FocusEvent) {
+  const next = e.relatedTarget as HTMLElement | null
+  if (next?.closest(".nv-comment-compose")) return
+  if (!commentDraft.value.trim()) commentOpen.value = false
+}
+
+function closeComment() {
+  if (commentDraft.value.trim()) return
+  commentOpen.value = false
+}
+
+watch(
+  () => props.pageId,
+  () => {
+    commentOpen.value = false
+    commentDraft.value = ""
+    cancelEditComment()
+  },
+)
 
 function formatCommentTime(ts: number): string {
   return dayTimeLabel(ts)
@@ -687,7 +634,7 @@ async function exportMarkdown() {
   const md = await expandDatabases(await inflateAssetsForExport(p.content))
   const name = safeFileName(p.title)
   const body = p.title ? `# ${p.title}\n\n${md}` : md
-  const blob = new Blob([body], { type: 'text/markdown;charset=utf-8' })
+  const blob = new Blob([body], { type: "text/markdown;charset=utf-8" })
   downloadBlob(blob, `${name}.md`)
 }
 
@@ -704,14 +651,14 @@ async function withVisualExport(run: (el: HTMLElement) => Promise<void>) {
     await run(el)
   } catch (err) {
     console.error(err)
-    window.alert(err instanceof Error ? err.message : tr('导出失败，请稍后重试'))
+    window.alert(err instanceof Error ? err.message : tr("导出失败，请稍后重试"))
   } finally {
     exporting.value = false
   }
 }
 
 async function exportPdf() {
-  await withVisualExport((el) => exportNoteAsPdf(el, page.value?.title ?? '未命名'))
+  await withVisualExport(el => exportNoteAsPdf(el, page.value?.title ?? "未命名"))
 }
 
 function exportImage() {
@@ -747,7 +694,7 @@ async function duplicatePage() {
   if (!p) return
   menuOpen.value = false
   const np = await createPage({
-    title: tr('{title} 副本', { title: p.title || tr('未命名') }),
+    title: tr("{title} 副本", { title: p.title || tr("未命名") }),
     icon: p.icon,
     cover: p.cover,
     content: p.content,
@@ -767,7 +714,7 @@ function openShare() {
 /** 对整篇笔记执行 AI 动作；不指定动作时打开输入框 */
 function pageAi(action?: string) {
   menuOpen.value = false
-  editorRef.value?.openAi('page', action)
+  editorRef.value?.openAi("page", action)
 }
 
 async function moveToTrash() {
@@ -782,50 +729,34 @@ async function moveToTrash() {
 
 function onGlobalDown(e: MouseEvent) {
   const target = e.target as HTMLElement
-  if (menuOpen.value && !target.closest('.nv-menu') && !target.closest('.nv-more-btn')) {
+  if (menuOpen.value && !target.closest(".nv-menu") && !target.closest(".nv-more-btn")) {
     menuOpen.value = false
     closePrefMenus()
     closeExportMenu()
     closeDebugMenu()
   }
-  if (
-    (widthMenuOpen.value ||
-      fontSizeMenuOpen.value ||
-      fontStyleMenuOpen.value ||
-      layoutMenuOpen.value) &&
-    !target.closest('.nv-pref-dd')
-  ) {
+  if ((widthMenuOpen.value || fontSizeMenuOpen.value || fontStyleMenuOpen.value || layoutMenuOpen.value) && !target.closest(".nv-pref-dd")) {
     closePrefMenus()
   }
-  if (exportMenuOpen.value && !target.closest('.nv-sub-row')) {
+  if (exportMenuOpen.value && !target.closest(".nv-sub-row")) {
     closeExportMenu()
   }
-  if (debugMenuOpen.value && !target.closest('.nv-sub-row')) {
+  if (debugMenuOpen.value && !target.closest(".nv-sub-row")) {
     closeDebugMenu()
   }
-  if (
-    emojiOpen.value &&
-    !target.closest('.icon-picker') &&
-    !target.closest('.nv-emoji') &&
-    !target.closest('.nv-add-icon')
-  ) {
+  if (emojiOpen.value && !target.closest(".icon-picker") && !target.closest(".nv-emoji") && !target.closest(".nv-add-icon")) {
     emojiOpen.value = false
   }
-  if (coverMenuOpen.value && !target.closest('.cover-pop') && !target.closest('.nv-cover-change')) {
+  if (coverMenuOpen.value && !target.closest(".cover-pop") && !target.closest(".nv-cover-change")) {
     coverMenuOpen.value = false
   }
   // 打开评论但未发送：点到评论区外则收起（有草稿内容时保留，避免误丢）
-  if (
-    commentOpen.value &&
-    !commentDraft.value.trim() &&
-    !comments.value.length &&
-    !target.closest('.nv-comments')
-  ) {
+  if (commentOpen.value && !commentDraft.value.trim() && !comments.value.length && !target.closest(".nv-comments")) {
     commentOpen.value = false
   }
 }
 
-watch(menuOpen, (open) => {
+watch(menuOpen, open => {
   if (!open) {
     closePrefMenus()
     closeExportMenu()
@@ -833,8 +764,8 @@ watch(menuOpen, (open) => {
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('mousedown', onGlobalDown)
-  document.removeEventListener('keydown', onNoteKeydown)
+  document.removeEventListener("mousedown", onGlobalDown)
+  document.removeEventListener("keydown", onNoteKeydown)
   tipTapEditor.value?.commands.clearSearch()
   if (hasEditLease.value) void releaseEdit(props.pageId)
   // 离开页面时只补写还没落库的标题
@@ -850,31 +781,16 @@ onBeforeUnmount(() => {
 <template>
   <div class="note-view" :class="{ 'is-exporting': exporting, locked: isLocked }">
     <ShareDialog v-if="shareOpen && page" :page-id="page.id" :page-title="page.title" @close="shareOpen = false" />
-    <ImageExportModal
-      v-if="imageExportOpen && exportRoot"
-      :source="exportRoot"
-      :title="page?.title || '未命名'"
-      @close="imageExportOpen = false"
-    />
+    <ImageExportModal v-if="imageExportOpen && exportRoot" :source="exportRoot" :title="page?.title || '未命名'" @close="imageExportOpen = false" />
 
     <Transition name="gn-drop">
       <div v-if="findOpen" class="nv-find-wrap">
-        <FindReplaceBar
-          :editor="tipTapEditor"
-          :start-with-replace="findStartWithReplace"
-          :replace-enabled="canEdit"
-          @close="closeFindReplace"
-        />
+        <FindReplaceBar :editor="tipTapEditor" :start-with-replace="findStartWithReplace" :replace-enabled="canEdit" @close="closeFindReplace" />
       </div>
     </Transition>
 
     <header class="nv-topbar">
-      <button
-        v-if="!store.sidebarOpen"
-        class="gn-icon-btn nv-sidebar-open"
-        v-tooltip="tr('展开侧边栏')"
-        @click="store.sidebarOpen = true"
-      >
+      <button v-if="!store.sidebarOpen" class="gn-icon-btn nv-sidebar-open" v-tooltip="tr('展开侧边栏')" @click="store.sidebarOpen = true">
         <PanelLeftOpen :size="16" :stroke-width="1.9" />
       </button>
       <div class="nv-crumbs">
@@ -885,11 +801,11 @@ onBeforeUnmount(() => {
           <ChevronRight :size="12" class="nv-crumb-sep" />
           <button class="nv-crumb" @click="goToPage(c.id)">
             <span v-if="c.icon" class="nv-crumb-icon">{{ c.icon }}</span>
-            {{ c.title || tr('未命名') }}
+            {{ c.title || tr("未命名") }}
           </button>
         </template>
         <ChevronRight v-if="crumbs.length || page?.title" :size="12" class="nv-crumb-sep" />
-        <span class="nv-crumb-current">{{ page?.title || tr('未命名') }}</span>
+        <span class="nv-crumb-current">{{ page?.title || tr("未命名") }}</span>
       </div>
 
       <div class="nv-top-actions">
@@ -897,29 +813,14 @@ onBeforeUnmount(() => {
         <span class="nv-save" :class="{ error: store.saveState === 'error' }">
           <span v-if="store.saveState === 'saving'" class="nv-dot saving"></span>
           <span v-else class="nv-dot"></span>
-          <span class="nv-save-text">{{
-            store.saveState === 'saving'
-              ? tr('保存中')
-              : store.saveState === 'error'
-                ? tr('保存失败，继续编辑会自动重试')
-                : tr('已保存')
-          }}</span>
+          <span class="nv-save-text">{{ store.saveState === "saving" ? tr("保存中") : store.saveState === "error" ? tr("保存失败，继续编辑会自动重试") : tr("已保存") }}</span>
         </span>
 
-        <button
-          class="gn-icon-btn nv-more-btn"
-          v-tooltip="tr('公开分享 / 邀请成员')"
-          @click="openShare"
-        >
+        <button class="gn-icon-btn nv-more-btn" v-tooltip="tr('公开分享 / 邀请成员')" @click="openShare">
           <Share2 :size="15" :stroke-width="1.9" />
         </button>
 
-        <button
-          class="gn-icon-btn nv-more-btn"
-          :class="{ starred: page?.favorite }"
-          v-tooltip="page?.favorite ? tr('取消收藏') : tr('收藏')"
-          @click="toggleFavorite"
-        >
+        <button class="gn-icon-btn nv-more-btn" :class="{ starred: page?.favorite }" v-tooltip="page?.favorite ? tr('取消收藏') : tr('收藏')" @click="toggleFavorite">
           <Star :size="15" :stroke-width="1.9" :fill="page?.favorite ? 'currentColor' : 'none'" />
         </button>
 
@@ -930,57 +831,58 @@ onBeforeUnmount(() => {
         <div v-if="menuOpen" class="nv-menu gn-pop">
           <button :disabled="!canEdit || !canUndo" @click="runUndo">
             <Undo2 :size="14" :stroke-width="1.8" />
-            <span>{{ tr('撤回') }}</span>
-            <kbd>{{ formatCombo('Mod+Z') }}</kbd>
+            <span>{{ tr("撤回") }}</span>
+            <kbd>{{ formatCombo("Mod+Z") }}</kbd>
           </button>
           <button :disabled="!canEdit || !canRedo" @click="runRedo">
             <Redo2 :size="14" :stroke-width="1.8" />
-            <span>{{ tr('重做') }}</span>
-            <kbd>{{ formatCombo('Mod+Y') }}</kbd>
+            <span>{{ tr("重做") }}</span>
+            <kbd>{{ formatCombo("Mod+Y") }}</kbd>
           </button>
           <div class="nv-menu-sep"></div>
           <button @click="copyLink">
             <Link2 :size="14" :stroke-width="1.8" />
-            <span>{{ copied ? tr('已复制链接') : tr('复制页面链接') }}</span>
-            <kbd v-if="shortcutLabel('copyLink')">{{ shortcutLabel('copyLink') }}</kbd>
+            <span>{{ copied ? tr("已复制链接") : tr("复制页面链接") }}</span>
+            <kbd v-if="shortcutLabel('copyLink')">{{ shortcutLabel("copyLink") }}</kbd>
           </button>
           <button @click="duplicatePage">
-            <Copy :size="14" :stroke-width="1.8" /><span>{{ tr('创建副本') }}</span>
-            <kbd v-if="shortcutLabel('duplicate')">{{ shortcutLabel('duplicate') }}</kbd>
+            <Copy :size="14" :stroke-width="1.8" />
+            <span>{{ tr("创建副本") }}</span>
+            <kbd v-if="shortcutLabel('duplicate')">{{ shortcutLabel("duplicate") }}</kbd>
           </button>
           <button @click="openFindReplace(false)">
             <Replace :size="14" :stroke-width="1.8" />
-            <span>{{ tr('查找或替换') }}</span>
-            <kbd v-if="shortcutLabel('find')">{{ shortcutLabel('find') }}</kbd>
+            <span>{{ tr("查找或替换") }}</span>
+            <kbd v-if="shortcutLabel('find')">{{ shortcutLabel("find") }}</kbd>
           </button>
           <button @click="openShare">
-            <Share2 :size="14" :stroke-width="1.8" /><span>{{ tr('分享与协作') }}</span>
-            <kbd v-if="shortcutLabel('share')">{{ shortcutLabel('share') }}</kbd>
+            <Share2 :size="14" :stroke-width="1.8" />
+            <span>{{ tr("分享与协作") }}</span>
+            <kbd v-if="shortcutLabel('share')">{{ shortcutLabel("share") }}</kbd>
           </button>
           <div class="nv-menu-sep"></div>
           <button :disabled="!canEdit" @click="pageAi('summary')">
-            <Sparkles :size="14" :stroke-width="1.8" /><span>{{ tr('AI 总结全文') }}</span>
-            <kbd v-if="shortcutLabel('aiSummary')">{{ shortcutLabel('aiSummary') }}</kbd>
+            <Sparkles :size="14" :stroke-width="1.8" />
+            <span>{{ tr("AI 总结全文") }}</span>
+            <kbd v-if="shortcutLabel('aiSummary')">{{ shortcutLabel("aiSummary") }}</kbd>
           </button>
           <button :disabled="!canEdit" @click="pageAi('todo')">
-            <ListChecks :size="14" :stroke-width="1.8" /><span>{{ tr('AI 提取待办') }}</span>
+            <ListChecks :size="14" :stroke-width="1.8" />
+            <span>{{ tr("AI 提取待办") }}</span>
           </button>
           <button :disabled="!canEdit" @click="pageAi('en')">
-            <Languages :size="14" :stroke-width="1.8" /><span>{{ tr('AI 翻译成英文') }}</span>
+            <Languages :size="14" :stroke-width="1.8" />
+            <span>{{ tr("AI 翻译成英文") }}</span>
           </button>
           <button :disabled="!canEdit" @click="pageAi()">
-            <Sparkles :size="14" :stroke-width="1.8" /><span>{{ tr('问问 AI…') }}</span>
-            <kbd v-if="shortcutLabel('askAi')">{{ shortcutLabel('askAi') }}</kbd>
+            <Sparkles :size="14" :stroke-width="1.8" />
+            <span>{{ tr("问问 AI…") }}</span>
+            <kbd v-if="shortcutLabel('askAi')">{{ shortcutLabel("askAi") }}</kbd>
           </button>
           <div class="nv-sub-row">
-            <button
-              class="nv-sub-trigger"
-              :class="{ open: exportMenuOpen }"
-              :disabled="exporting"
-              @click.stop="toggleExportMenu"
-            >
+            <button class="nv-sub-trigger" :class="{ open: exportMenuOpen }" :disabled="exporting" @click.stop="toggleExportMenu">
               <Download :size="14" :stroke-width="1.8" />
-              <span>{{ exporting ? tr('导出中…') : tr('导出') }}</span>
+              <span>{{ exporting ? tr("导出中…") : tr("导出") }}</span>
               <ChevronRight class="nv-sub-arrow" :size="14" :stroke-width="1.8" />
             </button>
             <div v-if="exportMenuOpen" class="nv-sub-menu gn-pop">
@@ -994,178 +896,105 @@ onBeforeUnmount(() => {
               </button>
               <button :disabled="exporting" @click.stop="exportImage">
                 <ImageDown :size="14" :stroke-width="1.8" />
-                <span>{{ tr('图片') }}</span>
+                <span>{{ tr("图片") }}</span>
               </button>
             </div>
           </div>
           <div v-if="isAdmin" class="nv-sub-row">
-            <button
-              class="nv-sub-trigger"
-              :class="{ open: debugMenuOpen }"
-              @click.stop="toggleDebugMenu"
-            >
+            <button class="nv-sub-trigger" :class="{ open: debugMenuOpen }" @click.stop="toggleDebugMenu">
               <Bug :size="14" :stroke-width="1.8" />
-              <span>{{ tr('调试') }}</span>
+              <span>{{ tr("调试") }}</span>
               <ChevronRight class="nv-sub-arrow" :size="14" :stroke-width="1.8" />
             </button>
             <div v-if="debugMenuOpen" class="nv-sub-menu gn-pop">
               <button type="button" @click.stop="toggleGutterTuning">
                 <GripVertical :size="14" :stroke-width="1.8" />
-                <span>{{ tr('装订区调校') }}</span>
-                <Check
-                  v-if="store.gutterTuning"
-                  :size="14"
-                  :stroke-width="2"
-                  class="nv-pref-check"
-                />
+                <span>{{ tr("装订区调校") }}</span>
+                <Check v-if="store.gutterTuning" :size="14" :stroke-width="2" class="nv-pref-check" />
               </button>
             </div>
           </div>
           <div class="nv-menu-sep"></div>
           <div class="nv-menu-section nv-pref-row">
             <Scaling :size="14" :stroke-width="1.8" />
-            <span class="nv-menu-label">{{ tr('页面宽度') }}</span>
+            <span class="nv-menu-label">{{ tr("页面宽度") }}</span>
             <div class="nv-pref-dd">
-              <button
-                type="button"
-                class="nv-pref-trigger"
-                :class="{ open: widthMenuOpen }"
-                @click.stop="togglePrefMenu('width')"
-              >
+              <button type="button" class="nv-pref-trigger" :class="{ open: widthMenuOpen }" @click.stop="togglePrefMenu('width')">
                 <span>{{ widthSelectLabel }}</span>
                 <ChevronDown :size="13" :stroke-width="2" />
               </button>
               <div v-if="widthMenuOpen" class="nv-pref-list gn-pop">
-                <button
-                  v-for="opt in WIDTH_OPTIONS"
-                  :key="opt.value"
-                  type="button"
-                  class="nv-pref-opt"
-                  :class="{ on: widthSelectValue === opt.value }"
-                  @click.stop="pickWidth(opt.value)"
-                >
+                <button v-for="opt in WIDTH_OPTIONS" :key="opt.value" type="button" class="nv-pref-opt" :class="{ on: widthSelectValue === opt.value }" @click.stop="pickWidth(opt.value)">
                   <span>{{ opt.label }}</span>
-                  <Check
-                    v-if="widthSelectValue === opt.value"
-                    :size="13"
-                    :stroke-width="2.2"
-                  />
+                  <Check v-if="widthSelectValue === opt.value" :size="13" :stroke-width="2.2" />
                 </button>
               </div>
             </div>
           </div>
           <div class="nv-menu-section nv-pref-row">
             <Type :size="14" :stroke-width="1.8" />
-            <span class="nv-menu-label">{{ tr('字体大小') }}</span>
+            <span class="nv-menu-label">{{ tr("字体大小") }}</span>
             <div class="nv-pref-dd">
-              <button
-                type="button"
-                class="nv-pref-trigger"
-                :class="{ open: fontSizeMenuOpen }"
-                @click.stop="togglePrefMenu('fontSize')"
-              >
+              <button type="button" class="nv-pref-trigger" :class="{ open: fontSizeMenuOpen }" @click.stop="togglePrefMenu('fontSize')">
                 <span>{{ fontSizeSelectLabel }}</span>
                 <ChevronDown :size="13" :stroke-width="2" />
               </button>
               <div v-if="fontSizeMenuOpen" class="nv-pref-list gn-pop">
-                <button
-                  v-for="opt in FONT_SIZE_OPTIONS"
-                  :key="opt.value"
-                  type="button"
-                  class="nv-pref-opt"
-                  :class="{ on: store.noteFontSize === opt.value }"
-                  @click.stop="pickFontSize(opt.value)"
-                >
+                <button v-for="opt in FONT_SIZE_OPTIONS" :key="opt.value" type="button" class="nv-pref-opt" :class="{ on: store.noteFontSize === opt.value }" @click.stop="pickFontSize(opt.value)">
                   <span>{{ opt.label }}</span>
-                  <Check
-                    v-if="store.noteFontSize === opt.value"
-                    :size="13"
-                    :stroke-width="2.2"
-                  />
+                  <Check v-if="store.noteFontSize === opt.value" :size="13" :stroke-width="2.2" />
                 </button>
               </div>
             </div>
           </div>
           <div class="nv-menu-section nv-pref-row">
             <CaseSensitive :size="14" :stroke-width="1.8" />
-            <span class="nv-menu-label">{{ tr('字体样式') }}</span>
+            <span class="nv-menu-label">{{ tr("字体样式") }}</span>
             <div class="nv-pref-dd">
-              <button
-                type="button"
-                class="nv-pref-trigger"
-                :class="{ open: fontStyleMenuOpen }"
-                @click.stop="togglePrefMenu('fontStyle')"
-              >
+              <button type="button" class="nv-pref-trigger" :class="{ open: fontStyleMenuOpen }" @click.stop="togglePrefMenu('fontStyle')">
                 <span>{{ fontStyleSelectLabel }}</span>
                 <ChevronDown :size="13" :stroke-width="2" />
               </button>
               <div v-if="fontStyleMenuOpen" class="nv-pref-list gn-pop">
-                <button
-                  v-for="opt in NOTE_FONT_STYLES"
-                  :key="opt.id"
-                  type="button"
-                  class="nv-pref-opt"
-                  :class="{ on: store.noteFontStyle === opt.id }"
-                  :style="{ fontFamily: opt.css }"
-                  @click.stop="pickFontStyle(opt.id)"
-                >
+                <button v-for="opt in NOTE_FONT_STYLES" :key="opt.id" type="button" class="nv-pref-opt" :class="{ on: store.noteFontStyle === opt.id }" :style="{ fontFamily: opt.css }" @click.stop="pickFontStyle(opt.id)">
                   <span>{{ tr(opt.label) }}</span>
-                  <Check
-                    v-if="store.noteFontStyle === opt.id"
-                    :size="13"
-                    :stroke-width="2.2"
-                  />
+                  <Check v-if="store.noteFontStyle === opt.id" :size="13" :stroke-width="2.2" />
                 </button>
               </div>
             </div>
           </div>
           <div class="nv-menu-section nv-pref-row">
             <Rows3 :size="14" :stroke-width="1.8" />
-            <span class="nv-menu-label">{{ tr('页面布局') }}</span>
+            <span class="nv-menu-label">{{ tr("页面布局") }}</span>
             <div class="nv-pref-dd">
-              <button
-                type="button"
-                class="nv-pref-trigger"
-                :class="{ open: layoutMenuOpen }"
-                @click.stop="togglePrefMenu('layout')"
-              >
+              <button type="button" class="nv-pref-trigger" :class="{ open: layoutMenuOpen }" @click.stop="togglePrefMenu('layout')">
                 <span>{{ layoutSelectLabel }}</span>
                 <ChevronDown :size="13" :stroke-width="2" />
               </button>
               <div v-if="layoutMenuOpen" class="nv-pref-list gn-pop">
-                <button
-                  v-for="opt in NOTE_LAYOUTS"
-                  :key="opt.id"
-                  type="button"
-                  class="nv-pref-opt"
-                  :class="{ on: store.noteLayout === opt.id }"
-                  @click.stop="pickLayout(opt.id)"
-                >
+                <button v-for="opt in NOTE_LAYOUTS" :key="opt.id" type="button" class="nv-pref-opt" :class="{ on: store.noteLayout === opt.id }" @click.stop="pickLayout(opt.id)">
                   <span>{{ tr(opt.label) }}</span>
-                  <Check
-                    v-if="store.noteLayout === opt.id"
-                    :size="13"
-                    :stroke-width="2.2"
-                  />
+                  <Check v-if="store.noteLayout === opt.id" :size="13" :stroke-width="2.2" />
                 </button>
               </div>
             </div>
           </div>
           <button @click="toggleTocVisible()">
             <ListTree :size="14" :stroke-width="1.8" />
-            <span>{{ tr('页面目录') }}</span>
-            <kbd v-if="shortcutLabel('toggleToc')">{{ shortcutLabel('toggleToc') }}</kbd>
+            <span>{{ tr("页面目录") }}</span>
+            <kbd v-if="shortcutLabel('toggleToc')">{{ shortcutLabel("toggleToc") }}</kbd>
             <Check v-if="store.tocVisible" class="nv-menu-check" :size="14" :stroke-width="2.2" />
           </button>
           <button @click="toggleLock">
             <component :is="isLocked ? Unlock : Lock" :size="14" :stroke-width="1.8" />
-            <span>{{ isLocked ? tr('解除锁定') : tr('锁定页面') }}</span>
-            <kbd v-if="shortcutLabel('lockPage')">{{ shortcutLabel('lockPage') }}</kbd>
+            <span>{{ isLocked ? tr("解除锁定") : tr("锁定页面") }}</span>
+            <kbd v-if="shortcutLabel('lockPage')">{{ shortcutLabel("lockPage") }}</kbd>
             <Check v-if="isLocked" class="nv-menu-check" :size="14" :stroke-width="2.2" />
           </button>
           <div class="nv-menu-sep"></div>
           <button class="danger" :disabled="isLocked" @click="moveToTrash">
-            <Trash2 :size="14" :stroke-width="1.8" /><span>{{ tr('移到回收站') }}</span>
+            <Trash2 :size="14" :stroke-width="1.8" />
+            <span>{{ tr("移到回收站") }}</span>
           </button>
         </div>
       </div>
@@ -1174,177 +1003,108 @@ onBeforeUnmount(() => {
     <div class="nv-body" :class="{ 'has-toc': store.tocVisible }">
       <div ref="scrollRef" class="nv-scroll gn-scroll">
         <div ref="exportRoot" class="nv-export-root">
-        <div v-if="remoteEditing" class="nv-remote-banner">
-          <Lock :size="14" :stroke-width="2.2" />
-          <span>{{ tr('「{n}」正在编辑此页，当前为只读；对方离开后点重新加载即可继续', { n: remoteEditorName }) }}</span>
-          <button class="nv-remote-reload" @click="reloadFromRemote">{{ tr('重新加载') }}</button>
-        </div>
-        <div v-if="page?.cover" class="nv-cover" :style="{ background: coverBg ?? 'var(--gn-bg-hover)' }">
-          <div v-if="canEdit" class="nv-cover-actions">
-            <button class="nv-cover-btn nv-cover-change" @click="coverMenuOpen = !coverMenuOpen">
-              {{ tr('更换封面') }}
-            </button>
-            <button class="nv-cover-btn" @click="removeCover">{{ tr('移除') }}</button>
+          <div v-if="remoteEditing" class="nv-remote-banner">
+            <Lock :size="14" :stroke-width="2.2" />
+            <span>{{ tr("「{n}」正在编辑此页，当前为只读；对方离开后点重新加载即可继续", { n: remoteEditorName }) }}</span>
+            <button class="nv-remote-reload" @click="reloadFromRemote">{{ tr("重新加载") }}</button>
           </div>
-          <CoverPicker
-            v-if="coverMenuOpen"
-            class="cover-pop-anchor"
-            :current="page?.cover"
-            @pick="onCoverPick"
-            @clear="removeCover"
-          />
-        </div>
-
-        <div class="nv-main" :class="{ 'with-toc': store.tocVisible }">
-        <div
-          class="nv-inner"
-          :class="{ auto: store.noteWidthMode === 'auto', 'has-cover': !!page?.cover }"
-          :style="innerStyle"
-        >
-          <div class="nv-head">
-            <div v-if="page?.icon" class="nv-icon-row">
-              <button
-                class="nv-emoji"
-                :disabled="!canEdit"
-                v-tooltip="canEdit ? tr('更换图标') : tr('页面已锁定')"
-                @click="canEdit && (emojiOpen = !emojiOpen)"
-              >
-                <PageIcon :icon="page.icon" :size="56" />
+          <div v-if="page?.cover" class="nv-cover" :style="{ background: coverBg ?? 'var(--gn-bg-hover)' }">
+            <div v-if="canEdit" class="nv-cover-actions">
+              <button class="nv-cover-btn nv-cover-change" @click="coverMenuOpen = !coverMenuOpen">
+                {{ tr("更换封面") }}
               </button>
+              <button class="nv-cover-btn" @click="removeCover">{{ tr("移除") }}</button>
             </div>
-
-            <div v-if="canEdit" class="nv-head-actions" :class="{ pinned: emojiOpen }">
-              <button
-                v-if="!page?.icon"
-                class="nv-head-btn nv-add-icon"
-                @click="emojiOpen = !emojiOpen"
-              >
-                <Smile :size="15" :stroke-width="1.8" /><span>{{ tr('添加图标') }}</span>
-              </button>
-              <button v-if="!page?.cover" class="nv-head-btn" @click="addCover">
-                <ImageIcon :size="15" :stroke-width="1.8" /><span>{{ tr('添加封面') }}</span>
-              </button>
-              <button class="nv-head-btn" @click="openComment">
-                <MessageSquare :size="15" :stroke-width="1.8" /><span>{{ tr('添加评论') }}</span>
-              </button>
-            </div>
-
-            <IconPicker
-              v-if="emojiOpen"
-              class="nv-icon-picker"
-              :class="{ under: !!page?.icon }"
-              :current="page?.icon"
-              @pick="pickIcon"
-              @clear="removeIcon"
-            />
+            <CoverPicker v-if="coverMenuOpen" class="cover-pop-anchor" :current="page?.cover" @pick="onCoverPick" @clear="removeCover" />
           </div>
 
-          <textarea
-            ref="titleRef"
-            v-model="title"
-            class="nv-title"
-            rows="1"
-            :placeholder="tr('未命名')"
-            spellcheck="false"
-            :readonly="!canEdit"
-            @input="onTitleInput"
-            @keydown.enter.prevent="onTitleEnter"
-          ></textarea>
-
-          <div class="nv-meta">
-            <span v-if="isLocked" class="nv-locked-tag">
-              <Lock :size="11" :stroke-width="2.2" />{{ tr('已锁定') }}
-            </span>
-            <span>{{ tr('{n} 字', { n: wordCount }) }}</span>
-            <span v-if="updatedLabel">{{ tr('· 编辑于 {time}', { time: updatedLabel }) }}</span>
-          </div>
-
-          <CollapseTransition>
-          <section v-if="showComments" class="nv-comments">
-            <div v-for="c in comments" :key="c.id" class="nv-comment">
-              <span class="nv-comment-avatar">{{ commentAuthor(c).slice(0, 1).toUpperCase() }}</span>
-              <div class="nv-comment-body">
-                <div class="nv-comment-head">
-                  <span class="nv-comment-author">{{ commentAuthor(c) }}</span>
-                  <span class="nv-comment-time">{{ formatCommentTime(c.createdAt) }}</span>
-                  <span v-if="c.editedAt" class="nv-comment-time">· {{ tr('已编辑') }}</span>
-                  <button
-                    v-if="canEdit && editingCommentId !== c.id"
-                    class="nv-comment-act"
-                    v-tooltip="tr('编辑评论')"
-                    @click="startEditComment(c)"
-                  >
-                    <Pencil :size="13" :stroke-width="2" />
-                  </button>
-                  <button
-                    v-if="canEdit && editingCommentId !== c.id"
-                    class="nv-comment-act"
-                    v-tooltip="tr('删除评论')"
-                    @click="removeComment(c.id)"
-                  >
-                    <X :size="13" :stroke-width="2" />
+          <div class="nv-main" :class="{ 'with-toc': store.tocVisible }">
+            <div class="nv-inner" :class="{ auto: store.noteWidthMode === 'auto', 'has-cover': !!page?.cover }" :style="innerStyle">
+              <div class="nv-head">
+                <div v-if="page?.icon" class="nv-icon-row">
+                  <button class="nv-emoji" :disabled="!canEdit" v-tooltip="canEdit ? tr('更换图标') : tr('页面已锁定')" @click="canEdit && (emojiOpen = !emojiOpen)">
+                    <PageIcon :icon="page.icon" :size="56" />
                   </button>
                 </div>
-                <template v-if="editingCommentId === c.id">
-                  <textarea
-                    v-model="editingDraft"
-                    class="nv-comment-input nv-comment-edit-input"
-                    rows="2"
-                    :placeholder="tr('编辑评论…')"
-                    @keydown="onCommentEditKeydown($event, c.id)"
-                  ></textarea>
-                  <div class="nv-comment-edit-actions">
-                    <button class="nv-comment-cancel" @click="cancelEditComment">{{ tr('取消') }}</button>
-                    <button
-                      class="nv-comment-send"
-                      :disabled="!editingDraft.trim()"
-                      @click="saveEditComment(c.id)"
-                    >{{ tr('保存') }}</button>
-                  </div>
-                </template>
-                <div v-else class="nv-comment-text">{{ c.text }}</div>
+
+                <div v-if="canEdit" class="nv-head-actions" :class="{ pinned: emojiOpen }">
+                  <button v-if="!page?.icon" class="nv-head-btn nv-add-icon" @click="emojiOpen = !emojiOpen">
+                    <Smile :size="15" :stroke-width="1.8" />
+                    <span>{{ tr("添加图标") }}</span>
+                  </button>
+                  <button v-if="!page?.cover" class="nv-head-btn" @click="addCover">
+                    <ImageIcon :size="15" :stroke-width="1.8" />
+                    <span>{{ tr("添加封面") }}</span>
+                  </button>
+                  <button class="nv-head-btn" @click="openComment">
+                    <MessageSquare :size="15" :stroke-width="1.8" />
+                    <span>{{ tr("添加评论") }}</span>
+                  </button>
+                </div>
+
+                <IconPicker v-if="emojiOpen" class="nv-icon-picker" :class="{ under: !!page?.icon }" :current="page?.icon" @pick="pickIcon" @clear="removeIcon" />
               </div>
-            </div>
-            <div v-if="canEdit && commentOpen" class="nv-comment-compose">
-              <span class="nv-comment-avatar">
-                {{ ((displayName || store.user?.username) ?? '我').slice(0, 1).toUpperCase() }}
-              </span>
-              <textarea
-                ref="commentRef"
-                v-model="commentDraft"
-                class="nv-comment-input"
-                rows="1"
-                :placeholder="tr('添加评论…  Enter 发送，Shift+Enter 换行')"
-                @keydown="onCommentKeydown"
-              ></textarea>
-              <button
-                class="nv-comment-send"
-                :disabled="!commentDraft.trim()"
-                @click="submitComment"
-              >
-                {{ tr('发送') }}
-              </button>
-            </div>
-          </section>
-          </CollapseTransition>
 
-          <BlockEditor
-            v-if="editorHtml !== null"
-            ref="editorRef"
-            :key="pageId"
-            :content="editorHtml"
-            :page-id="pageId"
-            :editable="canEdit"
-            :gutter-tuning="isAdmin && store.gutterTuning"
-            @change="onContentChange"
-          />
+              <textarea ref="titleRef" v-model="title" class="nv-title" rows="1" :placeholder="tr('未命名')" spellcheck="false" :readonly="!canEdit" @input="onTitleInput" @keydown.enter.prevent="onTitleEnter"></textarea>
 
-          <ChildPages :page-id="pageId" :editable="canEdit" />
-        </div>
-        <Transition name="gn-toc">
-          <PageToc v-if="store.tocVisible" :items="tocItems" :scroll-root="scrollRef" />
-        </Transition>
-        </div>
+              <div class="nv-meta">
+                <span v-if="isLocked" class="nv-locked-tag">
+                  <Lock :size="11" :stroke-width="2.2" />
+                  {{ tr("已锁定") }}
+                </span>
+                <span>{{ tr("{n} 字", { n: wordCount }) }}</span>
+                <span v-if="updatedLabel">{{ tr("· 编辑于 {time}", { time: updatedLabel }) }}</span>
+              </div>
+
+              <CollapseTransition>
+                <section v-if="showComments" class="nv-comments">
+                  <div v-for="c in comments" :key="c.id" class="nv-comment">
+                    <span class="nv-comment-avatar">{{ commentAuthor(c).slice(0, 1).toUpperCase() }}</span>
+                    <div class="nv-comment-body">
+                      <div class="nv-comment-head">
+                        <span class="nv-comment-author">{{ commentAuthor(c) }}</span>
+                        <span class="nv-comment-time">{{ formatCommentTime(c.createdAt) }}</span>
+                        <span v-if="c.editedAt" class="nv-comment-time">· {{ tr("已编辑") }}</span>
+                        <button v-if="canEdit && editingCommentId !== c.id" class="nv-comment-act" v-tooltip="tr('编辑评论')" @click="startEditComment(c)">
+                          <Pencil :size="13" :stroke-width="2" />
+                        </button>
+                        <button v-if="canEdit && editingCommentId !== c.id" class="nv-comment-act" v-tooltip="tr('删除评论')" @click="removeComment(c.id)">
+                          <X :size="13" :stroke-width="2" />
+                        </button>
+                      </div>
+                      <template v-if="editingCommentId === c.id">
+                        <textarea v-model="editingDraft" class="nv-comment-input nv-comment-edit-input" rows="2" :placeholder="tr('编辑评论…')" @keydown="onCommentEditKeydown($event, c.id)"></textarea>
+                        <div class="nv-comment-edit-actions">
+                          <button class="nv-comment-cancel" @click="cancelEditComment">{{ tr("取消") }}</button>
+                          <button class="nv-comment-send" :disabled="!editingDraft.trim()" @click="saveEditComment(c.id)">{{ tr("保存") }}</button>
+                        </div>
+                      </template>
+                      <div v-else class="nv-comment-text">{{ c.text }}</div>
+                    </div>
+                  </div>
+                  <div v-if="canEdit && commentOpen" class="nv-comment-compose">
+                    <span class="nv-comment-avatar">
+                      {{ ((displayName || store.user?.username) ?? "我").slice(0, 1).toUpperCase() }}
+                    </span>
+                    <textarea ref="commentRef" v-model="commentDraft" class="nv-comment-input" rows="1" :placeholder="tr('添加评论…  Enter 发送，Shift+Enter 换行')" @keydown="onCommentKeydown" @blur="onCommentBlur"></textarea>
+                    <button class="nv-comment-send" :disabled="!commentDraft.trim()" @click="submitComment">
+                      {{ tr("发送") }}
+                    </button>
+                    <button v-if="!commentDraft.trim()" class="nv-comment-close" v-tooltip="tr('收起评论输入框')" @click="closeComment">
+                      <X :size="14" :stroke-width="2" />
+                    </button>
+                  </div>
+                </section>
+              </CollapseTransition>
+
+              <BlockEditor v-if="editorHtml !== null" ref="editorRef" :key="pageId" :content="editorHtml" :page-id="pageId" :editable="canEdit" :gutter-tuning="isAdmin && store.gutterTuning" @change="onContentChange" />
+
+              <ChildPages :page-id="pageId" :editable="canEdit" />
+            </div>
+            <Transition name="gn-toc">
+              <PageToc v-if="store.tocVisible" :items="tocItems" :scroll-root="scrollRef" />
+            </Transition>
+          </div>
         </div>
       </div>
     </div>
@@ -1670,7 +1430,9 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
 }
 .nv-pref-trigger:hover,
 .nv-pref-trigger.open {
@@ -2004,6 +1766,24 @@ onBeforeUnmount(() => {
 .nv-comment-send:disabled {
   opacity: 0.4;
   cursor: default;
+}
+.nv-comment-close {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gn-text-muted);
+  cursor: pointer;
+}
+.nv-comment-close:hover {
+  background: var(--gn-bg-hover);
+  color: var(--gn-text-soft);
 }
 .nv-comment-edit-input {
   width: 100%;

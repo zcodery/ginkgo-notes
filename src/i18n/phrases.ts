@@ -109,6 +109,7 @@ const PHRASES: Record<string, { tw: string; en: string }> = {
     en: 'Add a comment…  Enter to send, Shift+Enter for newline',
   },
   发送: { tw: '送出', en: 'Send' },
+  收起评论输入框: { tw: '收起評論輸入框', en: 'Collapse comment box' },
   '{title} 副本': { tw: '{title} 副本', en: '{title} (copy)' },
   '导出失败，请稍后重试': { tw: '匯出失敗，請稍後重試', en: 'Export failed. Please try again.' },
   // 侧栏 / 通知 / 锁屏 / 版本
