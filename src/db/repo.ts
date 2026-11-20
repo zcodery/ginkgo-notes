@@ -304,11 +304,31 @@ export function descendantIds(pages: Page[], id: string): string[] {
 
 type AssetMeta = Omit<Asset, 'blob'>
 
-export async function putAsset(file: Blob, name?: string, id?: string): Promise<Asset> {
+export type AssetSummary = Pick<Asset, 'id' | 'name' | 'type' | 'size' | 'createdAt'>
+
+export async function putAsset(
+  file: Blob,
+  name?: string,
+  id?: string,
+  kind?: 'image' | 'icon',
+): Promise<Asset> {
   const fileName = name ?? (file as File).name ?? 'image'
-  const query = id ? `?id=${encodeURIComponent(id)}` : ''
-  const meta = await apiUpload<AssetMeta>(`/assets${query}`, file, fileName)
+  const params = new URLSearchParams()
+  if (id) params.set('id', id)
+  if (kind) params.set('kind', kind)
+  const qs = params.toString()
+  const query = qs ? `?${qs}` : ''
+  const meta = await apiUpload<AssetMeta>(`/assets${query}`, file, fileName, kind)
   return { ...meta, blob: file }
+}
+
+/** 当前用户上传过的资源；kind='icon' 用于图标库跨页复用 */
+export async function listAssets(kind: 'image' | 'icon' = 'icon', limit = 60): Promise<AssetSummary[]> {
+  const res = await api<{ items: AssetSummary[] }>(
+    'GET',
+    `/assets?kind=${encodeURIComponent(kind)}&limit=${limit}`,
+  )
+  return res.items ?? []
 }
 
 export async function getAsset(id: string): Promise<Asset | undefined> {

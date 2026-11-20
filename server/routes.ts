@@ -446,12 +446,39 @@ api.post('/assets', express.raw({ type: () => true, limit: '20mb' }), (req, res)
     }
   }
   const type = (req.headers['content-type'] ?? 'application/octet-stream').split(';')[0]!.trim()
+  // 上传用途：图标会长期留在「上传」列表里供跨页复用；其余按普通图片处理
+  // query 与 header 双通道，避免托管网关改写自定义头
+  const kind =
+    req.query.kind === 'icon' || req.headers['x-asset-kind'] === 'icon' ? 'icon' : 'image'
   const createdAt = Date.now()
   db.prepare(
-    `INSERT INTO assets (id, owner, name, type, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET name = excluded.name, type = excluded.type, size = excluded.size, data = excluded.data`,
-  ).run(id, owner, name, type, body.length, body, createdAt)
-  res.status(201).json({ id, name, type, size: body.length, createdAt })
+    `INSERT INTO assets (id, owner, name, type, kind, size, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET name = excluded.name, type = excluded.type, kind = excluded.kind, size = excluded.size, data = excluded.data`,
+  ).run(id, owner, name, type, kind, body.length, body, createdAt)
+  res.status(201).json({ id, name, type, kind, size: body.length, createdAt })
+})
+
+/** 当前用户上传过的资源（图标库用）：按时间倒序，默认只取图标 */
+api.get('/assets', (req, res) => {
+  const { owner } = authOf(res)
+  const kind = req.query.kind === 'icon' ? 'icon' : 'image'
+  const raw = Number(req.query.limit ?? 60)
+  const limit = Math.min(120, Math.max(1, Number.isFinite(raw) ? Math.floor(raw) : 60))
+  const rows = db
+    .prepare(
+      'SELECT id, name, type, kind, size, created_at FROM assets WHERE owner = ? AND kind = ? ORDER BY created_at DESC LIMIT ?',
+    )
+    .all(owner, kind, limit) as unknown as (AssetMetaRow & { kind: string })[]
+  res.json({
+    items: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      type: r.type,
+      kind: r.kind,
+      size: r.size,
+      createdAt: r.created_at,
+    })),
+  })
 })
 
 api.get('/assets/:id', (req, res) => {

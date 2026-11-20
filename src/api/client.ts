@@ -116,13 +116,20 @@ export async function apiBlob(path: string): Promise<Blob | undefined> {
   return res.blob()
 }
 
-export async function apiUpload<T>(path: string, blob: Blob, name: string): Promise<T> {
+export async function apiUpload<T>(
+  path: string,
+  blob: Blob,
+  name: string,
+  kind?: 'image' | 'icon',
+): Promise<T> {
+  const h = headers({
+    'Content-Type': blob.type || 'application/octet-stream',
+    'X-Asset-Name': encodeURIComponent(name),
+  })
+  if (kind) h['X-Asset-Kind'] = kind
   const res = await fetch(`/api${path}`, {
     method: 'POST',
-    headers: headers({
-      'Content-Type': blob.type || 'application/octet-stream',
-      'X-Asset-Name': encodeURIComponent(name),
-    }),
+    headers: h,
     body: blob,
   })
   if (!res.ok) return raise(res)

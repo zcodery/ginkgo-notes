@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Dices, Ban, Search, Upload, Link2 } from 'lucide-vue-next'
-import { putAsset } from '@/db/repo'
+import { Dices, Ban, Search, Upload } from 'lucide-vue-next'
+import { listAssets, putAsset, type AssetSummary } from '@/db/repo'
 import {
   ALL_EMOJIS,
   EMOJI_CATEGORIES,
@@ -35,6 +35,8 @@ const categoryId = ref(EMOJI_CATEGORIES[0]!.id)
 const linkUrl = ref('')
 const linkError = ref('')
 const uploading = ref(false)
+const uploads = ref<AssetSummary[]>([])
+const uploadsLoading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const searchRef = ref<HTMLInputElement | null>(null)
 const gridRef = ref<HTMLElement | null>(null)
@@ -61,6 +63,7 @@ onMounted(async () => {
 watch(tab, () => {
   query.value = ''
   linkError.value = ''
+  if (tab.value === 'upload') void loadUploads()
   void nextTick(() => {
     if (tab.value === 'emoji' || tab.value === 'icons') searchRef.value?.focus()
   })
@@ -133,10 +136,23 @@ async function onFile(e: Event) {
   if (!file || !file.type.startsWith('image/')) return
   uploading.value = true
   try {
-    const asset = await putAsset(file, file.name)
+    const asset = await putAsset(file, file.name, undefined, 'icon')
+    await loadUploads()
     await pick(assetIcon(asset.id))
   } finally {
     uploading.value = false
+  }
+}
+
+/** 图标上传记录：跨页面、跨会话复用，按时间倒序 */
+async function loadUploads() {
+  uploadsLoading.value = true
+  try {
+    uploads.value = await listAssets('icon', 48)
+  } catch {
+    uploads.value = []
+  } finally {
+    uploadsLoading.value = false
   }
 }
 
@@ -307,16 +323,16 @@ const cellClass =
 
     <!-- 上传 -->
     <template v-else-if="tab === 'upload'">
-      <div class="flex min-h-[180px] flex-col gap-2 px-3 py-3.5">
+      <div class="flex flex-col gap-2 px-3 pb-3 pt-2">
         <button
           type="button"
-          class="flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-gn-border-strong bg-gn-hover font-gn text-sm text-gn-soft hover:border-gn-accent hover:text-gn-text disabled:cursor-default disabled:opacity-60"
+          class="flex h-[76px] w-full shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-gn-border-strong bg-gn-hover font-gn text-xs text-gn-soft hover:border-gn-accent hover:text-gn-text disabled:cursor-default disabled:opacity-60"
           :disabled="uploading"
           @click="fileInput?.click()"
         >
-          <Upload :size="18" :stroke-width="1.7" />
+          <Upload :size="15" :stroke-width="1.7" />
           <span>{{ uploading ? '上传中…' : '选择图片' }}</span>
-          <span class="text-[11px] text-gn-muted">支持 PNG / JPG / GIF / WebP</span>
+          <span class="text-[11px] text-gn-muted">PNG / JPG / GIF / WebP</span>
         </button>
         <input
           ref="fileInput"
@@ -325,19 +341,33 @@ const cellClass =
           class="hidden"
           @change="onFile"
         />
+
+        <div v-if="uploadsLoading" class="py-1 text-center text-[11px] text-gn-muted">
+          加载上传记录…
+        </div>
+        <template v-else-if="uploads.length">
+          <div class="px-0.5 text-[11px] text-gn-muted">我上传的</div>
+          <div class="gn-scroll grid max-h-[116px] grid-cols-6 gap-1 overflow-y-auto">
+            <button
+              v-for="a in uploads"
+              :key="a.id"
+              type="button"
+              class="flex aspect-square cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent hover:bg-gn-hover"
+              @click="pick(assetIcon(a.id))"
+            >
+              <PageIcon :icon="assetIcon(a.id)" :size="26" />
+            </button>
+          </div>
+        </template>
       </div>
     </template>
 
     <!-- 链接 -->
     <template v-else>
       <div class="flex min-h-[180px] flex-col gap-2 px-3 py-3.5">
-        <label class="inline-flex items-center gap-1.5 text-xs text-gn-soft">
-          <Link2 :size="12" :stroke-width="1.8" />
-          图片链接
-        </label>
         <input
           v-model="linkUrl"
-          class="h-7 rounded-lg border border-gn-border bg-gn-bg px-2.5 font-gn text-xs text-gn-text outline-none focus:border-gn-accent"
+          class="h-8 rounded-lg border border-gn-border bg-gn-bg px-2.5 font-gn text-xs text-gn-text outline-none focus:border-gn-accent"
           placeholder="https://example.com/icon.png"
           spellcheck="false"
           @keydown.enter.prevent="submitLink"
@@ -345,7 +375,7 @@ const cellClass =
         <p v-if="linkError" class="m-0 text-[11.5px] text-gn-danger">{{ linkError }}</p>
         <button
           type="button"
-          class="h-7 w-fit cursor-pointer rounded-lg border-0 bg-gn-accent px-3 font-gn text-xs text-white hover:brightness-105"
+          class="inline-flex h-8 w-full cursor-pointer items-center justify-center rounded-lg border-0 bg-gn-accent px-3 font-gn text-xs font-medium text-[var(--gn-accent-ink)] hover:brightness-105"
           @click="submitLink"
         >
           使用此链接

@@ -58,6 +58,7 @@ db.exec(`
     owner      TEXT NOT NULL,
     name       TEXT NOT NULL,
     type       TEXT NOT NULL,
+    kind       TEXT NOT NULL DEFAULT 'image',
     size       INTEGER NOT NULL,
     data       BLOB NOT NULL,
     created_at INTEGER NOT NULL
@@ -316,6 +317,41 @@ try {
   db.exec('ALTER TABLE pages ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
 } catch {
   /* 列已存在 */
+}
+
+// 资源用途：区分正文图片与页面图标。图标上传长期保留，供其他页面复用。
+let assetsKindAdded = false
+try {
+  db.exec("ALTER TABLE assets ADD COLUMN kind TEXT NOT NULL DEFAULT 'image'")
+  assetsKindAdded = true
+} catch {
+  /* 列已存在 */
+}
+try {
+  db.exec('CREATE INDEX IF NOT EXISTS idx_assets_owner_kind ON assets(owner, kind, created_at DESC)')
+} catch {
+  /* 旧库尚未补列时忽略，等下次启动 */
+}
+if (assetsKindAdded) {
+  // 老库没有 kind：从 pages.data.icon 的 asset:<id> 反推历史图标，避免升级后图标库空着
+  try {
+    const rows = db.prepare('SELECT data FROM pages').all() as { data: string }[]
+    const ids = new Set<string>()
+    for (const row of rows) {
+      try {
+        const data = JSON.parse(row.data) as { icon?: unknown }
+        if (typeof data.icon === 'string' && data.icon.startsWith('asset:')) {
+          ids.add(data.icon.slice('asset:'.length))
+        }
+      } catch {
+        /* 跳过坏数据 */
+      }
+    }
+    const upd = db.prepare("UPDATE assets SET kind = 'icon' WHERE id = ?")
+    for (const id of ids) if (id) upd.run(id)
+  } catch {
+    /* 迁移失败不影响启动 */
+  }
 }
 
 // 好友分组：默认组 + 加好友时预选的分组
