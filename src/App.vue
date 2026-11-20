@@ -1,12 +1,28 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  computed,
+  defineAsyncComponent,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+  type AsyncComponentLoader,
+} from 'vue'
 import { PanelLeftOpen, RefreshCw, X } from 'lucide-vue-next'
 import Sidebar from '@/components/Sidebar.vue'
 import SearchModal from '@/components/SearchModal.vue'
-// 编辑器依赖较重，首页不必加载
-const NoteView = defineAsyncComponent(() => import('@/views/NoteView.vue'))
-const SharedNoteView = defineAsyncComponent(() => import('@/views/SharedNoteView.vue'))
-const SharedPublicView = defineAsyncComponent(() => import('@/views/SharedPublicView.vue'))
+import ViewLoading from '@/components/ViewLoading.vue'
+// 编辑器依赖较重，首页不必加载；慢网下 chunk 要一会儿，先给个加载态而不是空白
+const asyncView = (loader: AsyncComponentLoader) =>
+  defineAsyncComponent({
+    loader,
+    loadingComponent: ViewLoading,
+    delay: 120,
+    timeout: 30_000,
+  })
+const NoteView = asyncView(() => import('@/views/NoteView.vue'))
+const SharedNoteView = asyncView(() => import('@/views/SharedNoteView.vue'))
+const SharedPublicView = asyncView(() => import('@/views/SharedPublicView.vue'))
 import HomeView from '@/views/HomeView.vue'
 import TrashView from '@/views/TrashView.vue'
 import FriendsView from '@/views/FriendsView.vue'
@@ -210,6 +226,18 @@ watch(
   (v) => {
     document.documentElement.classList.toggle('gn-standalone', v)
     document.body.classList.toggle('gn-standalone', v)
+  },
+  { immediate: true },
+)
+
+/**
+ * 关闭 index.html 里的启动加载屏。等 authReady（会话恢复 + 笔记列表就绪）再关，
+ * 用户看到的是已经能用的界面，而不是空壳再闪一下。
+ */
+watch(
+  () => store.authReady,
+  (ready) => {
+    if (ready) window.gnBootDone?.()
   },
   { immediate: true },
 )

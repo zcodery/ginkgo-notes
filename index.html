@@ -5,9 +5,293 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>银杏笔记</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍃</text></svg>" />
+    <style>
+      /*
+       启动画面：整段内联在 HTML 里，样式/JS 还没下载完就能先画出来。
+       慢网下原本是纯白屏，用户分不清是在加载还是挂了；这里给叶子 + 进度条 + 提示。
+       由 App.vue 在 store.authReady 置位后调用 window.gnBootDone() 淡出。
+      */
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        background: #ffffff;
+      }
+      html.gn-dark,
+      html.gn-dark body {
+        background: #1c1c1b;
+      }
+
+      #gn-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 13px;
+        background: #ffffff;
+        color: #252523;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+        font-size: 13px;
+        /* 延迟 120ms 才浮现：秒开时不会闪一下 logo */
+        opacity: 0;
+        animation: gn-boot-in 0.3s ease 0.12s forwards;
+        transition: opacity 0.32s ease;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      html.gn-dark #gn-boot {
+        background: #1c1c1b;
+        color: #e5e6eb;
+      }
+      #gn-boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .gn-boot-mark {
+        width: 52px;
+        height: 52px;
+        color: var(--gn-boot-accent, #2f6b4f);
+        animation: gn-boot-breathe 2.2s ease-in-out infinite;
+      }
+      .gn-boot-mark svg {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .gn-boot-name {
+        margin-top: -2px;
+        font-size: 14px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+      }
+
+      .gn-boot-bar {
+        position: relative;
+        width: 132px;
+        height: 3px;
+        border-radius: 2px;
+        overflow: hidden;
+        background: rgba(37, 37, 35, 0.09);
+      }
+      html.gn-dark .gn-boot-bar {
+        background: rgba(229, 230, 235, 0.14);
+      }
+      .gn-boot-bar span {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 42%;
+        height: 100%;
+        border-radius: 2px;
+        background: var(--gn-boot-accent, #2f6b4f);
+        animation: gn-boot-slide 1.25s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+
+      .gn-boot-hint {
+        min-height: 15px;
+        font-size: 12px;
+        color: #96968f;
+      }
+      html.gn-dark .gn-boot-hint {
+        color: #8f8f88;
+      }
+      /* 超过 6 秒还没好：补一句，避免用户以为卡死 */
+      .gn-boot-slow {
+        font-size: 11.5px;
+        color: #96968f;
+        opacity: 0;
+        animation: gn-boot-fade 0.5s ease 6s forwards;
+      }
+      html.gn-dark .gn-boot-slow {
+        color: #8f8f88;
+      }
+
+      #gn-boot-fail {
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        gap: 9px;
+      }
+      #gn-boot.is-failed .gn-boot-bar,
+      #gn-boot.is-failed .gn-boot-hint,
+      #gn-boot.is-failed .gn-boot-slow {
+        display: none;
+      }
+      #gn-boot.is-failed .gn-boot-mark {
+        color: #d64545;
+        animation: none;
+      }
+      #gn-boot.is-failed #gn-boot-fail {
+        display: flex;
+      }
+      .gn-boot-fail-text {
+        font-size: 12.5px;
+        color: #5f5f5c;
+      }
+      html.gn-dark .gn-boot-fail-text {
+        color: #a9aeb8;
+      }
+      #gn-boot-retry {
+        height: 32px;
+        padding: 0 16px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--gn-boot-accent, #2f6b4f);
+        color: #fff;
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+      #gn-boot-retry:hover {
+        filter: brightness(1.06);
+      }
+
+      @keyframes gn-boot-in {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes gn-boot-fade {
+        to {
+          opacity: 1;
+        }
+      }
+      @keyframes gn-boot-breathe {
+        0%,
+        100% {
+          transform: scale(0.94) rotate(-2deg);
+          opacity: 0.85;
+        }
+        50% {
+          transform: scale(1.04) rotate(2deg);
+          opacity: 1;
+        }
+      }
+      @keyframes gn-boot-slide {
+        0% {
+          transform: translateX(-105%);
+        }
+        100% {
+          transform: translateX(240%);
+        }
+      }
+      /* 尊重系统的「减少动效」偏好 */
+      @media (prefers-reduced-motion: reduce) {
+        .gn-boot-mark,
+        .gn-boot-bar span {
+          animation: none;
+        }
+        .gn-boot-bar span {
+          width: 100%;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="gn-boot" role="status" aria-live="polite" aria-label="正在加载银杏笔记">
+      <div class="gn-boot-mark" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- 银杏叶：扇形 + 浅缺口 + 放射叶脉 -->
+          <path d="M24 44V29" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+          <path
+            d="M24 29C17.4 24.6 8.4 18 4.4 10 4 9.2 4.6 8.6 5.6 8.8 12 10 18.6 11.6 24 13.4 29.4 11.6 36 10 42.4 8.8 43.4 8.6 44 9.2 43.6 10 39.6 18 30.6 24.6 24 29Z"
+            stroke="currentColor"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M24 27.5 23 16M24 27.5 13.5 18.5M24 27.5 34.5 18.5"
+            stroke="currentColor"
+            stroke-width="1.6"
+            stroke-linecap="round"
+            opacity="0.5"
+          />
+        </svg>
+      </div>
+      <div class="gn-boot-name">银杏笔记</div>
+      <div class="gn-boot-bar" aria-hidden="true"><span></span></div>
+      <div class="gn-boot-hint">正在加载…</div>
+      <div class="gn-boot-slow">网络有点慢，正在继续加载</div>
+      <div id="gn-boot-fail">
+        <div class="gn-boot-fail-text">加载没有完成，可能是网络中断</div>
+        <button id="gn-boot-retry" type="button">重新加载</button>
+      </div>
+    </div>
+
     <div id="app"></div>
+
+    <script>
+      /* 启动屏控制：主题/主色在框架起来之前先读一遍本机偏好，避免白屏后突然变暗 */
+      ;(function () {
+        var root = document.documentElement
+        var el = document.getElementById('gn-boot')
+        var dark = false
+        var accent = '#2f6b4f'
+        try {
+          var t = localStorage.getItem('ginkgo-meta:theme')
+          t = t === null ? null : JSON.parse(t)
+          dark =
+            t === 'dark' ||
+            (t === null &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          var a = localStorage.getItem('ginkgo-meta:accentColor')
+          a = a === null ? 'pine' : JSON.parse(a)
+          var map = {
+            pine: ['#2f6b4f', '#6cb894'],
+            indigo: ['#3b5fbf', '#8aa9f0'],
+            violet: ['#7550b5', '#b493e8'],
+            amber: ['#a8621f', '#e3a866'],
+            rose: ['#b8465f', '#e792a5'],
+            teal: ['#237f8c', '#6fc3d0']
+          }
+          var pair = map[a] || map.pine
+          accent = dark ? pair[1] : pair[0]
+        } catch (e) {
+          /* 本机存储不可用时用默认配色 */
+        }
+        if (dark) root.classList.add('gn-dark')
+        root.style.setProperty('--gn-boot-accent', accent)
+
+        // 资源真的没加载出来时给重试入口，而不是一直转圈让用户干等
+        function fail() {
+          if (!el || el.classList.contains('is-failed')) return
+          el.classList.add('is-failed')
+        }
+        window.addEventListener(
+          'error',
+          function (e) {
+            if (e && e.target && e.target.tagName === 'SCRIPT') fail()
+          },
+          true
+        )
+        window.addEventListener('unhandledrejection', function (e) {
+          var m = String((e.reason && e.reason.message) || e.reason || '')
+          if (/dynamically imported module|Importing a module script failed|Loading chunk|Failed to fetch/i.test(m))
+            fail()
+        })
+        var retry = document.getElementById('gn-boot-retry')
+        if (retry)
+          retry.addEventListener('click', function () {
+            location.replace(location.pathname + '?_r=' + Date.now())
+          })
+
+        window.gnBootDone = function () {
+          if (!el) return
+          el.classList.add('is-done')
+          setTimeout(function () {
+            if (el && el.parentNode) el.parentNode.removeChild(el)
+          }, 360)
+        }
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
