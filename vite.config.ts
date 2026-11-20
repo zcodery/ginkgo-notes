@@ -29,8 +29,9 @@ export default defineConfig({
   },
   server: {
     port: 3100,
-    // 本地开发预览只暴露回环地址；发布走 server/index.ts，不受此项影响。
-    host: '127.0.0.1',
+    // 监听所有网卡：既保留 127.0.0.1 给本机/预览器，也允许同一局域网用 192.168.2.160 访问。
+    // 发布走 server/index.ts，不受此项影响。
+    host: '0.0.0.0',
     proxy: {
       '/api': `http://localhost:${process.env.GINKGO_API_PORT ?? 3101}`,
     },
