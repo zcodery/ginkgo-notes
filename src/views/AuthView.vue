@@ -5,6 +5,7 @@ import { goToPage, login, loginTwoFactor, register, store, toggleTheme } from '@
 import { authProviders } from '@/api/features'
 import { LOCALES, locale, setLocale, t, type LocaleCode } from '@/i18n'
 import GnSelect from '@/components/GnSelect.vue'
+import BrandMark from '@/components/BrandMark.vue'
 
 const localeOptions = LOCALES.map((l) => ({ value: l.code, label: l.label }))
 const localeValue = computed({
@@ -143,7 +144,7 @@ onMounted(() => {
 
     <div class="auth-card gn-pop">
       <div class="auth-brand">
-        <span class="auth-logo">🍃</span>
+        <span class="auth-logo" aria-hidden="true"><BrandMark :size="20" /></span>
         <span class="auth-name">{{ t('app.name') }}</span>
       </div>
 
@@ -315,8 +316,10 @@ onMounted(() => {
   margin-bottom: 22px;
 }
 .auth-logo {
-  font-size: 20px;
-  line-height: 1;
+  display: flex;
+  width: 20px;
+  height: 20px;
+  color: var(--gn-accent);
 }
 .auth-name {
   font-size: 14px;

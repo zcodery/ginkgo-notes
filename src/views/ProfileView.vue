@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import UserAvatar from '@/components/UserAvatar.vue'
+import BrandMark from '@/components/BrandMark.vue'
 import GnSelect from '@/components/GnSelect.vue'
 import {
   ACCENT_PRESETS,
@@ -636,7 +637,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
         <!-- 关于 -->
         <template v-else-if="section === 'about'">
           <div class="pf-about">
-            <span class="pf-about-logo">🍃</span>
+            <span class="pf-about-logo"><BrandMark :size="30" /></span>
             <div>
               <div class="pf-about-name">{{ t('app.name') }}</div>
               <div class="pf-row-desc">{{ t('settings.aboutVersion', { version: APP_VERSION }) }}</div>
@@ -1086,7 +1087,8 @@ onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown, true))
   border-bottom: 1px solid var(--gn-border);
 }
 .pf-about-logo {
-  font-size: 30px;
+  display: flex;
+  color: var(--gn-accent);
 }
 .pf-about-name {
   font-size: 14px;

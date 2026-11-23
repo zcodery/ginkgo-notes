@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ChevronRight, FileText, Lock, Moon, Sun } from 'lucide-vue-next'
 import PageIcon from '@/components/PageIcon.vue'
+import BrandMark from '@/components/BrandMark.vue'
 import { resolveCoverBackgroundSync } from '@/components/pageCover'
 import { readPublicShare, type PublicSharePayload } from '@/api/features'
 import { renderMarkdown } from '@/utils/renderMarkdown'
@@ -168,7 +169,7 @@ onMounted(() => load())
 <template>
   <div class="sv">
     <header class="sv-top">
-      <a class="sv-brand" href="/"><span>🍃</span>银杏笔记</a>
+      <a class="sv-brand" href="/"><span class="sv-brand-mark"><BrandMark :size="16" /></span>银杏笔记</a>
       <nav v-if="trail.length" class="sv-trail">
         <template v-for="(t, i) in trail" :key="t.id">
           <button type="button" @click="goTrail(i)">{{ t.title || '未命名' }}</button>
@@ -253,6 +254,10 @@ onMounted(() => load())
   font-size: 13.5px;
   font-weight: 600;
   text-decoration: none;
+}
+.sv-brand-mark {
+  display: flex;
+  color: var(--gn-accent);
 }
 .sv-trail {
   display: flex;
