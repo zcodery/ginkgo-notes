@@ -1,6 +1,6 @@
 # 银杏笔记 (Ginkgo Notes) — 开发进度
 
-> 版本 0.4.9 | 更新于 2026-11-20
+> 版本 0.5.0 | 更新于 2026-11-23
 > 本文档面向**下一个接手开发的 AI**，按依赖顺序记录项目架构、已实现功能与 Git 提交分块。
 > 每次有新的可编译功能合并后，请执行文末的维护 skill 来更新此文件。
 >
@@ -774,6 +774,7 @@ ginkgoNotes/
 
 | 版本 | 日期 | 内容摘要 |
 |---|---|---|
+| **0.5.0** | 2026-11-23 | 重做启动加载屏：内外多处统一品牌标记 `BrandMark.vue`（登录页 / 关于页 / 分享页），启动屏改为「🍃 + 银杏笔记 + 细进度条 + 底部 GINKGO NOTES / 正在初始化数据」的极简排版，加入极淡主色光晕与底部压暗、逐字错峰入场（0.18s→0.7s）、主色自动跟随本机明暗与 6 套主题（暗色主色偏亮时按钮文字转深墨）；修 `.is-done` 被 `animation-fill-mode` 压住导致淡出失效；`ViewLoading` 换成自绘细环，去掉 lucide 依赖；慢网/资源失败逻辑保持（6s 提示 + 重试卡片）。真机 Chrome 冒烟 14/14 |
 | **0.4.9** | 2026-11-20 | 图标上传长期保留（`assets.kind` 列 + `GET /api/assets?kind=icon`，老库从 `pages.icon` 反推回填，面板「我上传的」6 列网格可跨页复用）；16 张精选 Unsplash 封面本地化到 `public/covers/unsplash/`（切换 12s → ~35ms，历史外链按图号映射，修正 u11/u14 标签）；主色按钮文字改 `--gn-accent-ink` 并把全局 `button` 规则移入 `@layer base`（修蓝底黑字）；正文六点手柄 0.46 → 0.5 与首行居中；`PUT /pages/:id` 缺 `content`/`title` 直接 400 挡住整页覆盖事故。发布前已回流线上数据 |
 | **0.4.8** | 2026-11-20 | 修复「发现新版本 0.4.7」提示条反复弹、刷新关不掉：点 × 后把忽略版本写入 localStorage 不再弹、版本一致时主动清除提示、「刷新」按钮加唯一参数绕过 HTML 缓存、版本请求补鉴权头避免网关 403 误判。发布前已回流线上数据 |
 | **0.4.7** | 2026-11-19 | 修复多设备同时编辑「保存失败」卡死（`putPage` 遇 409 自动重拉最新 version 重试最多 3 次；不再把编辑器永久锁只读；真·租约冲突才只读并给「重新加载」按钮）+ 评论区三处：作者显示昵称（老评论 author=admin 按当前用户回退 displayName）、新增编辑评论（铅笔按钮 + 编辑态 + 已编辑标记）、新增输入框默认隐藏（点「添加评论」展开）。发布前已跑回流脚本保住线上数据 |
@@ -1134,6 +1135,8 @@ SQLite，WAL 模式（`PRAGMA journal_mode = WAL`）。核心表：
 124. **封面图别直连 `images.unsplash.com`：国内实测缩略图 4.1s、1600px 大图 11.8s，而且精选集里的图号会 404**。用户反馈「Unsplash 图片有时候加载不出来」「切 Unsplash 封面很慢」，两个症状是同一件事——外链不可靠。实测发现原「薰衣草田」那张 `photo-1499002238440-d647abb67575` 已经 404，网格里就留下一个带 alt 文字的空白格。**修法**：精选集是固定 16 张，直接下载进 `public/covers/unsplash/`（`u*.webp` 1600px q78 + `u*-t.webp` 480px q72，合计 2.5MB），随应用分发；`pageCover.ts` 里 `localizeCoverUrl()` 按**图号**把历史数据中的 `url:https://images.unsplash.com/photo-xxx?…` 映射到本地文件（404 那张也给了映射，老页面一并修好），`normalizeCoverValue()` 用于面板高亮比对——否则老页面封面高亮会全部失效。切换耗时从 12s 降到 **34–39ms**，且 0 个外链请求。**顺带**：`<img>` 用 `alt=""` + `@error` 隐藏，避免加载失败时 alt 文字压在格子上；封面标签要和图对得上（本次 u11 实为向日葵、u14 实为人像，原来标错）。**判断依据**：这类「偶尔加载不出来」先 `curl -o /dev/null -w '%{http_code} %{time_total}'` 量一下真实的 code 与耗时，别猜网络抖动。
 
 125. **`PUT /api/pages/:id` 是「整页覆盖」，只发补丁会把正文清空——写库脚本必须 GET 合并后再 PUT**。一次救援脚本为了还原封面只发了 `{cover, baseVersion}`，服务端 `asDoc(req.body)` 直接按 body 建文档，结果这篇 5921 字的笔记被压成 158 字节，首页 `HomeView` 因为 `blocks` 缺失当场白屏。**恢复路径（很有用，记住顺序）**：① 先查线上快照——本例线上还是旧占位内容，救不回来；② **别急着重启/`VACUUM`/checkpoint**，覆盖前的旧值仍留在 `*-wal` 里：WAL 每帧都是「一整页 4096 字节的镜像」，按提交点（帧头 `dbsize≠0` 表示事务结束）从后往前把帧覆盖回原始 db 文件，就得到任意历史时刻的完整快照，再用 sqlite 查那一行即可。脚本 `.dev/recover-wal-snapshot.py` 一路往前扫，找到 `v174 / content 5921 字` 的完整版本写回。**加固**：`server/routes.ts` 的 PUT 增加守卫，body 缺 `content`/`title` 直接 400 `partial_page_body`，把这类事故挡在入口。**通用教训**：整页覆盖型 API 永远假设调用方会偷懒，服务端要有「看起来像补丁就拒绝」的校验；写脚本改数据一律 `GET → 合并 → PUT`。
+
+126. **启动屏这类「框架没起来就得画出来」的界面，样式必须全部内联在 `index.html`，而且要接受两件事：emoji 不吃 `color`、`fill-mode: both` 会压住淡出**。启动屏的存在意义是慢网下别白屏，所以它不能依赖任何 CSS/JS 产物——`index.html` 里内联 `<style>` + 内联脚本，连主色都得在上线前从 `localStorage` 的 `ginkgo-meta:accentColor` 现读一遍（本项目 6 套主色各自给明/暗两档，暗色主色偏亮，主色底上的文字要用深墨 `--gn-boot-ink`，否则白字糊成一片）。**坑一**：品牌标记换成 emoji（🍃）后，`color` 对它完全无效——它是彩色字体，主色只能通过背景/进度条体现，不要指望 `color: var(--gn-accent)` 能染色。**坑二**：入场动画写了 `animation: ... both`，它的 `fill-mode` 会永久占用 `opacity`，导致 `.is-done { opacity: 0 }` 根本不生效、启动屏淡不出去；修法是在 `.is-done` 上显式 `animation: none`。**坑三**：`<script type="module">` 是 defer 的，`DOMContentLoaded` 要等它执行完才触发，用 `page.goto(waitUntil:'domcontentloaded')` 抓启动屏会等到应用已经挂载、节点已被移除——探针必须用 `waitUntil:'commit'` + 延迟 JS 请求（注意别用 CDP `emulateNetworkConditions`，会把 CSS 动画时间轴冻在 0，量出来全是假象）。**验证清单**：明/暗两套都截图（背景色、进度条颜色取 `getComputedStyle` 断言）、`prefers-reduced-motion` 下动画关闭、`#gn-boot` 在 `gnBootDone()` 后 480ms 内被移除（与 CSS 0.45s 淡出对齐，别提前抽节点）。
 
 ---
 
